@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-16 (조류세기=바다타임 물흐름)"
+APP_VERSION = "v10.13-17 (날씨 추가)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -845,6 +845,60 @@ def tide_with_strength(all_days):
     return out
 
 
+# ---- 날씨: 바다타임 남당항 페이지의 '바다날씨' 예보(약 1주일). 그림 파일은 쓰지 않고 날씨 글자만 읽어 앱 아이콘으로 표시
+WX_WORD_RE = re.compile(r"(흐리고\s*비|구름많고\s*비|흐리고\s*눈|구름많고\s*눈|흐리고\s*비/눈|차차\s*흐려짐|차차\s*맑아짐|"
+                        r"흐린\s*후\s*갬|비\s*또는\s*눈|눈\s*또는\s*비|구름\s*조금|구름\s*많음|맑음|흐림|소나기|천둥번개|"
+                        r"뇌우|진눈깨비|안개|황사|(?<![가-힣])비(?![가-힣])|(?<![가-힣])눈(?![가-힣]))")
+WX_DAY_RE = re.compile(r"(\d{1,2})\s*일\s*\(\s*([월화수목금토일])\s*\)")
+
+
+def wx_icon(word):
+    w = word.replace(" ", "")
+    for keys, icon in ((("천둥", "뇌우"), "⛈️"), (("비또는눈", "눈또는비", "진눈깨비", "비/눈"), "🌨️"), (("눈",), "❄️"),
+                       (("소나기",), "🌦️"), (("비",), "🌧️"), (("안개", "황사"), "🌫️"), (("흐림", "흐리고", "흐려짐"), "☁️"),
+                       (("구름많",), "⛅"), (("구름조금", "맑아짐", "갬"), "🌤️"), (("맑음",), "☀️")):
+        if any(k in w for k in keys):
+            return icon
+    return "🌡️"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def tide_weather(code=TIDE_PORT_CODE, _ver=CACHE_VER):
+    """{날짜: '☀️ 맑음' 또는 '🌧️ 흐리고 비 → ⛅ 구름많음'(오전→오후)}, 예보 지역명"""
+    html = fetch_html(f"https://www.badatime.com/{code}.html")
+    full = "\n".join(clean_lines(html))
+    i = full.find("바다날씨")
+    sec = full[i:] if i >= 0 else full
+    m_area = re.search(r"([가-힣]{2,6}앞바다)", sec)
+    area = m_area.group(1) if m_area else "바다날씨"
+    cut = re.search(r"시간별|지역날씨|낚시포인트", sec[50:])
+    if cut:
+        sec = sec[: cut.start() + 50]
+    heads = list(WX_DAY_RE.finditer(sec))
+    today = kst_today()
+    out = {}
+    for k, mh in enumerate(heads):
+        block = sec[mh.end(): heads[k + 1].start() if k + 1 < len(heads) else len(sec)]
+        words = []
+        for w in WX_WORD_RE.findall(block):
+            w = re.sub(r"\s+", " ", w).strip()
+            if w and (not words or words[-1] != w) and w not in words:
+                words.append(w)
+        if not words:
+            continue
+        dnum, wd = int(mh.group(1)), mh.group(2)
+        for add in (0, 1):                               # 이번 달 또는 다음 달(월말 넘김)
+            yy, mm = today.year + (today.month + add - 1) // 12, (today.month + add - 1) % 12 + 1
+            try:
+                d = date(yy, mm, dnum)
+            except ValueError:
+                continue
+            if WEEK[d.weekday()] == wd and d >= today - timedelta(days=1):
+                out.setdefault(d, " → ".join(f"{wx_icon(w)} {w}" for w in words[:2]))
+                break
+    return out, area
+
+
 def tide_label(d):
     t = ss.get("tide", {}).get(d)
     if not t:
@@ -1203,6 +1257,11 @@ if go:
             if ym in months:
                 errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
     ss.tide = tide_with_strength(tide)
+    try:
+        ss.weather, ss.weather_area = tide_weather()
+    except Exception as ex:
+        ss.weather, ss.weather_area = {}, "바다날씨"
+        errors.append(f"[날씨] {TIDE_PORT_NAME} 바다날씨: {ex}")
     ss.rows, ss.errors = rows, errors
     ss.fetched = kst_now().strftime("%Y-%m-%d %H:%M:%S")
     ss.probes = probes
@@ -1334,6 +1393,9 @@ st.markdown("""
   border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}
 .rtbl tr.no td {color: #8c8c8c;}
 .rtbl td.nt {max-width: 280px; overflow: hidden; text-overflow: ellipsis;}
+.rtbl .wx {display:inline-block; background:#fff; border:1px solid rgba(0,0,0,.15); border-radius:7px;
+  padding:0 4px; margin-right:4px; line-height:1.35;}
+.rtbl .wxa {opacity:.6; margin:0 2px;}
 .site-head {display:flex; align-items:baseline; gap:10px; margin:1.2rem 0 .4rem;}
 .site-head .nm {font-size:1.25rem; font-weight:800;}
 .site-head .badge {background:#FFD43B; color:#111; font-weight:800; border-radius:999px; padding:2px 10px; font-size:.85rem;}
@@ -1387,6 +1449,7 @@ def render_site(code):
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x),
         "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", ""),
         f"조류세기({TIDE_PORT_NAME})": tide_label(r["date"]),
+        "날씨": ss.get("weather", {}).get(r["date"], "예보 전" if r["date"] > kst_today() + timedelta(days=6) else ""),
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
@@ -1394,10 +1457,10 @@ def render_site(code):
         "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in srows])
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
-    cols = ["날짜", "지역", "물때", f"조류세기({TIDE_PORT_NAME})", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
+    cols = ["날짜", "지역", "물때", f"조류세기({TIDE_PORT_NAME})", "날씨", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
     if code == "ss":
         cols.remove("가격")                               # 선상24는 가격 칸이 없음
-    head = "".join(f"<th>{c}</th>" for c in cols)
+    head = "".join(f"<th>{c if c != '날씨' else '날씨(' + ss.get('weather_area', '바다날씨') + ')'}</th>" for c in cols)
     body = []
     for _, r in df.iterrows():
         cells = []
@@ -1408,6 +1471,15 @@ def render_site(code):
                              f"title='선사 홈페이지 열기'>{htmlmod.escape(str(v))} ↗</a></td>")
             elif c == "예약":
                 cells.append(f"<td><a href='{htmlmod.escape(v)}' target='_blank'>예약하기</a></td>")
+            elif c == "날씨" and v:
+                parts = []
+                for seg in str(v).split(" → "):
+                    ic, _, txt = seg.partition(" ")
+                    if txt:
+                        parts.append(f"<span class='wx'>{htmlmod.escape(ic)}</span>{htmlmod.escape(txt)}")
+                    else:
+                        parts.append(htmlmod.escape(seg))
+                cells.append(f"<td>{' <span class=wxa>→</span> '.join(parts)}</td>")
             elif c == "공지":
                 cells.append(f"<td class='nt' title='{htmlmod.escape(str(v))}'>{htmlmod.escape(str(v))}</td>")
             else:
