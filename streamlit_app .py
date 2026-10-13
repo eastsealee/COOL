@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-13 (조류세기 계산 변경)"
+APP_VERSION = "v10.13-15 (조류세기 계산 보강)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -796,8 +796,9 @@ def parse_tide(html, y, m):
             continue
         if WEEK[d.weekday()] != mt.group(1) or d in days:
             continue
-        heights = [int(h) for h in re.findall(r"\((\d{2,4})\)", block)][:4]   # 하루 만조·간조 최대 4번
-        if len(heights) < 2:
+        # 바다날씨 표 등 다른 내용이 섞이지 않게: 그날 블록에서 '시각 (높이)' 형태만 높이로 인정
+        heights = [int(h) for h in re.findall(r"\d{1,2}:\d{2}\s*\((\d{2,4})\)", block)][:4]
+        if len(heights) < 2 or max(heights) - min(heights) < 50:   # 만조·간조가 다 안 잡힌 날은 계산에서 제외
             continue
         # 하루 조차 = 만조 높이 평균 − 간조 높이 평균 (자정을 넘어 만조/간조가 3번만 있는 날도 고르게 계산)
         mid = sum(heights) / len(heights)
@@ -805,12 +806,12 @@ def parse_tide(html, y, m):
         lows = [h for h in heights if h <= mid] or [min(heights)]
         mul = re.search(r"(\d{1,2}\s*물|조금|무시)", block)
         days[d] = {"range": round(sum(highs) / len(highs) - sum(lows) / len(lows)),
-                   "mul": mul.group(1).replace(" ", "") if mul else ""}
+                   "mul": mul.group(1).replace(" ", "") if mul else "", "heights": heights}
     return days
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 2):
+def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 3):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
     days = parse_tide(html, y, m)
@@ -953,6 +954,15 @@ st.caption(f"선상24 · 더피싱 예약현황을 한 번에 조회합니다. �
 today = kst_today()
 ss = st.session_state
 ss.setdefault("sel_days", set())
+if ss.get("app_ver") != APP_VERSION:
+    # 앱이 새 버전으로 바뀌면 이전 버전이 계산해 둔 조회 결과(조류세기 포함)를 버림 → 새 계산식으로 다시 조회
+    had_rows = "rows" in ss
+    for k in ("rows", "errors", "tide", "probes", "queried", "fetched"):
+        ss.pop(k, None)
+    ss.sel_days = set()                                  # 이전 버전에서 미리 골라져 있던 날짜도 해제
+    ss.app_ver = APP_VERSION
+    if had_rows:
+        st.toast(f"새 버전({APP_VERSION})이 적용되어 이전 조회 결과를 지웠습니다. 다시 조회해 주세요.")
 ss.setdefault("cal_ym", (today.year, today.month))
 
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
@@ -1397,3 +1407,16 @@ def render_site(code):
 
 for code in site_codes:
     render_site(code)
+
+with st.expander(f"🌊 조류세기 계산 근거 ({TIDE_PORT_NAME}, 바다타임 물때표)"):
+    td = ss.get("tide", {})
+    if not td:
+        st.caption("물때표를 불러오지 못했습니다.")
+    else:
+        show = sorted({d + timedelta(days=k) for d in days for k in range(-7, 8)} & set(td))
+        st.caption("조차 = 만조 높이 평균 − 간조 높이 평균. 조류세기 = 앞뒤 7일 중 조차가 가장 작은 날 0%, 가장 큰 날 100%.")
+        st.dataframe(pd.DataFrame([{
+            "날짜": f"{d:%m.%d}({WEEK[d.weekday()]})" + (" ◀" if d in day_set else ""), "물때": td[d]["mul"],
+            "만조·간조 높이(cm)": ", ".join(str(h) for h in td[d].get("heights", [])),
+            "조차(cm)": td[d]["range"], "조류세기": f"{td[d]['pct']}%" if td[d]["pct"] is not None else "",
+        } for d in show]), hide_index=True, width="stretch")
