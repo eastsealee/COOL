@@ -22,7 +22,7 @@ import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 import requests
@@ -49,6 +49,18 @@ TF_LIST_MAX_PAGES = 40
 MAX_SHIPS = 150
 WORKERS = 8
 WEEK = "월화수목금토일"
+KST = timezone(timedelta(hours=9))
+
+
+def kst_now():
+    return datetime.now(KST)
+
+
+def kst_today():
+    """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
+    return kst_now().date()
+
+APP_VERSION = "v10.13-9 (배 중복 제거·실시간 조회)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -490,7 +502,7 @@ def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
     하나도 못 읽으면 각 시도에서 서버가 받은 화면 요약을 probe로 돌려줌."""
     ship = dict(ship_t)
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
-    today = date.today()
+    today = kst_today()
     tries = [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", None)]
     if (y, m) == (today.year, today.month):
         tries.append((f"{SS_APP}/ship/schedule/{ship['id']}", None))
@@ -734,7 +746,7 @@ def tf_parse_home(html, ship):
 def tf_ship(ship_t, months, _ver=CACHE_VER):
     """더피싱 한 척: 예약 페이지 달력(이번 달) + 선사 홈페이지 예약현황(가까운 8일, 다른 달)"""
     ship = dict(ship_t)
-    today = date.today()
+    today = kst_today()
     html = tf_fetch(f"{TF}/reservation/list.php?uid={ship['id']}")
     boat, company = tf_title(html)                       # 정확한 배 이름/선사명
     if boat:
@@ -872,9 +884,9 @@ button[kind="primary"]:disabled {{opacity: .45;}}
 .chip.we {{background:#FFD8A8;}}
 </style>""", unsafe_allow_html=True)
 st.title("🎣 선상낚시 통합 예약조회")
-st.caption("선상24 · 더피싱 예약현황을 한 번에 조회합니다.")
+st.caption(f"선상24 · 더피싱 예약현황을 한 번에 조회합니다. · 버전 {APP_VERSION}")
 
-today = date.today()
+today = kst_today()
 ss = st.session_state
 ss.setdefault("sel_days", {today + timedelta(days=i) for i in range(7)})
 ss.setdefault("cal_ym", (today.year, today.month))
@@ -936,15 +948,14 @@ def catalog_csv(code):
     return df_.to_csv(index=False).encode("utf-8-sig"), len(rows_)
 
 
-with st.expander("📥 배 목록 CSV 다운로드"):
-    dcols = st.columns(len(site_codes) or 1)
-    for col, code in zip(dcols, site_codes):
-        data_, n_ = catalog_csv(code)
-        col.download_button(f"{SITES[code]} 배 목록 ({n_}척)", data_, width="stretch",
-                            file_name=f"{SITES[code]}_배목록_{date.today():%Y%m%d}.csv", mime="text/csv",
-                            key=f"dl_cat_{code}")
-    if "ss" in site_codes and bg_note:
-        st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
+dcols = st.columns(max(2, len(site_codes)) + 1)
+for col, code in zip(dcols, site_codes):
+    data_, n_ = catalog_csv(code)
+    col.download_button(f"📥 {SITES[code]} 배 목록 CSV다운로드 ({n_}척)", data_, width="stretch",
+                        file_name=f"{SITES[code]}_배목록_{kst_today():%Y%m%d}.csv", mime="text/csv",
+                        key=f"dl_cat_{code}")
+if "ss" in site_codes and bg_note:
+    st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
 fish_list = fish_options()
 
 # ----- ① 지역
@@ -1049,6 +1060,8 @@ targets = {(s["site"], s["id"]): s for s in pool + manual}
 go = st.button(f"조회 (배 {len(targets)}척)", type="primary", width="stretch",
                disabled=not (days and targets))
 if go:
+    ss_month.clear()                                     # 조회할 때마다 저장된 결과를 버리고 지금 시각 기준으로 새로 가져옴
+    tf_ship.clear()
     ships = list(targets.values())
     if fish_sel:   # 선상24만 목록상 정보로 1차 압축 (더피싱 목록은 '외 N종'으로 잘려 있어 제외하면 안 됨)
         ships = [s for s in ships if s["site"] != "ss" or not s["hint"] or fish_match(s["hint"], fish_sel)]
@@ -1088,7 +1101,8 @@ if go:
                 errors.append(err)
             bar.progress(i / max(1, len(jobs)), text=f"예약현황 가져오는 중... {i}/{len(jobs)}")
     bar.empty()
-    ss.rows, ss.errors, ss.fetched = rows, errors, time.strftime("%H:%M:%S")
+    ss.rows, ss.errors = rows, errors
+    ss.fetched = kst_now().strftime("%Y-%m-%d %H:%M:%S")
     ss.probes = probes
 
 # ----- 연결 점검
@@ -1166,11 +1180,11 @@ if ss.errors:
     with st.expander(f"⚠️ {len(ss.errors)}건은 불러오지 못했습니다"):
         st.write("\n".join(f"- {e}" for e in ss.errors[:30]))
 
-f1, f2, f3, f4 = st.columns([1, 1, 1.4, 1.6])
+f1, f2, f3, f4 = st.columns([1, 1, 1.3, 1.7], vertical_alignment="bottom")
 only_open = f1.checkbox("예약 가능한 것만", value=True)
 need = f2.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
 sort_by = f3.radio("정렬", ["날짜순", "남은자리 많은순"], horizontal=True)
-name_q = f4.text_input("배 이름 검색", placeholder="예: 동백호, 골드스타")
+name_q = f4.text_input("🔍 배 이름으로 검색", placeholder="예: 동백호, 골드스타")
 
 day_set = set(days)
 
@@ -1194,7 +1208,8 @@ view = [r for r in in_scope if not only_open or (r["remain"] is not None and r["
 view.sort(key=(lambda r: (r["date"], r["sido"], r["sigungu"], r["ship"])) if sort_by == "날짜순"
           else (lambda r: (-(r["remain"] or 0), r["date"])))
 q = ss.get("queried", {})
-st.caption(f"{ss.fetched} 기준" + (f" · 배 이름 '{name_q.strip()}' 검색 중" if name_q.strip() else ""))
+st.caption(f"🕒 {ss.fetched} (한국시간) 실시간 조회 결과 — 다시 조회하면 그 시각의 최신 현황으로 바뀝니다"
+           + (f" · 배 이름 '{name_q.strip()}' 검색 중" if name_q.strip() else ""))
 
 need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
 if need_home:
@@ -1224,9 +1239,36 @@ st.markdown("""
 </style>""", unsafe_allow_html=True)
 
 
+def boat_label(r):
+    b, sh = (r.get("boat") or "").strip(), r["ship"]
+    if not b or b in sh:
+        return sh
+    return f"{b} ({sh})"
+
+
+def dedupe(rs):
+    """같은 날짜·같은 지역·같은 배는 한 줄만 — 남은자리가 가장 많은 일정을 대표로, 나머지 회차 수는 표시"""
+    groups, order = {}, []
+    for r in rs:
+        key = (r["date"], r["sigungu"], re.sub(r"\s+", "", (r.get("boat") or r["ship"])).lower())
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(r)
+    out = []
+    for key in order:
+        g = groups[key]
+        best = dict(max(g, key=lambda r: (r["remain"] if r["remain"] is not None else -1)))
+        times = sorted({r["time"] for r in g if r["time"]})
+        if len(times) > 1:
+            best["time"] = f"{best['time'] or times[0]} 외 {len(times) - 1}회"
+        out.append(best)
+    return out
+
+
 def render_site(code):
-    srows = [r for r in view if r["site"] == code]
-    sscope = [r for r in in_scope if r["site"] == code]
+    srows = dedupe([r for r in view if r["site"] == code])
+    sscope = dedupe([r for r in in_scope if r["site"] == code])
     n_ok = sum(1 for r in srows if (r["remain"] or 0) > 0)
     st.markdown(f"<div class='site-head'><span class='nm'>{SITES[code]}</span>"
                 f"<span class='badge'>예약가능 {n_ok}건</span>"
@@ -1241,7 +1283,7 @@ def render_site(code):
     df = pd.DataFrame([{
         "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})",
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x), "물때": r["tide"],
-        "배": r["ship"] if r["boat"] in r["ship"] else f"{r['ship']} / {r['boat']}",
+        "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
         "상태": r["status"], "공지": r["notice"], "예약": r["url"],
