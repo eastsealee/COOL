@@ -26,6 +26,11 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
+MOBILE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+                   "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"),
+    "Accept-Language": "ko-KR,ko;q=0.9",
+}
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
@@ -35,6 +40,7 @@ SS_APP = "https://app.sunsang24.com"
 TF = "https://thefishing.kr"
 SEAS = {"west": "서해", "east": "동해", "south": "남해", "jeju": "제주"}
 SITES = {"ss": "선상24", "tf": "더피싱"}
+CACHE_VER = 3            # 저장된 목록을 새로 만들게 할 때 올림
 SS_BOARD_MAX_PAGES = 12
 TF_LIST_MAX_PAGES = 40
 MAX_SHIPS = 150
@@ -116,12 +122,12 @@ PLACES = {
 
 
 # ---------------------------------------------------------------- 공통 유틸
-def fetch_html(url, tries=3):
+def fetch_html(url, tries=3, headers=None):
     """페이지 가져오기 — 일시적 오류(시간초과, 429/5xx)는 잠깐 쉬었다가 다시 시도"""
     last_err = None
     for i in range(tries):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
+            r = requests.get(url, headers=headers or HEADERS, timeout=20)
             code = getattr(r, "status_code", 200)
             if code in (429, 500, 502, 503, 504) and i < tries - 1:
                 time.sleep(1.5 * (i + 1))
@@ -138,19 +144,26 @@ def fetch_html(url, tries=3):
     raw = getattr(r, "content", None)
     if not isinstance(raw, bytes):                       # (테스트용 가짜 응답)
         return r.text
+    # ① UTF-8로 먼저 엄격하게 시도: 한글 UTF-8 페이지는 깨끗이 풀리고, EUC-KR 바이트는 거의 항상 실패함.
+    #    (선상24처럼 실제는 UTF-8인데 euc-kr이라고 선언한 페이지가 있어 선언만 믿으면 글자가 깨짐)
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    # ② 실패하면 선언된 인코딩 → 자동 추정 → cp949 순서
     headers = getattr(r, "headers", {}) or {}
     m = re.search(r"charset=([\w\-]+)", headers.get("Content-Type", ""), re.I)
     enc = m.group(1) if m else None
     if not enc:
         mb = re.search(rb"charset=[\"']?([\w\-]+)", raw[:3000], re.I)
         enc = mb.group(1).decode("ascii", "ignore") if mb else None
-    enc = (enc or getattr(r, "apparent_encoding", None) or "utf-8").lower()
-    if enc in ("euc-kr", "euckr", "ks_c_5601-1987", "x-windows-949", "korean"):
+    enc = (enc or getattr(r, "apparent_encoding", None) or "cp949").lower()
+    if enc in ("euc-kr", "euckr", "ks_c_5601-1987", "x-windows-949", "korean", "utf-8", "utf8"):
         enc = "cp949"                                    # 한글 옛 인코딩은 cp949로 읽어야 깨지지 않음
     try:
         return raw.decode(enc, errors="replace")
     except LookupError:
-        return raw.decode("utf-8", errors="replace")
+        return raw.decode("cp949", errors="replace")
 
 
 def clean_lines(html):
@@ -294,7 +307,7 @@ def ss_parse(html, year, month, ship):
             out.append({**ship_cols(ship), "date": d, "tide": tide, "boat": boat, "species": species,
                         "time": f"{tm.group(1)}~{tm.group(2)}" if tm else "", "price": "",
                         "remain": remain, "status": status, "notice": notice[:200],
-                        "url": f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yr}{mo:02d}"})
+                        "url": f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yr}{mo:02d}", "home": ""})
             prev_end = end
     return out
 
@@ -348,7 +361,7 @@ def _ss_crawl_sea(sea):
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def ss_catalog():
+def ss_catalog(_ver=CACHE_VER):
     rows, seen, failed = [], set(), []
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_ss_crawl_sea, list(SEAS)))
@@ -370,11 +383,43 @@ def ss_catalog():
     return rows
 
 
-@st.cache_data(ttl=180, show_spinner=False)
-def ss_month(ship_t, yyyymm):
+@st.cache_data(ttl=300, show_spinner=False)
+def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
+    """선상24 한 척의 한 달 일정. 못 읽으면 다른 주소/모바일 화면으로 다시 시도하고,
+    그래도 안 되면 이유를 오류 목록에 남김(빈 결과로 조용히 넘어가지 않게)"""
     ship = dict(ship_t)
-    html = ss_fetch(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}")
-    return ss_parse(html, int(yyyymm[:4]), int(yyyymm[4:]), ship)
+    y, m = int(yyyymm[:4]), int(yyyymm[4:])
+    today = date.today()
+    tries = [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", None)]
+    if (y, m) == (today.year, today.month):
+        tries += [(f"{SS_APP}/ship/schedule/{ship['id']}", None)]
+    tries += [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS)]
+    last_html = ""
+    for url, hdr in tries:
+        with SS_SEM:
+            html = fetch_html(url, headers=hdr)
+            time.sleep(0.15)
+        rows = [r for r in ss_parse(html, y, m, ship) if (r["date"].year, r["date"].month) == (y, m)]
+        if rows:
+            return rows
+        last_html = html
+    text = " ".join(clean_lines(last_html))
+    if any(k in text for k in ("남은자리", "대상어종", "출항시간", "예약마감")):
+        raise RuntimeError(f"{m}월 일정 형식을 읽지 못함 — 화면 앞부분: {text[:120]}")
+    if len(last_html) < 1500:
+        raise RuntimeError(f"{m}월 페이지 응답이 비정상(글자 {len(last_html)}자): {text[:120]}")
+    return []                                            # 그 달 출조 일정이 없는 배
+
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def ss_home(ship_id, _ver=CACHE_VER):
+    """선상24 배의 홈페이지(xxx.sunsang24.com) — 배 소개 페이지의 사진 경로 ship_img/<xxx>/ 에서 찾음"""
+    try:
+        html = ss_fetch(f"{SS_APP}/ship/info/{ship_id}")
+    except Exception:
+        return None
+    m = re.search(r"ship_img/([a-z0-9][a-z0-9\-]*)/", html)
+    return f"https://{m.group(1)}.sunsang24.com/" if m else None
 
 
 # ---------------------------------------------------------------- 더피싱
@@ -422,7 +467,7 @@ def _tf_list_page(page):
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def tf_catalog():
+def tf_catalog(_ver=CACHE_VER):
     first, last = _tf_list_page(1)
     if not first:
         raise CatalogError("더피싱 목록 첫 페이지를 불러오지 못했습니다", [])
@@ -450,10 +495,30 @@ def tf_catalog():
 TF_DAY_RE = re.compile(r"(?m)^()(\d{1,2})\n([월화수목금토일])요일\s*$")
 
 
+def tf_title(html):
+    """'<title>[오천항 월드레저] 독수리호 - 더피싱,…' → ('독수리호', '오천항 월드레저')"""
+    m = re.search(r"<title>\s*(?:\[([^\]]+)\]\s*)?([^<]+?)\s*-\s*더피싱", html, re.S)
+    if not m:
+        return None, None
+    return re.sub(r"\s+", " ", m.group(2)).strip(), (m.group(1) or "").strip() or None
+
+
+def tf_homepage(html):
+    """선사 홈페이지 주소 — 예약모듈(index.php?mid=bk) 링크가 있는 곳. 외부 도메인(eagleho.com 등)도 포함"""
+    links = re.findall(r"""href=["']?(https?://[^"'\s>]+)""", html)
+    for u in links:
+        if "mid=bk" in u and not re.match(r"https?://(www\.)?thefishing\.kr/", u):
+            return re.match(r"https?://[^/]+", u).group(0)
+    for u in links:
+        if re.match(r"https?://[a-z0-9\-]+\.thefishing\.kr", u) and not re.match(r"https?://(www|m|img|icon)\.", u):
+            return re.match(r"https?://[^/]+", u).group(0)
+    return None
+
+
 def tf_parse_calendar(html, year, month, ship):
     """thefishing.kr/reservation/list.php?uid=… 의 달력(이번 달) → 일정"""
     full = "\n".join(clean_lines(html))
-    home = re.search(r"https?://([a-z0-9\-]+)\.thefishing\.kr", html)
+    home = tf_homepage(html)
     # 더피싱 달력은 '15⏎목요일⏎11물' 형식(숫자 줄 + 요일 줄). '15일 (목)' 형식도 함께 지원
     found = list(TF_DAY_RE.finditer(full)) + line_start_dates(full, DATE_RE)
     found.sort(key=lambda m: m.start())
@@ -501,12 +566,13 @@ def tf_parse_calendar(html, year, month, ship):
         notice = " ".join(l for l in block.split("\n") if l and l not in NOISE and not STATUS_RE.search(l)
                           and not TIDE_RE.fullmatch(l))[:200]
         days[d] = {**ship_cols(ship), "date": d, "tide": tide_m.group(1).replace(" ", "") if tide_m else "",
-                   "boat": ship["name"], "species": ship.get("hint", ""),
+                   "boat": ship.get("boat") or ship["name"], "species": ship.get("hint", ""),
                    "time": (f"{tm.group(1)}~{tm.group(2)}" if tm and tm.re is TIME_RE else
                             (f"{tm.group(1)} 출항" if tm else "")),
                    "price": pm.group(1) if pm else "", "remain": remain, "status": status,
-                   "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}"}
-    return list(days.values()), (home.group(1) if home else None)
+                   "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}",
+                   "home": (ship.get("home") or "")}
+    return list(days.values()), home
 
 
 def tf_parse_home(html, ship):
@@ -514,7 +580,7 @@ def tf_parse_home(html, ship):
     full = "\n".join(clean_lines(html))
     heads = line_start_dates(full, FULL_DATE_RE)
     out = []
-    name = ship["name"]
+    name = ship.get("boat") or ship["name"]
     for i, m in enumerate(heads):
         block = full[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(full)]
         try:
@@ -544,22 +610,29 @@ def tf_parse_home(html, ship):
                     "time": (f"{tm.group(1)}~{tm.group(2)}" if tm and tm.re is TIME_RE else
                              (f"{tm.group(1)} 출항" if tm else "")),
                     "price": pm.group(1) if pm else "", "remain": remain, "status": status,
-                    "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}"})
+                    "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}",
+                   "home": (ship.get("home") or "")})
     return out
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def tf_ship(ship_t, months):
-    """더피싱 한 척: 예약 페이지 달력(이번 달) + 선박 홈페이지 예약현황(가까운 8일, 다른 달)"""
+def tf_ship(ship_t, months, _ver=CACHE_VER):
+    """더피싱 한 척: 예약 페이지 달력(이번 달) + 선사 홈페이지 예약현황(가까운 8일, 다른 달)"""
     ship = dict(ship_t)
     today = date.today()
     html = tf_fetch(f"{TF}/reservation/list.php?uid={ship['id']}")
-    portal, home = tf_parse_calendar(html, today.year, today.month, ship)
+    boat, company = tf_title(html)                       # 정확한 배 이름/선사명
+    if boat:
+        ship["boat"] = boat
+        ship["name"] = f"{boat} ({company})" if company else boat
+    home = tf_homepage(html)
+    ship["home"] = (home + "/") if home else f"{TF}/reservation/list.php?uid={ship['id']}"
+    portal, _ = tf_parse_calendar(html, today.year, today.month, ship)
     best = {r["date"]: r for r in portal}
     if home:
-        pages = [f"https://{home}.thefishing.kr/index.php?mid=bk"]
+        pages = [f"{home}/index.php?mid=bk"]
         have = {f"{d.year}{d.month:02d}" for d, r in best.items() if r["status"] != "확인필요"}
-        pages += [f"https://{home}.thefishing.kr/index.php?mid=bk&year={ym[:4]}&month={ym[4:]}&day=01"
+        pages += [f"{home}/index.php?mid=bk&year={ym[:4]}&month={ym[4:]}&day=01"
                   for ym in months if ym not in have]
         for url in pages:
             try:
@@ -581,7 +654,7 @@ def ship_cols(ship):
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def fish_options():
+def fish_options(_ver=CACHE_VER):
     fish = []
     try:
         soup = BeautifulSoup(fetch_html(f"{SS_APP}/ship/list?area=all"), "html.parser")
@@ -907,7 +980,7 @@ with st.expander("🔧 연결 점검 (조회가 안 될 때 눌러서 화면을 
             idx = next((i for i, l in enumerate(lines) if re.fullmatch(r"\d{1,2}", l)), 0)
             st.code("\n".join(lines[idx: idx + 40]) or "(본문 없음)")
             if home:
-                hh = fetch_html(f"https://{home}.thefishing.kr/index.php?mid=bk")
+                hh = fetch_html(f"{home}/index.php?mid=bk")
                 hrows = tf_parse_home(hh, sh)
                 st.write(f"③ 홈페이지 예약현황: 글자 {len(hh):,}자, 날짜 {len(hrows)}개 인식")
                 st.write([(str(r["date"]), r["status"], r["remain"]) for r in hrows[:8]])
@@ -947,6 +1020,13 @@ st.caption(f"{ss.fetched} 기준 · 선택 날짜/어종 일정 {len(in_scope)}�
            + " / ".join(f"{SITES[k]} 배 {q.get(k, 0)}척 조회 → {n}건" for k, n in by_site.items()))
 
 if view:
+    need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
+    if need_home:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            homes = dict(zip(need_home, ex.map(ss_home, need_home)))
+        for r in view:
+            if r["site"] == "ss":
+                r["home"] = homes.get(r["ship_id"]) or r["url"]
     df = pd.DataFrame([{
         "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})", "사이트": SITES[r["site"]],
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x), "물때": r["tide"],
@@ -954,7 +1034,7 @@ if view:
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
         "상태": r["status"], "공지": r["notice"], "예약": r["url"],
-        "_ok": (r["remain"] or 0) > 0,
+        "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in view])
 
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
@@ -965,7 +1045,10 @@ if view:
         cells = []
         for c in cols:
             v = r[c]
-            if c == "예약":
+            if c == "상태" and r["_ok"] and r["홈페이지"]:
+                cells.append(f"<td><a class='hp' href='{htmlmod.escape(r['홈페이지'])}' target='_blank' "
+                             f"title='선사 홈페이지 열기'>{htmlmod.escape(str(v))} ↗</a></td>")
+            elif c == "예약":
                 cells.append(f"<td><a href='{htmlmod.escape(v)}' target='_blank'>예약하기</a></td>")
             elif c == "공지":
                 cells.append(f"<td class='nt' title='{htmlmod.escape(str(v))}'>{htmlmod.escape(str(v))}</td>")
@@ -981,6 +1064,8 @@ if view:
 .rtbl td {{padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.25);}}
 .rtbl tr.ok td {{background: #FFD43B !important; color: #111 !important; font-weight: 700;}}
 .rtbl tr.ok td a {{color: #0b4bd6 !important; text-decoration: underline;}}
+.rtbl tr.ok td a.hp {{color: #111 !important; background: #fff3; padding: 2px 8px; border-radius: 999px;
+  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}}
 .rtbl tr.no td {{color: #8c8c8c;}}
 .rtbl td.nt {{max-width: 280px; overflow: hidden; text-overflow: ellipsis;}}
 </style>
