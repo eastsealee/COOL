@@ -26,6 +26,11 @@ import requests
 import streamlit as st
 from bs4 import BeautifulSoup
 
+MOBILE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 "
+                   "(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"),
+    "Accept-Language": "ko-KR,ko;q=0.9",
+}
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
                    "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"),
@@ -116,9 +121,25 @@ PLACES = {
 
 
 # ---------------------------------------------------------------- 공통 유틸
-def fetch_html(url):
-    r = requests.get(url, headers=HEADERS, timeout=15)
-    r.raise_for_status()
+def fetch_html(url, tries=3, headers=None):
+    """페이지 가져오기 — 일시적 오류(시간초과, 429/5xx)는 잠깐 쉬었다가 다시 시도"""
+    last_err = None
+    for i in range(tries):
+        try:
+            r = requests.get(url, headers=headers or HEADERS, timeout=20)
+            code = getattr(r, "status_code", 200)
+            if code in (429, 500, 502, 503, 504) and i < tries - 1:
+                time.sleep(1.5 * (i + 1))
+                continue
+            r.raise_for_status()
+            break
+        except requests.RequestException as ex:
+            last_err = ex
+            if i == tries - 1:
+                raise
+            time.sleep(1.5 * (i + 1))
+    else:
+        raise last_err or RuntimeError("페이지를 가져오지 못했습니다")
     raw = getattr(r, "content", None)
     if not isinstance(raw, bytes):                       # (테스트용 가짜 응답)
         return r.text
@@ -278,14 +299,31 @@ def ss_parse(html, year, month, ship):
             out.append({**ship_cols(ship), "date": d, "tide": tide, "boat": boat, "species": species,
                         "time": f"{tm.group(1)}~{tm.group(2)}" if tm else "", "price": "",
                         "remain": remain, "status": status, "notice": notice[:200],
-                        "url": f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yr}{mo:02d}"})
+                        "url": f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yr}{mo:02d}", "home": ""})
             prev_end = end
     return out
 
 
+class CatalogError(RuntimeError):
+    """목록 수집 실패 — 캐시에 남기지 않기 위해 예외로 던지고, 모은 만큼(rows)은 함께 전달"""
+    def __init__(self, msg, rows):
+        super().__init__(msg)
+        self.rows = rows
+
+
+SS_SEM = threading.Semaphore(4)                          # 선상24 동시 요청 수 제한
+
+
+def ss_fetch(url):
+    with SS_SEM:
+        html = fetch_html(url)
+        time.sleep(0.15)
+        return html
+
+
 def _ss_board_page(sea, page):
     try:
-        html = fetch_html(f"{SS_APP}/ship/board?area={sea}&page={page}")
+        html = ss_fetch(f"{SS_APP}/ship/board?area={sea}&page={page}")
     except Exception:
         return None
     found = {}
@@ -302,6 +340,8 @@ def _ss_crawl_sea(sea):
     for page in range(1, SS_BOARD_MAX_PAGES + 1):
         found = _ss_board_page(sea, page)
         if found is None:
+            if page == 1:
+                return sea, None                         # 첫 페이지부터 실패 = 이 바다 목록 실패
             break
         new = {k: v for k, v in found.items() if k not in ships}
         ships.update(new)
@@ -314,9 +354,14 @@ def _ss_crawl_sea(sea):
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def ss_catalog():
-    rows, seen = [], set()
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        for sea, ships in ex.map(_ss_crawl_sea, list(SEAS)):
+    rows, seen, failed = [], set(), []
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        results = list(ex.map(_ss_crawl_sea, list(SEAS)))
+    for sea, ships in results:
+        if ships is None:
+            failed.append(SEAS[sea])
+            continue
+        if True:
             for sid, name in ships.items():
                 if sid in seen:
                     continue
@@ -324,23 +369,68 @@ def ss_catalog():
                 sido, sgg, port = ss_locate(name, sea)
                 rows.append({"site": "ss", "id": sid, "name": name, "sea": sea, "sido": sido,
                              "sigungu": sgg, "port": port, "hint": ""})
+    if failed or not rows:
+        # 실패한 결과는 캐시에 남기지 않도록 예외로 처리 (다음 화면 갱신 때 다시 시도)
+        raise CatalogError(f"선상24 목록을 일부 불러오지 못했습니다({', '.join(failed) or '전체'})", rows)
     return rows
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def ss_month(ship_t, yyyymm):
+    """선상24 한 척의 한 달 일정. 못 읽으면 다른 주소/모바일 화면으로 다시 시도하고,
+    그래도 안 되면 이유를 오류 목록에 남김(빈 결과로 조용히 넘어가지 않게)"""
     ship = dict(ship_t)
-    html = fetch_html(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}")
-    return ss_parse(html, int(yyyymm[:4]), int(yyyymm[4:]), ship)
+    y, m = int(yyyymm[:4]), int(yyyymm[4:])
+    today = date.today()
+    tries = [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", None)]
+    if (y, m) == (today.year, today.month):
+        tries += [(f"{SS_APP}/ship/schedule/{ship['id']}", None)]
+    tries += [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS)]
+    last_html = ""
+    for url, hdr in tries:
+        with SS_SEM:
+            html = fetch_html(url, headers=hdr)
+            time.sleep(0.15)
+        rows = [r for r in ss_parse(html, y, m, ship) if (r["date"].year, r["date"].month) == (y, m)]
+        if rows:
+            return rows
+        last_html = html
+    text = " ".join(clean_lines(last_html))
+    if any(k in text for k in ("남은자리", "대상어종", "출항시간", "예약마감")):
+        raise RuntimeError(f"{m}월 일정 형식을 읽지 못함 — 화면 앞부분: {text[:120]}")
+    if len(last_html) < 1500:
+        raise RuntimeError(f"{m}월 페이지 응답이 비정상(글자 {len(last_html)}자): {text[:120]}")
+    return []                                            # 그 달 출조 일정이 없는 배
+
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def ss_home(ship_id):
+    """선상24 배의 홈페이지(xxx.sunsang24.com) — 배 소개 페이지의 사진 경로 ship_img/<xxx>/ 에서 찾음"""
+    try:
+        html = ss_fetch(f"{SS_APP}/ship/info/{ship_id}")
+    except Exception:
+        return None
+    m = re.search(r"ship_img/([a-z0-9][a-z0-9\-]*)/", html)
+    return f"https://{m.group(1)}.sunsang24.com/" if m else None
 
 
 # ---------------------------------------------------------------- 더피싱
+TF_SEM = threading.Semaphore(4)                          # 더피싱 동시 요청 수 제한
+
+
+def tf_fetch(url):
+    with TF_SEM:
+        html = fetch_html(url)
+        time.sleep(0.15)
+        return html
+
+
 TF_PATH_RE = re.compile(r"(서해권|남해권|동해권)((?:\s*>\s*(?:영흥도 진두항|제주 [가-힣]+항|[가-힣·/]+)){1,3})")
 
 
 def _tf_list_page(page):
     try:
-        html = fetch_html(f"{TF}/reservation/list.php?page={page}")
+        html = tf_fetch(f"{TF}/reservation/list.php?page={page}")
     except Exception:
         return None, 0
     soup = BeautifulSoup(html, "html.parser")
@@ -371,30 +461,56 @@ def _tf_list_page(page):
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
 def tf_catalog():
     first, last = _tf_list_page(1)
-    if first is None:
-        return []
-    pages = range(2, min(last, TF_LIST_MAX_PAGES) + 1)
-    allitems = dict(first)
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    if not first:
+        raise CatalogError("더피싱 목록 첫 페이지를 불러오지 못했습니다", [])
+    pages = list(range(2, min(last, TF_LIST_MAX_PAGES) + 1))
+    allitems, bad = dict(first), 0
+    with ThreadPoolExecutor(max_workers=3) as ex:
         for items, _ in ex.map(_tf_list_page, pages):
+            if items is None:
+                bad += 1
             for uid, v in (items or {}).items():
                 allitems.setdefault(uid, v)
+    partial_err = (f"더피싱 목록 {bad}/{len(pages) + 1}페이지를 불러오지 못했습니다"
+                   if pages and bad > len(pages) * 0.2 else None)
     rows = []
     for uid, (name, path, hint) in allitems.items():
         sea, sido, sgg, port = tf_region(path)
         name = re.sub(r"\s*(실시간결제|캐시적립|좌석제|신규선박|회원추천)\s*", " ", name or "").strip()
         rows.append({"site": "tf", "id": uid, "name": name or f"더피싱 {uid}", "sea": sea, "sido": sido,
                      "sigungu": sgg, "port": port, "hint": hint})
+    if partial_err:
+        raise CatalogError(partial_err, rows)
     return rows
 
 
 TF_DAY_RE = re.compile(r"(?m)^()(\d{1,2})\n([월화수목금토일])요일\s*$")
 
 
+def tf_title(html):
+    """'<title>[오천항 월드레저] 독수리호 - 더피싱,…' → ('독수리호', '오천항 월드레저')"""
+    m = re.search(r"<title>\s*(?:\[([^\]]+)\]\s*)?([^<]+?)\s*-\s*더피싱", html, re.S)
+    if not m:
+        return None, None
+    return re.sub(r"\s+", " ", m.group(2)).strip(), (m.group(1) or "").strip() or None
+
+
+def tf_homepage(html):
+    """선사 홈페이지 주소 — 예약모듈(index.php?mid=bk) 링크가 있는 곳. 외부 도메인(eagleho.com 등)도 포함"""
+    links = re.findall(r"""href=["']?(https?://[^"'\s>]+)""", html)
+    for u in links:
+        if "mid=bk" in u and not re.match(r"https?://(www\.)?thefishing\.kr/", u):
+            return re.match(r"https?://[^/]+", u).group(0)
+    for u in links:
+        if re.match(r"https?://[a-z0-9\-]+\.thefishing\.kr", u) and not re.match(r"https?://(www|m|img|icon)\.", u):
+            return re.match(r"https?://[^/]+", u).group(0)
+    return None
+
+
 def tf_parse_calendar(html, year, month, ship):
     """thefishing.kr/reservation/list.php?uid=… 의 달력(이번 달) → 일정"""
     full = "\n".join(clean_lines(html))
-    home = re.search(r"https?://([a-z0-9\-]+)\.thefishing\.kr", html)
+    home = tf_homepage(html)
     # 더피싱 달력은 '15⏎목요일⏎11물' 형식(숫자 줄 + 요일 줄). '15일 (목)' 형식도 함께 지원
     found = list(TF_DAY_RE.finditer(full)) + line_start_dates(full, DATE_RE)
     found.sort(key=lambda m: m.start())
@@ -442,12 +558,13 @@ def tf_parse_calendar(html, year, month, ship):
         notice = " ".join(l for l in block.split("\n") if l and l not in NOISE and not STATUS_RE.search(l)
                           and not TIDE_RE.fullmatch(l))[:200]
         days[d] = {**ship_cols(ship), "date": d, "tide": tide_m.group(1).replace(" ", "") if tide_m else "",
-                   "boat": ship["name"], "species": ship.get("hint", ""),
+                   "boat": ship.get("boat") or ship["name"], "species": ship.get("hint", ""),
                    "time": (f"{tm.group(1)}~{tm.group(2)}" if tm and tm.re is TIME_RE else
                             (f"{tm.group(1)} 출항" if tm else "")),
                    "price": pm.group(1) if pm else "", "remain": remain, "status": status,
-                   "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}"}
-    return list(days.values()), (home.group(1) if home else None)
+                   "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}",
+                   "home": (ship.get("home") or "")}
+    return list(days.values()), home
 
 
 def tf_parse_home(html, ship):
@@ -455,7 +572,7 @@ def tf_parse_home(html, ship):
     full = "\n".join(clean_lines(html))
     heads = line_start_dates(full, FULL_DATE_RE)
     out = []
-    name = ship["name"]
+    name = ship.get("boat") or ship["name"]
     for i, m in enumerate(heads):
         block = full[m.end(): heads[i + 1].start() if i + 1 < len(heads) else len(full)]
         try:
@@ -485,32 +602,29 @@ def tf_parse_home(html, ship):
                     "time": (f"{tm.group(1)}~{tm.group(2)}" if tm and tm.re is TIME_RE else
                              (f"{tm.group(1)} 출항" if tm else "")),
                     "price": pm.group(1) if pm else "", "remain": remain, "status": status,
-                    "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}"})
+                    "notice": notice, "url": f"{TF}/reservation/list.php?uid={ship['id']}",
+                   "home": (ship.get("home") or "")})
     return out
-
-
-TF_SEM = threading.Semaphore(4)                          # 더피싱 동시 요청 수 제한
-
-
-def tf_fetch(url):
-    with TF_SEM:
-        html = fetch_html(url)
-        time.sleep(0.15)
-        return html
 
 
 @st.cache_data(ttl=180, show_spinner=False)
 def tf_ship(ship_t, months):
-    """더피싱 한 척: 예약 페이지 달력(이번 달) + 선박 홈페이지 예약현황(가까운 8일, 다른 달)"""
+    """더피싱 한 척: 예약 페이지 달력(이번 달) + 선사 홈페이지 예약현황(가까운 8일, 다른 달)"""
     ship = dict(ship_t)
     today = date.today()
     html = tf_fetch(f"{TF}/reservation/list.php?uid={ship['id']}")
-    portal, home = tf_parse_calendar(html, today.year, today.month, ship)
+    boat, company = tf_title(html)                       # 정확한 배 이름/선사명
+    if boat:
+        ship["boat"] = boat
+        ship["name"] = f"{boat} ({company})" if company else boat
+    home = tf_homepage(html)
+    ship["home"] = (home + "/") if home else f"{TF}/reservation/list.php?uid={ship['id']}"
+    portal, _ = tf_parse_calendar(html, today.year, today.month, ship)
     best = {r["date"]: r for r in portal}
     if home:
-        pages = [f"https://{home}.thefishing.kr/index.php?mid=bk"]
+        pages = [f"{home}/index.php?mid=bk"]
         have = {f"{d.year}{d.month:02d}" for d, r in best.items() if r["status"] != "확인필요"}
-        pages += [f"https://{home}.thefishing.kr/index.php?mid=bk&year={ym[:4]}&month={ym[4:]}&day=01"
+        pages += [f"{home}/index.php?mid=bk&year={ym[:4]}&month={ym[4:]}&day=01"
                   for ym in months if ym not in have]
         for url in pages:
             try:
@@ -645,21 +759,36 @@ ss.setdefault("cal_ym", (today.year, today.month))
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
 site_codes = [k for k, v in SITES.items() if v in site_sel]
 
-catalog, load_err = [], []
+CATALOG_FN = {"ss": ss_catalog, "tf": tf_catalog}
+catalog, counts = [], {}
 with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸립니다)"):
-    if "ss" in site_codes:
-        part = ss_catalog()
+    for code in site_codes:
+        pkey = f"partial_{code}"
+        if pkey in ss:                                   # 이번 접속에서 이미 실패했던 사이트는 모은 만큼 사용
+            part = ss[pkey]["rows"]
+            st.warning(f"⚠️ {ss[pkey]['msg']} — 불러온 {len(part)}척으로 조회합니다. "
+                       f"아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다.")
+        else:
+            try:
+                part = CATALOG_FN[code]()
+            except CatalogError as ex:
+                ss[pkey] = {"rows": ex.rows, "msg": str(ex)}
+                part = ex.rows
+                st.warning(f"⚠️ {ex} — 불러온 {len(part)}척으로 조회합니다. "
+                           f"아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다.")
+            except Exception as ex:
+                ss[pkey] = {"rows": [], "msg": f"{SITES[code]} 목록 오류: {ex}"}
+                part = []
+                st.error(f"{SITES[code]} 배 목록을 불러오지 못했습니다: {ex}")
+        counts[code] = len(part)
         catalog += part
-        if not part:
-            load_err.append("선상24")
-    if "tf" in site_codes:
-        part = tf_catalog()
-        catalog += part
-        if not part:
-            load_err.append("더피싱")
-for name in load_err:
-    st.error(f"{name} 배 목록을 불러오지 못했습니다. 잠시 후 새로고침 해주세요. "
-             f"계속 안 되면 {name}가 이 서버의 접속을 막고 있을 수 있습니다.")
+lc1, lc2 = st.columns([3, 1], vertical_alignment="center")
+lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()))
+if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
+    for code, fn in CATALOG_FN.items():
+        fn.clear()
+        ss.pop(f"partial_{code}", None)
+    st.rerun()
 fish_list = fish_options()
 
 # ----- ① 지역
@@ -800,9 +929,28 @@ if go:
     bar.empty()
     ss.rows, ss.errors, ss.fetched = rows, errors, time.strftime("%H:%M:%S")
 
-# ----- 더피싱 연결 점검
-with st.expander("🔧 더피싱 연결 점검 (조회가 안 될 때 눌러서 화면을 캡처해 보내주세요)"):
+# ----- 연결 점검
+with st.expander("🔧 연결 점검 (조회가 안 될 때 눌러서 화면을 캡처해 보내주세요)"):
     if st.button("점검 실행", key="diag"):
+        st.markdown("**[선상24]**")
+        try:
+            found = _ss_board_page("west", 1)
+            st.write(f"① 조황정보 목록(서해 1페이지): 배 {len(found) if found is not None else '실패'}척 인식")
+            ss_pool = [s for s in pool if s["site"] == "ss"] or [
+                {"site": "ss", "id": 2174, "name": "여수 감성피싱", "sea": "south", "sido": "전남",
+                 "sigungu": "여수", "port": "", "hint": ""}]
+            sh = ss_pool[0]
+            ym = f"{today.year}{today.month:02d}"
+            h = fetch_html(f"{SS_APP}/ship/schedule_fleet/{sh['id']}/{ym}")
+            srows = ss_parse(h, today.year, today.month, sh)
+            st.write(f"② {sh['name']}(번호 {sh['id']}) 예약 페이지: 글자 {len(h):,}자, 일정 {len(srows)}건 인식 "
+                     f"(남은자리 확인 {sum(1 for r in srows if r['remain'] is not None)}건)")
+            if not srows:
+                lines = clean_lines(h)
+                st.code("\n".join(lines[:40]) or "(본문 없음)")
+        except Exception as ex:
+            st.write(f"선상24 점검 실패: {ex}")
+        st.markdown("**[더피싱]**")
         try:
             h = fetch_html(f"{TF}/reservation/list.php?page=1")
             items, last = _tf_list_page(1)
@@ -824,7 +972,7 @@ with st.expander("🔧 더피싱 연결 점검 (조회가 안 될 때 눌러서 
             idx = next((i for i, l in enumerate(lines) if re.fullmatch(r"\d{1,2}", l)), 0)
             st.code("\n".join(lines[idx: idx + 40]) or "(본문 없음)")
             if home:
-                hh = fetch_html(f"https://{home}.thefishing.kr/index.php?mid=bk")
+                hh = fetch_html(f"{home}/index.php?mid=bk")
                 hrows = tf_parse_home(hh, sh)
                 st.write(f"③ 홈페이지 예약현황: 글자 {len(hh):,}자, 날짜 {len(hrows)}개 인식")
                 st.write([(str(r["date"]), r["status"], r["remain"]) for r in hrows[:8]])
@@ -864,6 +1012,13 @@ st.caption(f"{ss.fetched} 기준 · 선택 날짜/어종 일정 {len(in_scope)}�
            + " / ".join(f"{SITES[k]} 배 {q.get(k, 0)}척 조회 → {n}건" for k, n in by_site.items()))
 
 if view:
+    need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
+    if need_home:
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            homes = dict(zip(need_home, ex.map(ss_home, need_home)))
+        for r in view:
+            if r["site"] == "ss":
+                r["home"] = homes.get(r["ship_id"]) or r["url"]
     df = pd.DataFrame([{
         "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})", "사이트": SITES[r["site"]],
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x), "물때": r["tide"],
@@ -871,7 +1026,7 @@ if view:
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
         "상태": r["status"], "공지": r["notice"], "예약": r["url"],
-        "_ok": (r["remain"] or 0) > 0,
+        "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in view])
 
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
@@ -882,7 +1037,10 @@ if view:
         cells = []
         for c in cols:
             v = r[c]
-            if c == "예약":
+            if c == "상태" and r["_ok"] and r["홈페이지"]:
+                cells.append(f"<td><a class='hp' href='{htmlmod.escape(r['홈페이지'])}' target='_blank' "
+                             f"title='선사 홈페이지 열기'>{htmlmod.escape(str(v))} ↗</a></td>")
+            elif c == "예약":
                 cells.append(f"<td><a href='{htmlmod.escape(v)}' target='_blank'>예약하기</a></td>")
             elif c == "공지":
                 cells.append(f"<td class='nt' title='{htmlmod.escape(str(v))}'>{htmlmod.escape(str(v))}</td>")
@@ -898,6 +1056,8 @@ if view:
 .rtbl td {{padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.25);}}
 .rtbl tr.ok td {{background: #FFD43B !important; color: #111 !important; font-weight: 700;}}
 .rtbl tr.ok td a {{color: #0b4bd6 !important; text-decoration: underline;}}
+.rtbl tr.ok td a.hp {{color: #111 !important; background: #fff3; padding: 2px 8px; border-radius: 999px;
+  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}}
 .rtbl tr.no td {{color: #8c8c8c;}}
 .rtbl td.nt {{max-width: 280px; overflow: hidden; text-overflow: ellipsis;}}
 </style>
