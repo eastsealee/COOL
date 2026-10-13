@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-12 (조류세기 % 표시)"
+APP_VERSION = "v10.13-13 (조류세기 계산 변경)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -799,22 +799,36 @@ def parse_tide(html, y, m):
         heights = [int(h) for h in re.findall(r"\((\d{2,4})\)", block)][:4]   # 하루 만조·간조 최대 4번
         if len(heights) < 2:
             continue
+        # 하루 조차 = 만조 높이 평균 − 간조 높이 평균 (자정을 넘어 만조/간조가 3번만 있는 날도 고르게 계산)
+        mid = sum(heights) / len(heights)
+        highs = [h for h in heights if h > mid] or [max(heights)]
+        lows = [h for h in heights if h <= mid] or [min(heights)]
         mul = re.search(r"(\d{1,2}\s*물|조금|무시)", block)
-        days[d] = {"range": max(heights) - min(heights), "mul": mul.group(1).replace(" ", "") if mul else ""}
+        days[d] = {"range": round(sum(highs) / len(highs) - sum(lows) / len(lows)),
+                   "mul": mul.group(1).replace(" ", "") if mul else ""}
     return days
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 1):
+def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 2):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
     days = parse_tide(html, y, m)
     if len(days) < 20:
         raise RuntimeError(f"남당항 물때표를 제대로 읽지 못했습니다({len(days)}일만 인식)")
-    peak = max(v["range"] for v in days.values())
-    for v in days.values():
-        v["pct"] = round(v["range"] / peak * 100) if peak else None
     return days
+
+
+def tide_with_strength(all_days):
+    """조류세기(%) = 앞뒤 7일(사리~조금 한 주기) 안에서 조차가 가장 작은 날 0%, 가장 큰 날 100%로 환산.
+    (물때와날씨 앱의 10/19 남당항 6%와 같은 방식의 눈금 — 실제 값으로 검증 시 약 5%)"""
+    out = {}
+    for d, v in all_days.items():
+        win = [all_days[d + timedelta(days=k)]["range"] for k in range(-7, 8) if d + timedelta(days=k) in all_days]
+        lo, hi = min(win), max(win)
+        pct = round((v["range"] - lo) / (hi - lo) * 100) if hi > lo else None
+        out[d] = {**v, "pct": None if pct is None else max(0, min(100, pct))}
+    return out
 
 
 def tide_label(d):
@@ -938,7 +952,7 @@ st.caption(f"선상24 · 더피싱 예약현황을 한 번에 조회합니다. �
 
 today = kst_today()
 ss = st.session_state
-ss.setdefault("sel_days", {today + timedelta(days=i) for i in range(7)})
+ss.setdefault("sel_days", set())
 ss.setdefault("cal_ym", (today.year, today.month))
 
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
@@ -1151,13 +1165,19 @@ if go:
                 errors.append(err)
             bar.progress(i / max(1, len(jobs)), text=f"예약현황 가져오는 중... {i}/{len(jobs)}")
     bar.empty()
-    tide = {}
-    for ym in months:
+    tide, need_m = {}, set()
+    for ym in months:                                     # 앞뒤 7일 계산을 위해 이웃 달도 함께
+        y_, m_ = int(ym[:4]), int(ym[4:])
+        for k in (-1, 0, 1):
+            yy, mm = y_ + (m_ + k - 1) // 12, (m_ + k - 1) % 12 + 1
+            need_m.add(f"{yy}{mm:02d}")
+    for ym in sorted(need_m):
         try:
             tide.update(tide_month(ym))
         except Exception as ex:
-            errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
-    ss.tide = tide
+            if ym in months:
+                errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
+    ss.tide = tide_with_strength(tide)
     ss.rows, ss.errors = rows, errors
     ss.fetched = kst_now().strftime("%Y-%m-%d %H:%M:%S")
     ss.probes = probes
