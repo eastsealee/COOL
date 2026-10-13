@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-17 (날씨 추가)"
+APP_VERSION = "v10.13-19 (기온 4개 시각)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -899,6 +899,55 @@ def tide_weather(code=TIDE_PORT_CODE, _ver=CACHE_VER):
     return out, area
 
 
+# ---- 기온: 바다타임 날짜별 페이지(356-YYYY-MM-DD.html)의 시간별 지역날씨 표 (단기예보 기간만 값이 있음)
+TEMP_HOURS = ("06", "09", "12", "15")
+
+
+def parse_hourly_temps(html):
+    """'10.13' 날짜 줄 아래 '06시 … 17°C' 행들 → {(날짜, '06'): 17, ...}"""
+    lines = clean_lines(html)
+    today = kst_today()
+    out, cur = {}, None
+    for i, l in enumerate(lines):
+        md = re.fullmatch(r"(\d{1,2})\.(\d{1,2})", l)
+        if md:
+            mo, dy = int(md.group(1)), int(md.group(2))
+            if any(re.fullmatch(r"\d{1,2}\s*시", x) for x in lines[i + 1: i + 25]):   # 시간표 머리 날짜만
+                for yy in (today.year, today.year + 1):
+                    try:
+                        cand = date(yy, mo, dy)
+                    except ValueError:
+                        continue
+                    if abs((cand - today).days) <= 10:
+                        cur = cand
+                        break
+            continue
+        mh = re.fullmatch(r"(\d{1,2})\s*시", l)
+        if mh and cur:
+            for x in lines[i + 1: i + 8]:
+                if re.fullmatch(r"\d{1,2}\s*시", x):
+                    break
+                mt = re.search(r"(-?\d{1,2}(?:\.\d)?)\s*°\s*C?", x)
+                if mt:
+                    out.setdefault((cur, f"{int(mh.group(1)):02d}"), round(float(mt.group(1))))
+                    break
+    return out
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def day_temps(dstr, code=TIDE_PORT_CODE, _ver=CACHE_VER):
+    html = fetch_html(f"https://www.badatime.com/{code}-{dstr}.html")
+    return parse_hourly_temps(html)
+
+
+def temp_label(d):
+    t = ss.get("temps", {})
+    vals = [t.get((d, h)) for h in TEMP_HOURS]
+    if all(v is None for v in vals):
+        return "예보 전" if d > kst_today() else ""
+    return " / ".join("–" if v is None else f"{v}°" for v in vals)
+
+
 def tide_label(d):
     t = ss.get("tide", {}).get(d)
     if not t:
@@ -1257,6 +1306,13 @@ if go:
             if ym in months:
                 errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
     ss.tide = tide_with_strength(tide)
+    temps = {}
+    for d in [kst_today()] + [d for d in days if kst_today() <= d <= kst_today() + timedelta(days=4)]:
+        try:
+            temps.update(day_temps(d.isoformat()))
+        except Exception:
+            pass
+    ss.temps = temps
     try:
         ss.weather, ss.weather_area = tide_weather()
     except Exception as ex:
@@ -1450,6 +1506,7 @@ def render_site(code):
         "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", ""),
         f"조류세기({TIDE_PORT_NAME})": tide_label(r["date"]),
         "날씨": ss.get("weather", {}).get(r["date"], "예보 전" if r["date"] > kst_today() + timedelta(days=6) else ""),
+        "기온": temp_label(r["date"]),
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
@@ -1457,10 +1514,11 @@ def render_site(code):
         "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in srows])
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
-    cols = ["날짜", "지역", "물때", f"조류세기({TIDE_PORT_NAME})", "날씨", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
+    cols = ["날짜", "지역", "물때", f"조류세기({TIDE_PORT_NAME})", "날씨", "기온", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
     if code == "ss":
         cols.remove("가격")                               # 선상24는 가격 칸이 없음
-    head = "".join(f"<th>{c if c != '날씨' else '날씨(' + ss.get('weather_area', '바다날씨') + ')'}</th>" for c in cols)
+    label = {"날씨": f"날씨({ss.get('weather_area', '바다날씨')})", "기온": "기온(오전6시 / 오전9시 / 낮12시 / 오후3시)"}
+    head = "".join(f"<th>{label.get(c, c)}</th>" for c in cols)
     body = []
     for _, r in df.iterrows():
         cells = []
