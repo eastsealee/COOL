@@ -15,7 +15,10 @@
 """
 import calendar
 import html as htmlmod
+import json
+import os
 import re
+import tempfile
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -224,7 +227,8 @@ PRICE_RE = re.compile(r"(\d{1,3}(?:,\d{3})+\s*원|\d{1,3}\s*만\s*원)")
 STATUS_RE = re.compile(
     r"남은\s*(?:자리|인원)\s*:?\s*(\d+)\s*명"
     r"|(예약\s*마감|예약\s*완료|만석)"
-    r"|(기상\s*악화|출조\s*취소|배\s*정비일?|정비일|예약을?\s*받지\s*않|휴\s*무|휴\s*항|출조\s*없음)")
+    r"|(기상\s*악화|출조\s*취소|배\s*정비일?|정비일|예약을?\s*받지\s*않|휴\s*무|휴\s*항|출조\s*없음"
+    r"|(?<![가-힣])취\s*소(?!\s*(?:대기|완료)))")
 NOISE = ("바로예약", "대기하기", "예약하기", "전화예약", "예약완료", "입금대기", "취소대기", "취소완료",
          "예약대기", "출조대기", "TOP")
 
@@ -240,7 +244,7 @@ def status_of(m):
         return 0, "마감"
     word = re.sub(r"\s+", "", m.group(3))
     word = {"배정비": "정비", "배정비일": "정비", "정비일": "정비", "예약을받지않": "예약중단",
-            "예약받지않": "예약중단"}.get(word, word)
+            "예약받지않": "예약중단", "취소": "출조취소"}.get(word, word)
     return 0, word
 
 
@@ -269,6 +273,21 @@ TIME_LABEL = re.compile(r"(?:출항\s*시간|운항\s*시간)\s*:?\s*")
 BOOKED_RE = re.compile(r"\s*(?:(\d+)\s*명\s*)?예약\s*/\s*(\d+)\s*명|\s*(\d+)\s*명")
 
 
+SS_REMAIN_RE = re.compile(r"남은\s*자리\s*:?\s*(\d+)\s*명")
+SS_CLOSED_RE = re.compile(r"(예약\s*마감)|(기상\s*악화|출조\s*취소|휴\s*항|휴\s*무)")
+
+
+def ss_status_of(m):
+    if m is None:
+        return None, "확인필요"
+    if m.re is SS_REMAIN_RE:
+        n = int(m.group(1))
+        return n, ("예약가능" if n > 0 else "마감")
+    if m.group(1):
+        return 0, "마감"
+    return 0, re.sub(r"\s+", "", m.group(2))
+
+
 def ss_parse(html, year, month, ship):
     full = "\n".join(clean_lines(html))
     dates = line_start_dates(full, DATE_RE)
@@ -291,8 +310,11 @@ def ss_parse(html, year, month, ship):
             tm = TIME_RE.search(block, lab.end(), nxt)
             sp_end = tl.start() if tl else (tm.start() if tm else block.find("\n", lab.end()))
             species = re.sub(r"\s+", " ", block[lab.end(): sp_end if sp_end > 0 else nxt]).strip(" /")
-            stm = STATUS_RE.search(block, tm.end() if tm else lab.end(), nxt)
-            remain, status = status_of(stm)
+            # 선상24 화면에는 '예약완료·입금대기·취소대기…' 범례가 남은자리 앞에 붙어 있음.
+            # 범례의 '예약완료'를 마감으로 읽지 않도록 '남은자리 N명'을 먼저 찾고, 없을 때만 마감/기상 문구를 봄
+            start_at = tm.end() if tm else lab.end()
+            stm = SS_REMAIN_RE.search(block, start_at, nxt) or SS_CLOSED_RE.search(block, start_at, nxt)
+            remain, status = ss_status_of(stm)
             end = stm.end() if stm else (tm.end() if tm else lab.end())
             if stm:
                 bm = BOOKED_RE.match(block, stm.end())
@@ -383,32 +405,125 @@ def ss_catalog(_ver=CACHE_VER):
     return rows
 
 
+def _probe(url, html=None, err=None):
+    """서버가 실제로 받은 화면 요약 (원인 확인용)"""
+    if err is not None:
+        return {"url": url, "result": f"접속 실패: {err}"}
+    t = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.S | re.I)
+    head = " ".join(clean_lines(html or ""))[:160]
+    return {"url": url, "result": f"글자 {len(html or ''):,}자 · 제목 '{(t.group(1).strip() if t else '-')[:40]}'",
+            "head": head}
+
+
+# ---- 선상24 배 목록 배경 수집: 조황정보 게시판을 깊은 페이지까지 천천히 읽어 배 목록을 계속 늘림
+#      (게시판 60페이지가 사흘치 정도라, 최근에 글을 안 올린 배까지 찾으려면 깊이 읽어야 함)
+SS_BG_MAX_PAGES = {"west": 250, "south": 250, "east": 120, "jeju": 80}
+SS_BG_FILE = os.path.join(tempfile.gettempdir(), f"sunsang24_ships_v{CACHE_VER}.json")
+
+
+def _ss_bg_loop(state):
+    while True:
+        for sea, maxp in SS_BG_MAX_PAGES.items():
+            empty = 0
+            for page in range(1, maxp + 1):
+                found = _ss_board_page(sea, page)
+                with state["lock"]:
+                    state["page"][sea] = page
+                if found is None:                        # 일시 오류: 잠깐 쉬고 다음 페이지
+                    time.sleep(5)
+                    continue
+                with state["lock"]:
+                    for sid, name in found.items():
+                        state["ships"].setdefault(str(sid), [name, sea])
+                # 앞쪽 페이지는 같은 배가 반복되고 새 배는 띄엄띄엄 나오므로 끝까지 읽음.
+                # 글이 하나도 없는 페이지가 두 번 연속이면 게시판 끝으로 보고 멈춤
+                empty = empty + 1 if not found else 0
+                if empty >= 2:
+                    break
+                if page % 20 == 0:
+                    _ss_bg_save(state)
+                time.sleep(0.4)
+            _ss_bg_save(state)
+        with state["lock"]:
+            state["rounds"] += 1
+        time.sleep(12 * 3600)                            # 12시간마다 다시 훑어 새 배 반영
+
+
+def _ss_bg_save(state):
+    try:
+        with state["lock"]:
+            data = json.dumps(state["ships"], ensure_ascii=False)
+        with open(SS_BG_FILE, "w", encoding="utf-8") as f:
+            f.write(data)
+    except Exception:
+        pass
+
+
+@st.cache_resource(show_spinner=False)
+def ss_bg_state():
+    state = {"ships": {}, "page": {k: 0 for k in SS_BG_MAX_PAGES}, "rounds": 0, "lock": threading.Lock()}
+    try:
+        with open(SS_BG_FILE, encoding="utf-8") as f:
+            state["ships"] = json.load(f)                # 이전에 모아 둔 목록부터 사용
+    except Exception:
+        pass
+    threading.Thread(target=_ss_bg_loop, args=(state,), daemon=True).start()
+    return state
+
+
+def ss_bg_rows():
+    st_ = ss_bg_state()
+    with st_["lock"]:
+        items = list(st_["ships"].items())
+    rows = []
+    for sid, (name, sea) in items:
+        sido, sgg, port = ss_locate(name, sea)
+        rows.append({"site": "ss", "id": int(sid), "name": name, "sea": sea, "sido": sido,
+                     "sigungu": sgg, "port": port, "hint": ""})
+    return rows
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
-    """선상24 한 척의 한 달 일정. 못 읽으면 다른 주소/모바일 화면으로 다시 시도하고,
-    그래도 안 되면 이유를 오류 목록에 남김(빈 결과로 조용히 넘어가지 않게)"""
+    """선상24 한 척의 한 달 일정 → {"rows": [...], "probe": [...]}
+    순서대로 시도: 앱 월별 일정 → (이번 달) 앱 일정 → 모바일 화면 → 배 홈페이지(xxx.sunsang24.com).
+    하나도 못 읽으면 각 시도에서 서버가 받은 화면 요약을 probe로 돌려줌."""
     ship = dict(ship_t)
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     today = date.today()
     tries = [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", None)]
     if (y, m) == (today.year, today.month):
-        tries += [(f"{SS_APP}/ship/schedule/{ship['id']}", None)]
-    tries += [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS)]
-    last_html = ""
-    for url, hdr in tries:
-        with SS_SEM:
-            html = fetch_html(url, headers=hdr)
-            time.sleep(0.15)
+        tries.append((f"{SS_APP}/ship/schedule/{ship['id']}", None))
+    tries.append((f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS))
+    probe = []
+
+    def attempt(url, hdr):
+        try:
+            with SS_SEM:
+                html = fetch_html(url, headers=hdr, tries=2)
+                time.sleep(0.15)
+        except Exception as ex:
+            probe.append(_probe(url, err=ex))
+            return []
         rows = [r for r in ss_parse(html, y, m, ship) if (r["date"].year, r["date"].month) == (y, m)]
+        if not rows:
+            probe.append(_probe(url, html))
+        return rows
+
+    for url, hdr in tries:
+        rows = attempt(url, hdr)
         if rows:
-            return rows
-        last_html = html
-    text = " ".join(clean_lines(last_html))
-    if any(k in text for k in ("남은자리", "대상어종", "출항시간", "예약마감")):
-        raise RuntimeError(f"{m}월 일정 형식을 읽지 못함 — 화면 앞부분: {text[:120]}")
-    if len(last_html) < 1500:
-        raise RuntimeError(f"{m}월 페이지 응답이 비정상(글자 {len(last_html)}자): {text[:120]}")
-    return []                                            # 그 달 출조 일정이 없는 배
+            return {"rows": rows, "probe": []}
+    home = ss_home(ship["id"])                           # 배 홈페이지 쪽 예약현황 (다른 서버 주소)
+    if home:
+        rows = attempt(f"{home}ship/schedule_fleet/{yyyymm}", None)
+        if rows:
+            for r in rows:
+                r["url"] = f"{home}ship/schedule_fleet/{yyyymm}"
+            return {"rows": rows, "probe": []}
+    else:
+        probe.append({"url": f"{SS_APP}/ship/info/{ship['id']}", "result": "배 홈페이지 주소를 찾지 못함"})
+    return {"rows": [], "probe": probe}
 
 
 @st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
@@ -788,15 +903,48 @@ with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸
                 ss[pkey] = {"rows": [], "msg": f"{SITES[code]} 목록 오류: {ex}"}
                 part = []
                 st.error(f"{SITES[code]} 배 목록을 불러오지 못했습니다: {ex}")
+        if code == "ss":                                 # 배경 수집으로 찾은 배 합치기
+            have = {r["id"] for r in part}
+            part = part + [r for r in ss_bg_rows() if r["id"] not in have]
         counts[code] = len(part)
         catalog += part
 lc1, lc2 = st.columns([3, 1], vertical_alignment="center")
-lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()))
+bg_note = ""
+if "ss" in site_codes:
+    _bs = ss_bg_state()
+    with _bs["lock"]:
+        _pg = dict(_bs["page"]); _rd = _bs["rounds"]
+    if not _rd:
+        bg_note = (" · 선상24 배 목록 확장 중(게시판 " + ", ".join(f"{SEAS[k]} {v}p" for k, v in _pg.items())
+                   + ") — 몇 분 뒤 다시 조회하면 더 많은 배가 나옵니다")
+lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + bg_note)
 if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
     for code, fn in CATALOG_FN.items():
         fn.clear()
         ss.pop(f"partial_{code}", None)
     st.rerun()
+
+def catalog_csv(code):
+    rows_ = [s for s in catalog if s["site"] == code]
+    df_ = pd.DataFrame([{
+        "사이트": SITES[code], "번호": s["id"], "배": s["name"], "바다": SEAS.get(s["sea"], s["sea"]),
+        "시도": s["sido"], "시군": s["sigungu"], "항구": s["port"],
+        "목록 어종/소개": s.get("hint", ""),
+        "예약페이지": (f"{SS_APP}/ship/schedule_fleet/{s['id']}" if code == "ss"
+                    else f"{TF}/reservation/list.php?uid={s['id']}"),
+    } for s in sorted(rows_, key=lambda s: (s["sea"], s["sido"], s["sigungu"], s["port"], s["name"]))])
+    return df_.to_csv(index=False).encode("utf-8-sig"), len(rows_)
+
+
+with st.expander("📥 배 목록 CSV 다운로드"):
+    dcols = st.columns(len(site_codes) or 1)
+    for col, code in zip(dcols, site_codes):
+        data_, n_ = catalog_csv(code)
+        col.download_button(f"{SITES[code]} 배 목록 ({n_}척)", data_, width="stretch",
+                            file_name=f"{SITES[code]}_배목록_{date.today():%Y%m%d}.csv", mime="text/csv",
+                            key=f"dl_cat_{code}")
+    if "ss" in site_codes and bg_note:
+        st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
 fish_list = fish_options()
 
 # ----- ① 지역
@@ -918,13 +1066,18 @@ if go:
     months = tuple(sorted({f"{d.year}{d.month:02d}" for d in days}))
     jobs = [("ss", s, ym) for s in ships if s["site"] == "ss" for ym in months] + \
            [("tf", s, months) for s in ships if s["site"] == "tf"]
-    rows, errors = [], []
+    rows, errors, probes = [], [], []
     bar = st.progress(0.0, text="예약현황을 가져오는 중...")
 
     def work(job):
         kind, s, arg = job
         try:
-            return (ss_month(freeze(s), arg) if kind == "ss" else tf_ship(freeze(s), arg)), None
+            if kind == "ss":
+                res = ss_month(freeze(s), arg)
+                if not res["rows"] and res["probe"]:
+                    probes.append((s["name"], res["probe"]))
+                return res["rows"], None
+            return tf_ship(freeze(s), arg), None
         except Exception as ex:
             return [], f"[{SITES[kind]}] {s['name']}: {ex}"
 
@@ -936,6 +1089,7 @@ if go:
             bar.progress(i / max(1, len(jobs)), text=f"예약현황 가져오는 중... {i}/{len(jobs)}")
     bar.empty()
     ss.rows, ss.errors, ss.fetched = rows, errors, time.strftime("%H:%M:%S")
+    ss.probes = probes
 
 # ----- 연결 점검
 with st.expander("🔧 연결 점검 (조회가 안 될 때 눌러서 화면을 캡처해 보내주세요)"):
@@ -993,16 +1147,34 @@ if rows is None:
     st.stop()
 
 st.subheader("조회 결과")
+q0 = ss.get("queried", {})
+if "ss" in site_codes and q0 and not q0.get("ss"):
+    st.error("선상24 배를 한 척도 조회하지 못했습니다 — 선상24 배 목록을 불러오지 못했거나 선택한 지역에 선상24 배가 없습니다. "
+             "화면 위쪽 '배 목록' 줄의 선상24 척수를 확인하고, 0척이면 [🔄 배 목록 다시 불러오기]를 눌러주세요.")
+if q0.get("ss") and not any(r["site"] == "ss" for r in rows):
+    pr = ss.get("probes", [])
+    msg = [f"**선상24 배 {q0['ss']}척을 조회했지만 일정을 하나도 읽지 못했습니다.** "
+           f"아래는 서버가 선상24에서 실제로 받은 화면입니다. 이 상자를 캡처해서 보내주시면 바로 고칠 수 있습니다."]
+    for name, plist in pr[:2]:
+        msg.append(f"\n**{name}**")
+        for p_ in plist:
+            msg.append(f"- `{p_['url']}` → {p_['result']}" + (f"  \n  앞부분: {p_['head']}" if p_.get("head") else ""))
+    if not pr:
+        msg.append("\n(각 배의 해당 월에 출조 일정이 등록되어 있지 않은 것으로 읽혔습니다.)")
+    st.error("\n".join(msg))
 if ss.errors:
     with st.expander(f"⚠️ {len(ss.errors)}건은 불러오지 못했습니다"):
         st.write("\n".join(f"- {e}" for e in ss.errors[:30]))
 
-f1, f2, f3 = st.columns([1, 1, 2])
+f1, f2, f3, f4 = st.columns([1, 1, 1.4, 1.6])
 only_open = f1.checkbox("예약 가능한 것만", value=True)
 need = f2.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
 sort_by = f3.radio("정렬", ["날짜순", "남은자리 많은순"], horizontal=True)
+name_q = f4.text_input("배 이름 검색", placeholder="예: 동백호, 골드스타")
 
 day_set = set(days)
+
+
 def row_fish_ok(r):
     if fish_match(f"{r['species']} {r['notice']} {r['boat']}", fish_sel):
         return True
@@ -1010,35 +1182,75 @@ def row_fish_ok(r):
     return r["site"] == "tf" and bool(re.search(r"외\s*\d+\s*종", r["species"]))
 
 
-in_scope = [r for r in rows if r["date"] in day_set and r["site"] in site_codes and row_fish_ok(r)]
+def name_ok(r):
+    if not name_q.strip():
+        return True
+    hay = re.sub(r"\s+", "", f"{r['ship']} {r['boat']}").lower()
+    return all(t in hay for t in re.sub(r"\s+", " ", name_q.strip().lower()).split(" "))
+
+
+in_scope = [r for r in rows if r["date"] in day_set and r["site"] in site_codes and row_fish_ok(r) and name_ok(r)]
 view = [r for r in in_scope if not only_open or (r["remain"] is not None and r["remain"] >= need)]
 view.sort(key=(lambda r: (r["date"], r["sido"], r["sigungu"], r["ship"])) if sort_by == "날짜순"
           else (lambda r: (-(r["remain"] or 0), r["date"])))
-by_site = {k: sum(1 for r in view if r["site"] == k) for k in site_codes}
 q = ss.get("queried", {})
-st.caption(f"{ss.fetched} 기준 · 선택 날짜/어종 일정 {len(in_scope)}건 중 {len(view)}건 표시 · "
-           + " / ".join(f"{SITES[k]} 배 {q.get(k, 0)}척 조회 → {n}건" for k, n in by_site.items()))
+st.caption(f"{ss.fetched} 기준" + (f" · 배 이름 '{name_q.strip()}' 검색 중" if name_q.strip() else ""))
 
-if view:
-    need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
-    if need_home:
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            homes = dict(zip(need_home, ex.map(ss_home, need_home)))
-        for r in view:
-            if r["site"] == "ss":
-                r["home"] = homes.get(r["ship_id"]) or r["url"]
+need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
+if need_home:
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        homes = dict(zip(need_home, ex.map(ss_home, need_home)))
+    for r in view:
+        if r["site"] == "ss":
+            r["home"] = homes.get(r["ship_id"]) or r["url"]
+
+st.markdown("""
+<style>
+.rtbl-wrap {max-height: 560px; overflow: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 12px;}
+.rtbl {width: 100%; border-collapse: collapse; font-size: .9rem; white-space: nowrap;}
+.rtbl th {position: sticky; top: 0; z-index: 1; background: #2b2f36; color: #fff; text-align: left;
+  padding: 9px 10px; font-weight: 700;}
+.rtbl td {padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.25);}
+.rtbl tr.ok td {background: #FFD43B !important; color: #111 !important; font-weight: 700;}
+.rtbl tr.ok td a {color: #0b4bd6 !important; text-decoration: underline;}
+.rtbl tr.ok td a.hp {color: #111 !important; background: #fff3; padding: 2px 8px; border-radius: 999px;
+  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}
+.rtbl tr.no td {color: #8c8c8c;}
+.rtbl td.nt {max-width: 280px; overflow: hidden; text-overflow: ellipsis;}
+.site-head {display:flex; align-items:baseline; gap:10px; margin:1.2rem 0 .4rem;}
+.site-head .nm {font-size:1.25rem; font-weight:800;}
+.site-head .badge {background:#FFD43B; color:#111; font-weight:800; border-radius:999px; padding:2px 10px; font-size:.85rem;}
+.site-head .sub {opacity:.7; font-size:.85rem;}
+</style>""", unsafe_allow_html=True)
+
+
+def render_site(code):
+    srows = [r for r in view if r["site"] == code]
+    sscope = [r for r in in_scope if r["site"] == code]
+    n_ok = sum(1 for r in srows if (r["remain"] or 0) > 0)
+    st.markdown(f"<div class='site-head'><span class='nm'>{SITES[code]}</span>"
+                f"<span class='badge'>예약가능 {n_ok}건</span>"
+                f"<span class='sub'>배 {q.get(code, 0)}척 조회 · 표시 {len(srows)}건 / 해당 일정 {len(sscope)}건</span></div>",
+                unsafe_allow_html=True)
+    if not srows:
+        if sscope:
+            st.caption("남은자리가 있는 일정이 없습니다. [예약 가능한 것만]을 끄면 마감된 일정도 볼 수 있습니다.")
+        else:
+            st.caption("선택한 조건에 해당하는 일정이 없습니다.")
+        return
     df = pd.DataFrame([{
-        "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})", "사이트": SITES[r["site"]],
+        "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})",
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x), "물때": r["tide"],
         "배": r["ship"] if r["boat"] in r["ship"] else f"{r['ship']} / {r['boat']}",
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
         "상태": r["status"], "공지": r["notice"], "예약": r["url"],
         "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
-    } for r in view])
-
+    } for r in srows])
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
-    cols = ["날짜", "사이트", "지역", "물때", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
+    cols = ["날짜", "지역", "물때", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
+    if code == "ss":
+        cols.remove("가격")                               # 선상24는 가격 칸이 없음
     head = "".join(f"<th>{c}</th>" for c in cols)
     body = []
     for _, r in df.iterrows():
@@ -1055,26 +1267,12 @@ if view:
             else:
                 cells.append(f"<td>{htmlmod.escape(str(v))}</td>")
         body.append(f"<tr class='{'ok' if r['_ok'] else 'no'}'>{''.join(cells)}</tr>")
-    st.markdown(f"""
-<style>
-.rtbl-wrap {{max-height: 640px; overflow: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 12px;}}
-.rtbl {{width: 100%; border-collapse: collapse; font-size: .9rem; white-space: nowrap;}}
-.rtbl th {{position: sticky; top: 0; z-index: 1; background: #2b2f36; color: #fff; text-align: left;
-  padding: 9px 10px; font-weight: 700;}}
-.rtbl td {{padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.25);}}
-.rtbl tr.ok td {{background: #FFD43B !important; color: #111 !important; font-weight: 700;}}
-.rtbl tr.ok td a {{color: #0b4bd6 !important; text-decoration: underline;}}
-.rtbl tr.ok td a.hp {{color: #111 !important; background: #fff3; padding: 2px 8px; border-radius: 999px;
-  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}}
-.rtbl tr.no td {{color: #8c8c8c;}}
-.rtbl td.nt {{max-width: 280px; overflow: hidden; text-overflow: ellipsis;}}
-</style>
-<div class="rtbl-wrap"><table class="rtbl"><thead><tr>{head}</tr></thead><tbody>{''.join(body)}</tbody></table></div>
-""", unsafe_allow_html=True)
-    st.download_button("CSV 다운로드", df.drop(columns=["_ok"]).to_csv(index=False).encode("utf-8-sig"),
-                       file_name=f"선상낚시_예약_{today:%Y%m%d}.csv", mime="text/csv")
-elif in_scope:
-    st.write("선택한 조건에 남은자리가 있는 일정이 없습니다. [예약 가능한 것만]을 끄면 마감된 일정도 볼 수 있습니다.")
-else:
-    st.write("선택한 날짜·어종에 해당하는 출조 일정이 없습니다.")
+    st.markdown(f"<div class='rtbl-wrap'><table class='rtbl'><thead><tr>{head}</tr></thead>"
+                f"<tbody>{''.join(body)}</tbody></table></div>", unsafe_allow_html=True)
+    st.download_button(f"{SITES[code]} 결과 CSV 다운로드",
+                       df.drop(columns=["_ok"]).to_csv(index=False).encode("utf-8-sig"),
+                       file_name=f"{SITES[code]}_예약_{today:%Y%m%d}.csv", mime="text/csv", key=f"dl_res_{code}")
 
+
+for code in site_codes:
+    render_site(code)
