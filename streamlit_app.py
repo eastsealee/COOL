@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-15 (조류세기 계산 보강)"
+APP_VERSION = "v10.13-16 (조류세기=바다타임 물흐름)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -805,13 +805,16 @@ def parse_tide(html, y, m):
         highs = [h for h in heights if h > mid] or [max(heights)]
         lows = [h for h in heights if h <= mid] or [min(heights)]
         mul = re.search(r"(\d{1,2}\s*물|조금|무시)", block)
+        # ▲/▼ 뒤 숫자 = 직전 물때와의 높이 변화(cm). 바다타임 '물흐름 %'는 이 값의 하루 평균과 거의 정확히 비례함
+        deltas = [abs(int(x)) for x in re.findall(r"[▲▼]\s*([+-]?\d{1,4})", block)][:4]
         days[d] = {"range": round(sum(highs) / len(highs) - sum(lows) / len(lows)),
-                   "mul": mul.group(1).replace(" ", "") if mul else "", "heights": heights}
+                   "mul": mul.group(1).replace(" ", "") if mul else "", "heights": heights,
+                   "flow": round(sum(deltas) / len(deltas), 1) if deltas else None}
     return days
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 3):
+def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 4):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
     days = parse_tide(html, y, m)
@@ -820,14 +823,24 @@ def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 3):
     return days
 
 
+# 바다타임 남당항 '물흐름 %' 환산 기준 — 2026년 10월 13~27일 바다타임 화면 값과 대조해 맞춘 값
+# (▲/▼ 변화량 하루 평균이 201cm면 0%, 732cm면 100%; 10/13~19는 매일 ±1%p 이내로 일치)
+FLOW_ZERO, FLOW_FULL = 201.0, 732.0                       # 사리 → 조금 (물살이 약해지는 기간)
+FLOW_ZERO_UP, FLOW_FULL_UP = 234.0, 727.0                 # 조금 → 사리 (물살이 세지는 기간)
+
+
 def tide_with_strength(all_days):
-    """조류세기(%) = 앞뒤 7일(사리~조금 한 주기) 안에서 조차가 가장 작은 날 0%, 가장 큰 날 100%로 환산.
-    (물때와날씨 앱의 10/19 남당항 6%와 같은 방식의 눈금 — 실제 값으로 검증 시 약 5%)"""
     out = {}
     for d, v in all_days.items():
-        win = [all_days[d + timedelta(days=k)]["range"] for k in range(-7, 8) if d + timedelta(days=k) in all_days]
-        lo, hi = min(win), max(win)
-        pct = round((v["range"] - lo) / (hi - lo) * 100) if hi > lo else None
+        if v.get("flow") is not None:
+            prev = all_days.get(d - timedelta(days=1), {}).get("flow")
+            rising = prev is not None and v["flow"] > prev and len(v.get("heights", [])) >= 4
+            z, f = (FLOW_ZERO_UP, FLOW_FULL_UP) if rising else (FLOW_ZERO, FLOW_FULL)
+            pct = round((v["flow"] - z) / (f - z) * 100)
+        else:                                            # ▲/▼ 값이 없을 때만 예전 방식(앞뒤 7일 조차 기준)
+            win = [all_days[d + timedelta(days=k)]["range"] for k in range(-7, 8) if d + timedelta(days=k) in all_days]
+            lo, hi = min(win), max(win)
+            pct = round((v["range"] - lo) / (hi - lo) * 100) if hi > lo else None
         out[d] = {**v, "pct": None if pct is None else max(0, min(100, pct))}
     return out
 
@@ -836,7 +849,9 @@ def tide_label(d):
     t = ss.get("tide", {}).get(d)
     if not t:
         return ""
-    return f"{t['pct']}%" if t.get("pct") is not None else ""
+    if t.get("pct") is None:
+        return ""
+    return "최소" if t["pct"] <= 0 else f"{t['pct']}%"
 
 
 # ---------------------------------------------------------------- 공통
@@ -1414,9 +1429,9 @@ with st.expander(f"🌊 조류세기 계산 근거 ({TIDE_PORT_NAME}, 바다타�
         st.caption("물때표를 불러오지 못했습니다.")
     else:
         show = sorted({d + timedelta(days=k) for d in days for k in range(-7, 8)} & set(td))
-        st.caption("조차 = 만조 높이 평균 − 간조 높이 평균. 조류세기 = 앞뒤 7일 중 조차가 가장 작은 날 0%, 가장 큰 날 100%.")
+        st.caption("조류세기 = 바다타임 '물흐름'과 같은 눈금. 하루 ▲/▼ 높이 변화 평균이 201cm면 0%(최소), 732cm면 100%.")
         st.dataframe(pd.DataFrame([{
             "날짜": f"{d:%m.%d}({WEEK[d.weekday()]})" + (" ◀" if d in day_set else ""), "물때": td[d]["mul"],
             "만조·간조 높이(cm)": ", ".join(str(h) for h in td[d].get("heights", [])),
-            "조차(cm)": td[d]["range"], "조류세기": f"{td[d]['pct']}%" if td[d]["pct"] is not None else "",
+            "물흐름 지표(▲▼ 평균 cm)": td[d].get("flow"), "조류세기": tide_label(d),
         } for d in show]), hide_index=True, width="stretch")
