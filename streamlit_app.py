@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-10 (조류세기 추가)"
+APP_VERSION = "v10.13-12 (조류세기 % 표시)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -778,33 +778,39 @@ def tf_ship(ship_t, months, _ver=CACHE_VER):
 # 바다타임 남당항(코드 356) 월별 물때표의 만조·간조 높이(cm)로 그날 조차를 구하고,
 # 그 달 최대 조차(사리) 대비 백분율을 '조류세기'로 표시
 TIDE_PORT_NAME, TIDE_PORT_CODE = "남당항", 356
-TIDE_ROW_RE = re.compile(r"^\s*([월화수목금토일])\s*(\d{1,2})\b")
+TIDE_DAY_RE = re.compile(r"(?m)^([월화수목금토일])\s+(\d{1,2})(?=\s|$)")
 
 
-@st.cache_data(ttl=12 * 3600, show_spinner=False)
-def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER):
-    y, m = int(yyyymm[:4]), int(yyyymm[4:])
-    html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
-    soup = BeautifulSoup(html, "html.parser")
+def parse_tide(html, y, m):
+    """바다타임 물때표 텍스트 → {날짜: {range, mul}}
+    하루치는 '월 19' 줄로 시작해 '9.9 무시 08:34 (479) … (544) … (326) … (264)' 처럼 여러 줄에 걸쳐 있음.
+    표 구조에 기대지 않고, 날짜 줄부터 다음 날짜 줄 전까지를 하루로 읽음."""
+    full = "\n".join(clean_lines(html))
+    heads = list(TIDE_DAY_RE.finditer(full))
     days = {}
-    for tr in soup.find_all("tr"):
-        text = re.sub(r"\s+", " ", tr.get_text(" ")).strip()
-        mt = TIDE_ROW_RE.match(text)
-        if not mt:
-            continue
+    for i, mt in enumerate(heads):
+        block = full[mt.end(): heads[i + 1].start() if i + 1 < len(heads) else len(full)]
         try:
             d = date(y, m, int(mt.group(2)))
         except ValueError:
             continue
-        if WEEK[d.weekday()] != mt.group(1):
+        if WEEK[d.weekday()] != mt.group(1) or d in days:
             continue
-        heights = [int(h) for h in re.findall(r"\((\d{2,4})\)", text)]
+        heights = [int(h) for h in re.findall(r"\((\d{2,4})\)", block)][:4]   # 하루 만조·간조 최대 4번
         if len(heights) < 2:
             continue
-        mul = re.search(r"(\d{1,2}\s*물|조금|무시)", text[mt.end():])
+        mul = re.search(r"(\d{1,2}\s*물|조금|무시)", block)
         days[d] = {"range": max(heights) - min(heights), "mul": mul.group(1).replace(" ", "") if mul else ""}
-    if not days:
-        raise RuntimeError("남당항 물때표를 읽지 못했습니다")
+    return days
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
+def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 1):
+    y, m = int(yyyymm[:4]), int(yyyymm[4:])
+    html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
+    days = parse_tide(html, y, m)
+    if len(days) < 20:
+        raise RuntimeError(f"남당항 물때표를 제대로 읽지 못했습니다({len(days)}일만 인식)")
     peak = max(v["range"] for v in days.values())
     for v in days.values():
         v["pct"] = round(v["range"] / peak * 100) if peak else None
@@ -815,7 +821,7 @@ def tide_label(d):
     t = ss.get("tide", {}).get(d)
     if not t:
         return ""
-    return f"{t['pct']}% ({t['range']}cm)"
+    return f"{t['pct']}%" if t.get("pct") is not None else ""
 
 
 # ---------------------------------------------------------------- 공통
