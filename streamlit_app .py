@@ -117,8 +117,22 @@ PLACES = {
 def fetch_html(url):
     r = requests.get(url, headers=HEADERS, timeout=15)
     r.raise_for_status()
-    r.encoding = r.apparent_encoding or "utf-8"
-    return r.text
+    raw = getattr(r, "content", None)
+    if not isinstance(raw, bytes):                       # (테스트용 가짜 응답)
+        return r.text
+    headers = getattr(r, "headers", {}) or {}
+    m = re.search(r"charset=([\w\-]+)", headers.get("Content-Type", ""), re.I)
+    enc = m.group(1) if m else None
+    if not enc:
+        mb = re.search(rb"charset=[\"']?([\w\-]+)", raw[:3000], re.I)
+        enc = mb.group(1).decode("ascii", "ignore") if mb else None
+    enc = (enc or getattr(r, "apparent_encoding", None) or "utf-8").lower()
+    if enc in ("euc-kr", "euckr", "ks_c_5601-1987", "x-windows-949", "korean"):
+        enc = "cp949"                                    # 한글 옛 인코딩은 cp949로 읽어야 깨지지 않음
+    try:
+        return raw.decode(enc, errors="replace")
+    except LookupError:
+        return raw.decode("utf-8", errors="replace")
 
 
 def clean_lines(html):
@@ -371,11 +385,20 @@ def tf_catalog():
     return rows
 
 
+TF_DAY_RE = re.compile(r"(?m)^()(\d{1,2})\n([월화수목금토일])요일\s*$")
+
+
 def tf_parse_calendar(html, year, month, ship):
     """thefishing.kr/reservation/list.php?uid=… 의 달력(이번 달) → 일정"""
     full = "\n".join(clean_lines(html))
     home = re.search(r"https?://([a-z0-9\-]+)\.thefishing\.kr", html)
-    dates = line_start_dates(full, DATE_RE)
+    # 더피싱 달력은 '15⏎목요일⏎11물' 형식(숫자 줄 + 요일 줄). '15일 (목)' 형식도 함께 지원
+    found = list(TF_DAY_RE.finditer(full)) + line_start_dates(full, DATE_RE)
+    found.sort(key=lambda m: m.start())
+    dates = []
+    for m in found:
+        if not dates or m.start() >= dates[-1].end():
+            dates.append(m)
 
     def shift(yy, mm, k):
         mm += k
@@ -547,12 +570,49 @@ def freeze(ship):
 
 # ================================================================ 화면
 st.set_page_config(page_title="선상낚시 예약조회", page_icon="🎣", layout="wide")
-st.markdown("""
+ACCENT = "#F5A300"        # 강조색(앰버) — 다크/라이트 모드 모두에서 잘 보이는 색
+st.markdown(f"""
 <style>
-.st-key-cal [data-testid="stHorizontalBlock"] {flex-wrap: nowrap !important; gap: 4px !important;}
-.st-key-cal [data-testid="stColumn"] {min-width: 0 !important; flex: 1 1 0 !important; width: auto !important;}
-.st-key-cal button {padding: 0.15rem 0 !important; min-height: 2.3rem; width: 100%;}
-.st-key-cal .wk p {text-align: center; font-weight: 600; margin: 0;}
+/* ---------- 달력 카드 ---------- */
+.st-key-cal {{
+  max-width: 560px; border: 1px solid rgba(128,128,128,.28); border-radius: 18px;
+  padding: 14px 14px 10px; background: rgba(128,128,128,.06);
+}}
+.st-key-cal [data-testid="stHorizontalBlock"] {{flex-wrap: nowrap !important; gap: 6px !important;}}
+.st-key-cal [data-testid="stColumn"] {{min-width: 0 !important; flex: 1 1 0 !important; width: auto !important;}}
+.st-key-cal .stButton, .st-key-cal [data-testid="stButton"] {{width: 100% !important;}}
+.st-key-cal .stButton button {{
+  width: 100% !important; min-height: 2.75rem; padding: 0 !important; border-radius: 12px !important;
+  border: 1px solid transparent !important; background: transparent !important;
+  font-size: 1.02rem; font-weight: 600; transition: all .12s ease;
+}}
+.st-key-cal .stButton button:hover:not(:disabled) {{
+  background: rgba(245,163,0,.16) !important; border-color: rgba(245,163,0,.55) !important;
+}}
+.st-key-cal .stButton button p {{font-size: 1.08rem !important; font-weight: 700 !important;}}
+.st-key-cal div.st-key-calnav_prev button p, .st-key-cal div.st-key-calnav_next button p {{font-size: 1.6rem !important;
+  line-height: 1 !important; margin-top: -3px;}}
+.st-key-cal .stButton button:disabled {{opacity: .28;}}
+.st-key-cal .cal-title {{text-align:center; font-size:1.3rem; font-weight:800; margin:.35rem 0 0; letter-spacing:.02em;}}
+.st-key-cal .cal-sub {{text-align:center; font-size:.82rem; opacity:.7; margin:0 0 .2rem;}}
+.st-key-cal .wk {{text-align:center; font-size:.8rem; font-weight:700; opacity:.85; padding:.2rem 0 .1rem;
+  border-bottom: 1px solid rgba(128,128,128,.25); margin-bottom: .2rem;}}
+.st-key-cal div.st-key-calnav_prev button, .st-key-cal div.st-key-calnav_next button {{
+  border-radius: 50% !important; width: 2.6rem !important; min-height: 2.6rem !important;
+  border: 1px solid rgba(128,128,128,.45) !important; font-size: 1.5rem !important; line-height: 1;
+}}
+.st-key-cal div.st-key-calnav_prev, .st-key-cal div.st-key-calnav_next {{width: auto !important;}}
+.st-key-cal div.st-key-calnav_next {{margin-left: auto;}}
+/* ---------- 조회 버튼 ---------- */
+button[kind="primary"] {{background: {ACCENT} !important; border-color: {ACCENT} !important;
+  color: #1b1b1b !important; font-weight: 800 !important; font-size: 1.05rem !important; min-height: 3rem;}}
+button[kind="primary"]:disabled {{opacity: .45;}}
+/* ---------- 빠른 선택 버튼 ---------- */
+.st-key-quick {{max-width: 560px;}}
+.st-key-quick .stButton button {{border-radius: 999px !important; font-size: .88rem;}}
+.chips {{max-width:560px; display:flex; flex-wrap:wrap; gap:6px; margin:.3rem 0 .2rem;}}
+.chip {{background:{ACCENT}; color:#1b1b1b; font-weight:700; font-size:.82rem; padding:3px 10px; border-radius:999px;}}
+.chip.we {{background:#FFD8A8;}}
 </style>""", unsafe_allow_html=True)
 st.title("🎣 선상낚시 통합 예약조회")
 st.caption("선상24 · 더피싱 예약현황을 한 번에 조회합니다.")
@@ -608,47 +668,72 @@ manual = [r for r in (resolve_manual(t) for t in manual_text.split(",") if t.str
 # ----- ② 날짜 (달력)
 st.subheader("② 날짜 선택")
 y, m = ss.cal_ym
+month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
+
+# 날짜별 스타일 (일=빨강, 토=파랑, 오늘=테두리, 선택=앰버로 채움)
+rules = []
+for d in month_days:
+    k = f".st-key-cal div.st-key-d{d.isoformat()} button"
+    if d in ss.sel_days:
+        rules.append(f"{k}{{background:{ACCENT} !important;color:#1b1b1b !important;"
+                     f"border-color:{ACCENT} !important;box-shadow:0 2px 8px rgba(245,163,0,.35);}}")
+    elif d.weekday() == 6:
+        rules.append(f"{k}{{color:#FF6B6B !important;}}")
+    elif d.weekday() == 5:
+        rules.append(f"{k}{{color:#4DABF7 !important;}}")
+    if d == today:
+        rules.append(f"{k}{{outline:2px solid {ACCENT};outline-offset:-2px;}}")
+st.markdown(f"<style>{''.join(rules)}</style>", unsafe_allow_html=True)
+
 with st.container(key="cal"):
-    n1, n2, n3 = st.columns([1, 3, 1])
-    if n1.button("◀", key="prev", disabled=(y, m) <= (today.year, today.month)):
-        ss.cal_ym = (y - 1, 12) if m == 1 else (y, m - 1)
-        st.rerun()
-    n2.markdown(f"<p style='text-align:center;font-size:1.15rem;font-weight:700;margin:.4rem 0'>"
-                f"{y}년 {m}월</p>", unsafe_allow_html=True)
-    if n3.button("▶", key="next"):
-        ss.cal_ym = (y + 1, 1) if m == 12 else (y, m + 1)
-        st.rerun()
+    n1, n2, n3 = st.columns([1, 4, 1], vertical_alignment="center")
+    with n1:
+        if st.button("‹", key="calnav_prev", disabled=(y, m) <= (today.year, today.month)):
+            ss.cal_ym = (y - 1, 12) if m == 1 else (y, m - 1)
+            st.rerun()
+    sel_in_month = sum(1 for d in ss.sel_days if (d.year, d.month) == (y, m))
+    n2.markdown(f"<p class='cal-title'>{y}. {m:02d}</p>"
+                f"<p class='cal-sub'>이 달 {sel_in_month}일 선택</p>", unsafe_allow_html=True)
+    with n3:
+        if st.button("›", key="calnav_next"):
+            ss.cal_ym = (y + 1, 1) if m == 12 else (y, m + 1)
+            st.rerun()
     for col, wd in zip(st.columns(7), ["일", "월", "화", "수", "목", "금", "토"]):
-        color = "#d33" if wd == "일" else "#36c" if wd == "토" else "inherit"
-        col.markdown(f"<div class='wk'><p style='color:{color}'>{wd}</p></div>", unsafe_allow_html=True)
+        c = "#FF6B6B" if wd == "일" else "#4DABF7" if wd == "토" else "inherit"
+        col.markdown(f"<div class='wk' style='color:{c}'>{wd}</div>", unsafe_allow_html=True)
     for week in calendar.Calendar(firstweekday=6).monthdatescalendar(y, m):
         for col, d in zip(st.columns(7), week):
             if d.month != m:
-                col.write("")
+                col.markdown("<div style='min-height:2.75rem'></div>", unsafe_allow_html=True)
                 continue
-            if col.button(str(d.day), key=f"d{d.isoformat()}", disabled=d < today,
-                          type="primary" if d in ss.sel_days else "secondary"):
+            if col.button(str(d.day), key=f"d{d.isoformat()}", disabled=d < today, width="stretch",
+                          help=f"{d.month}월 {d.day}일 ({WEEK[d.weekday()]})"):
                 ss.sel_days.symmetric_difference_update({d})
                 st.rerun()
-b1, b2, b3, b4 = st.columns(4)
-if b1.button("이번 주말", width="stretch"):
-    sat = today + timedelta(days=(5 - today.weekday()) % 7)
-    ss.sel_days = {d for d in (sat - timedelta(days=1) if today.weekday() == 6 else sat,
-                               sat + timedelta(days=1)) if d >= today}
-    st.rerun()
-if b2.button("앞으로 7일", width="stretch"):
-    ss.sel_days = {today + timedelta(days=i) for i in range(7)}
-    st.rerun()
-if b3.button("이 달 주말 전체", width="stretch"):
-    ss.sel_days = {d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk
-                   if d.month == m and d >= today and d.weekday() >= 5}
-    st.rerun()
-if b4.button("선택 해제", width="stretch"):
-    ss.sel_days = set()
-    st.rerun()
+
+with st.container(key="quick"):
+    b1, b2, b3, b4 = st.columns(4)
+    if b1.button("이번 주말", width="stretch"):
+        sat = today + timedelta(days=(5 - today.weekday()) % 7)
+        ss.sel_days = {d for d in (sat - timedelta(days=1) if today.weekday() == 6 else sat,
+                                   sat + timedelta(days=1)) if d >= today}
+        st.rerun()
+    if b2.button("앞으로 7일", width="stretch"):
+        ss.sel_days = {today + timedelta(days=i) for i in range(7)}
+        st.rerun()
+    if b3.button("이 달 주말", width="stretch"):
+        ss.sel_days = {d for d in month_days if d >= today and d.weekday() >= 5}
+        st.rerun()
+    if b4.button("선택 해제", width="stretch"):
+        ss.sel_days = set()
+        st.rerun()
 days = sorted(ss.sel_days)
-st.caption("선택한 날짜: " + (", ".join(f"{d.month}/{d.day}({WEEK[d.weekday()]})" for d in days)
-                         if days else "없음 — 달력에서 날짜를 눌러주세요"))
+if days:
+    chips = "".join(f"<span class='chip{' we' if d.weekday() >= 5 else ''}'>"
+                    f"{d.month}/{d.day} {WEEK[d.weekday()]}</span>" for d in days)
+    st.markdown(f"<div class='chips'>{chips}</div>", unsafe_allow_html=True)
+else:
+    st.caption("선택한 날짜가 없습니다 — 달력에서 날짜를 눌러주세요.")
 
 # ----- ③ 어종
 st.subheader("③ 어종 선택")
@@ -708,7 +793,9 @@ in_scope = [r for r in rows if r["date"] in day_set and r["site"] in site_codes
 view = [r for r in in_scope if not only_open or (r["remain"] is not None and r["remain"] >= need)]
 view.sort(key=(lambda r: (r["date"], r["sido"], r["sigungu"], r["ship"])) if sort_by == "날짜순"
           else (lambda r: (-(r["remain"] or 0), r["date"])))
-st.caption(f"{ss.fetched} 기준 · 선택 날짜/어종 일정 {len(in_scope)}건 중 {len(view)}건 표시")
+by_site = {k: sum(1 for r in view if r["site"] == k) for k in site_codes}
+st.caption(f"{ss.fetched} 기준 · 선택 날짜/어종 일정 {len(in_scope)}건 중 {len(view)}건 표시 · "
+           + " / ".join(f"{SITES[k]} {n}건" for k, n in by_site.items()))
 
 if view:
     df = pd.DataFrame([{
@@ -722,7 +809,9 @@ if view:
     def color(row):
         v = row["남은자리"]
         ok = v is not None and v == v and v > 0
-        return ["background-color: #e8f6ec" if ok else "color: #999"] * len(row)
+        style = ("background-color: #FFD43B; color: #1b1b1b; font-weight: 700" if ok
+                 else "color: #8c8c8c")
+        return [style] * len(row)
 
     st.dataframe(df.style.apply(color, axis=1), width="stretch", hide_index=True, height=600,
                  column_config={
