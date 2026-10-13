@@ -60,7 +60,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-19 (기온 4개 시각)"
+APP_VERSION = "v10.13-20 (기온 16일 예보)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -940,6 +940,37 @@ def day_temps(dstr, code=TIDE_PORT_CODE, _ver=CACHE_VER):
     return parse_hourly_temps(html)
 
 
+# 기온 예보: Open-Meteo 공개 날씨 API (앱에서 쓰라고 공개된 무료 API — 비상업 용도). 남당항 좌표 기준 16일치 시간별 기온
+TEMP_LAT, TEMP_LON = 36.533, 126.467                     # 남당항 (북위 36°32′, 동경 126°28′)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def openmeteo_temps(lat=TEMP_LAT, lon=TEMP_LON, _ver=CACHE_VER):
+    url = ("https://api.open-meteo.com/v1/forecast"
+           f"?latitude={lat}&longitude={lon}&hourly=temperature_2m&timezone=Asia%2FSeoul&forecast_days=16")
+    last = None
+    for i in range(3):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=20)
+            r.raise_for_status()
+            data = r.json()
+            break
+        except Exception as ex:
+            last = ex
+            time.sleep(1.5 * (i + 1))
+    else:
+        raise RuntimeError(f"기온 예보를 가져오지 못했습니다: {last}")
+    hourly = data.get("hourly", {})
+    out = {}
+    for t, v in zip(hourly.get("time", []), hourly.get("temperature_2m", [])):
+        if v is None:
+            continue
+        d, hh = t[:10], t[11:13]                          # '2026-10-19T06:00'
+        if hh in TEMP_HOURS:
+            out[(date.fromisoformat(d), hh)] = round(v)
+    return out
+
+
 def temp_label(d):
     t = ss.get("temps", {})
     vals = [t.get((d, h)) for h in TEMP_HOURS]
@@ -1306,13 +1337,11 @@ if go:
             if ym in months:
                 errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
     ss.tide = tide_with_strength(tide)
-    temps = {}
-    for d in [kst_today()] + [d for d in days if kst_today() <= d <= kst_today() + timedelta(days=4)]:
-        try:
-            temps.update(day_temps(d.isoformat()))
-        except Exception:
-            pass
-    ss.temps = temps
+    try:
+        ss.temps = openmeteo_temps()
+    except Exception as ex:
+        ss.temps = {}
+        errors.append(f"[기온] {ex}")
     try:
         ss.weather, ss.weather_area = tide_weather()
     except Exception as ex:
@@ -1552,6 +1581,8 @@ def render_site(code):
 
 for code in site_codes:
     render_site(code)
+
+st.caption("물때·조류세기·날씨: 바다타임 남당항 · 기온: Open-Meteo 예보(남당항 위치, 최대 16일 앞까지)")
 
 with st.expander(f"🌊 조류세기 계산 근거 ({TIDE_PORT_NAME}, 바다타임 물때표)"):
     td = ss.get("tide", {})
