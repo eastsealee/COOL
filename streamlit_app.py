@@ -40,6 +40,7 @@ SS_APP = "https://app.sunsang24.com"
 TF = "https://thefishing.kr"
 SEAS = {"west": "서해", "east": "동해", "south": "남해", "jeju": "제주"}
 SITES = {"ss": "선상24", "tf": "더피싱"}
+CACHE_VER = 3            # 저장된 목록을 새로 만들게 할 때 올림
 SS_BOARD_MAX_PAGES = 12
 TF_LIST_MAX_PAGES = 40
 MAX_SHIPS = 150
@@ -143,19 +144,26 @@ def fetch_html(url, tries=3, headers=None):
     raw = getattr(r, "content", None)
     if not isinstance(raw, bytes):                       # (테스트용 가짜 응답)
         return r.text
+    # ① UTF-8로 먼저 엄격하게 시도: 한글 UTF-8 페이지는 깨끗이 풀리고, EUC-KR 바이트는 거의 항상 실패함.
+    #    (선상24처럼 실제는 UTF-8인데 euc-kr이라고 선언한 페이지가 있어 선언만 믿으면 글자가 깨짐)
+    try:
+        return raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        pass
+    # ② 실패하면 선언된 인코딩 → 자동 추정 → cp949 순서
     headers = getattr(r, "headers", {}) or {}
     m = re.search(r"charset=([\w\-]+)", headers.get("Content-Type", ""), re.I)
     enc = m.group(1) if m else None
     if not enc:
         mb = re.search(rb"charset=[\"']?([\w\-]+)", raw[:3000], re.I)
         enc = mb.group(1).decode("ascii", "ignore") if mb else None
-    enc = (enc or getattr(r, "apparent_encoding", None) or "utf-8").lower()
-    if enc in ("euc-kr", "euckr", "ks_c_5601-1987", "x-windows-949", "korean"):
+    enc = (enc or getattr(r, "apparent_encoding", None) or "cp949").lower()
+    if enc in ("euc-kr", "euckr", "ks_c_5601-1987", "x-windows-949", "korean", "utf-8", "utf8"):
         enc = "cp949"                                    # 한글 옛 인코딩은 cp949로 읽어야 깨지지 않음
     try:
         return raw.decode(enc, errors="replace")
     except LookupError:
-        return raw.decode("utf-8", errors="replace")
+        return raw.decode("cp949", errors="replace")
 
 
 def clean_lines(html):
@@ -261,6 +269,21 @@ TIME_LABEL = re.compile(r"(?:출항\s*시간|운항\s*시간)\s*:?\s*")
 BOOKED_RE = re.compile(r"\s*(?:(\d+)\s*명\s*)?예약\s*/\s*(\d+)\s*명|\s*(\d+)\s*명")
 
 
+SS_REMAIN_RE = re.compile(r"남은\s*자리\s*:?\s*(\d+)\s*명")
+SS_CLOSED_RE = re.compile(r"(예약\s*마감)|(기상\s*악화|출조\s*취소|휴\s*항|휴\s*무)")
+
+
+def ss_status_of(m):
+    if m is None:
+        return None, "확인필요"
+    if m.re is SS_REMAIN_RE:
+        n = int(m.group(1))
+        return n, ("예약가능" if n > 0 else "마감")
+    if m.group(1):
+        return 0, "마감"
+    return 0, re.sub(r"\s+", "", m.group(2))
+
+
 def ss_parse(html, year, month, ship):
     full = "\n".join(clean_lines(html))
     dates = line_start_dates(full, DATE_RE)
@@ -283,8 +306,11 @@ def ss_parse(html, year, month, ship):
             tm = TIME_RE.search(block, lab.end(), nxt)
             sp_end = tl.start() if tl else (tm.start() if tm else block.find("\n", lab.end()))
             species = re.sub(r"\s+", " ", block[lab.end(): sp_end if sp_end > 0 else nxt]).strip(" /")
-            stm = STATUS_RE.search(block, tm.end() if tm else lab.end(), nxt)
-            remain, status = status_of(stm)
+            # 선상24 화면에는 '예약완료·입금대기·취소대기…' 범례가 남은자리 앞에 붙어 있음.
+            # 범례의 '예약완료'를 마감으로 읽지 않도록 '남은자리 N명'을 먼저 찾고, 없을 때만 마감/기상 문구를 봄
+            start_at = tm.end() if tm else lab.end()
+            stm = SS_REMAIN_RE.search(block, start_at, nxt) or SS_CLOSED_RE.search(block, start_at, nxt)
+            remain, status = ss_status_of(stm)
             end = stm.end() if stm else (tm.end() if tm else lab.end())
             if stm:
                 bm = BOOKED_RE.match(block, stm.end())
@@ -353,7 +379,7 @@ def _ss_crawl_sea(sea):
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def ss_catalog():
+def ss_catalog(_ver=CACHE_VER):
     rows, seen, failed = [], set(), []
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_ss_crawl_sea, list(SEAS)))
@@ -375,36 +401,61 @@ def ss_catalog():
     return rows
 
 
+def _probe(url, html=None, err=None):
+    """서버가 실제로 받은 화면 요약 (원인 확인용)"""
+    if err is not None:
+        return {"url": url, "result": f"접속 실패: {err}"}
+    t = re.search(r"<title[^>]*>(.*?)</title>", html or "", re.S | re.I)
+    head = " ".join(clean_lines(html or ""))[:160]
+    return {"url": url, "result": f"글자 {len(html or ''):,}자 · 제목 '{(t.group(1).strip() if t else '-')[:40]}'",
+            "head": head}
+
+
 @st.cache_data(ttl=300, show_spinner=False)
-def ss_month(ship_t, yyyymm):
-    """선상24 한 척의 한 달 일정. 못 읽으면 다른 주소/모바일 화면으로 다시 시도하고,
-    그래도 안 되면 이유를 오류 목록에 남김(빈 결과로 조용히 넘어가지 않게)"""
+def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
+    """선상24 한 척의 한 달 일정 → {"rows": [...], "probe": [...]}
+    순서대로 시도: 앱 월별 일정 → (이번 달) 앱 일정 → 모바일 화면 → 배 홈페이지(xxx.sunsang24.com).
+    하나도 못 읽으면 각 시도에서 서버가 받은 화면 요약을 probe로 돌려줌."""
     ship = dict(ship_t)
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     today = date.today()
     tries = [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", None)]
     if (y, m) == (today.year, today.month):
-        tries += [(f"{SS_APP}/ship/schedule/{ship['id']}", None)]
-    tries += [(f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS)]
-    last_html = ""
-    for url, hdr in tries:
-        with SS_SEM:
-            html = fetch_html(url, headers=hdr)
-            time.sleep(0.15)
+        tries.append((f"{SS_APP}/ship/schedule/{ship['id']}", None))
+    tries.append((f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{yyyymm}", MOBILE_HEADERS))
+    probe = []
+
+    def attempt(url, hdr):
+        try:
+            with SS_SEM:
+                html = fetch_html(url, headers=hdr, tries=2)
+                time.sleep(0.15)
+        except Exception as ex:
+            probe.append(_probe(url, err=ex))
+            return []
         rows = [r for r in ss_parse(html, y, m, ship) if (r["date"].year, r["date"].month) == (y, m)]
+        if not rows:
+            probe.append(_probe(url, html))
+        return rows
+
+    for url, hdr in tries:
+        rows = attempt(url, hdr)
         if rows:
-            return rows
-        last_html = html
-    text = " ".join(clean_lines(last_html))
-    if any(k in text for k in ("남은자리", "대상어종", "출항시간", "예약마감")):
-        raise RuntimeError(f"{m}월 일정 형식을 읽지 못함 — 화면 앞부분: {text[:120]}")
-    if len(last_html) < 1500:
-        raise RuntimeError(f"{m}월 페이지 응답이 비정상(글자 {len(last_html)}자): {text[:120]}")
-    return []                                            # 그 달 출조 일정이 없는 배
+            return {"rows": rows, "probe": []}
+    home = ss_home(ship["id"])                           # 배 홈페이지 쪽 예약현황 (다른 서버 주소)
+    if home:
+        rows = attempt(f"{home}ship/schedule_fleet/{yyyymm}", None)
+        if rows:
+            for r in rows:
+                r["url"] = f"{home}ship/schedule_fleet/{yyyymm}"
+            return {"rows": rows, "probe": []}
+    else:
+        probe.append({"url": f"{SS_APP}/ship/info/{ship['id']}", "result": "배 홈페이지 주소를 찾지 못함"})
+    return {"rows": [], "probe": probe}
 
 
 @st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
-def ss_home(ship_id):
+def ss_home(ship_id, _ver=CACHE_VER):
     """선상24 배의 홈페이지(xxx.sunsang24.com) — 배 소개 페이지의 사진 경로 ship_img/<xxx>/ 에서 찾음"""
     try:
         html = ss_fetch(f"{SS_APP}/ship/info/{ship_id}")
@@ -459,7 +510,7 @@ def _tf_list_page(page):
 
 
 @st.cache_data(ttl=24 * 3600, show_spinner=False)
-def tf_catalog():
+def tf_catalog(_ver=CACHE_VER):
     first, last = _tf_list_page(1)
     if not first:
         raise CatalogError("더피싱 목록 첫 페이지를 불러오지 못했습니다", [])
@@ -608,7 +659,7 @@ def tf_parse_home(html, ship):
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def tf_ship(ship_t, months):
+def tf_ship(ship_t, months, _ver=CACHE_VER):
     """더피싱 한 척: 예약 페이지 달력(이번 달) + 선사 홈페이지 예약현황(가까운 8일, 다른 달)"""
     ship = dict(ship_t)
     today = date.today()
@@ -646,7 +697,7 @@ def ship_cols(ship):
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def fish_options():
+def fish_options(_ver=CACHE_VER):
     fish = []
     try:
         soup = BeautifulSoup(fetch_html(f"{SS_APP}/ship/list?area=all"), "html.parser")
@@ -910,13 +961,18 @@ if go:
     months = tuple(sorted({f"{d.year}{d.month:02d}" for d in days}))
     jobs = [("ss", s, ym) for s in ships if s["site"] == "ss" for ym in months] + \
            [("tf", s, months) for s in ships if s["site"] == "tf"]
-    rows, errors = [], []
+    rows, errors, probes = [], [], []
     bar = st.progress(0.0, text="예약현황을 가져오는 중...")
 
     def work(job):
         kind, s, arg = job
         try:
-            return (ss_month(freeze(s), arg) if kind == "ss" else tf_ship(freeze(s), arg)), None
+            if kind == "ss":
+                res = ss_month(freeze(s), arg)
+                if not res["rows"] and res["probe"]:
+                    probes.append((s["name"], res["probe"]))
+                return res["rows"], None
+            return tf_ship(freeze(s), arg), None
         except Exception as ex:
             return [], f"[{SITES[kind]}] {s['name']}: {ex}"
 
@@ -928,6 +984,7 @@ if go:
             bar.progress(i / max(1, len(jobs)), text=f"예약현황 가져오는 중... {i}/{len(jobs)}")
     bar.empty()
     ss.rows, ss.errors, ss.fetched = rows, errors, time.strftime("%H:%M:%S")
+    ss.probes = probes
 
 # ----- 연결 점검
 with st.expander("🔧 연결 점검 (조회가 안 될 때 눌러서 화면을 캡처해 보내주세요)"):
@@ -985,6 +1042,21 @@ if rows is None:
     st.stop()
 
 st.subheader("조회 결과")
+q0 = ss.get("queried", {})
+if "ss" in site_codes and q0 and not q0.get("ss"):
+    st.error("선상24 배를 한 척도 조회하지 못했습니다 — 선상24 배 목록을 불러오지 못했거나 선택한 지역에 선상24 배가 없습니다. "
+             "화면 위쪽 '배 목록' 줄의 선상24 척수를 확인하고, 0척이면 [🔄 배 목록 다시 불러오기]를 눌러주세요.")
+if q0.get("ss") and not any(r["site"] == "ss" for r in rows):
+    pr = ss.get("probes", [])
+    msg = [f"**선상24 배 {q0['ss']}척을 조회했지만 일정을 하나도 읽지 못했습니다.** "
+           f"아래는 서버가 선상24에서 실제로 받은 화면입니다. 이 상자를 캡처해서 보내주시면 바로 고칠 수 있습니다."]
+    for name, plist in pr[:2]:
+        msg.append(f"\n**{name}**")
+        for p_ in plist:
+            msg.append(f"- `{p_['url']}` → {p_['result']}" + (f"  \n  앞부분: {p_['head']}" if p_.get("head") else ""))
+    if not pr:
+        msg.append("\n(각 배의 해당 월에 출조 일정이 등록되어 있지 않은 것으로 읽혔습니다.)")
+    st.error("\n".join(msg))
 if ss.errors:
     with st.expander(f"⚠️ {len(ss.errors)}건은 불러오지 못했습니다"):
         st.write("\n".join(f"- {e}" for e in ss.errors[:30]))
