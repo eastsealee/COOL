@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 선상24 실시간예약 조회 — 웹 버전 (Streamlit)
+- 날짜 / 지역 / 어종 선택: 지역·어종 목록은 선상24 목록 페이지에서 읽어옴
 로컬 실행:  pip install -r requirements.txt  →  streamlit run streamlit_app.py
 """
 import re
@@ -207,47 +208,164 @@ def parse_schedule(html, year, ship_id=""):
 
 
 
-# ---------------------------------------------------------------- 웹 화면 (Streamlit)
+# ---------------------------------------------------------------- 선상24 필터 목록 (지역/어종)
 import pandas as pd
 import streamlit as st
+from datetime import timedelta
 
+FILTER_PAGE = "https://app.sunsang24.com/ship/list?area=all"
+# 사이트에서 못 읽을 때 쓰는 기본값 (2026-10 기준 app.sunsang24.com 목록 페이지와 동일)
+FALLBACK_AREAS = {"전체": "all", "서해": "west", "동해": "east", "남해": "south", "제주": "jeju"}
+FALLBACK_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어",
+                 "한치", "오징어", "낙지", "호래기", "화살촉오징어", "부시리", "삼치", "갈치", "열기",
+                 "노래미", "황열기", "볼락", "벤자리", "전갱이", "민어", "농어", "백조기", "수조기",
+                 "도다리", "대구", "어구가자미", "참가자미", "붉바리", "방어", "돌돔", "붕장어", "쥐치",
+                 "벵에돔", "옥돔", "쏨뱅이", "고등어", "망둥어", "홍감펭", "임연수어", "참치", "상어",
+                 "뿔돔", "꽃게", "홍어"]
+NOT_FISH = {"전체어종", "시즌어종", "기타", "베스트조황", "체험낚시", "갯바위", "좌대유터",
+            "해루질", "탐사", "출조안내", "전체", "거리순"}
+FISH_ALIAS = {"주꾸미": ["주꾸미", "쭈꾸미", "쭈갑"], "갑오징어": ["갑오징어", "쭈갑", "갑오"],
+              "우럭": ["우럭", "조피볼락"], "광어": ["광어", "넙치"], "백조기": ["백조기", "조기"],
+              "무늬오징어": ["무늬오징어", "에깅"], "오징어": ["오징어"], "문어": ["문어", "돌문어", "대문어"]}
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
+def load_filter_options():
+    """선상24 목록 페이지에서 지역(area)과 어종 목록을 읽어옴. 실패하면 기본값."""
+    areas, fish, src = {}, [], "기본값"
+    try:
+        soup = BeautifulSoup(fetch_html(FILTER_PAGE), "html.parser")
+        for a in soup.find_all("a", href=True):
+            m = re.search(r"[?&]area=([a-z]+)", a["href"])
+            name = a.get_text(strip=True)
+            if m and name and len(name) <= 6:
+                areas.setdefault(name, m.group(1))
+        anchor = soup.find(string=re.compile(r"^\s*전체어종\s*$"))
+        node = anchor.parent if anchor else None
+        while node is not None and len(node.find_all(["a", "li", "button"])) < 15:
+            node = node.parent
+        if node is not None:
+            for el in node.find_all(["a", "li", "button", "span"]):
+                t = el.get_text(strip=True)
+                if t and 1 < len(t) <= 8 and t not in NOT_FISH and t not in fish \
+                        and re.fullmatch(r"[가-힣]+", t):
+                    fish.append(t)
+        if areas and len(fish) >= 10:
+            src = "선상24"
+    except Exception:
+        pass
+    if not areas or len(fish) < 10:
+        return FALLBACK_AREAS, FALLBACK_FISH, "기본값(사이트 응답 없음)"
+    return areas, fish, src
+
+
+# ---------------------------------------------------------------- 배 지역 판별
+AREA_BY_PLACE = [
+    ("jeju", ["제주", "서귀포"]),
+    ("east", ["강원", "속초", "양양", "강릉", "동해시", "삼척", "울진", "영덕", "포항", "경주",
+              "울산", "경북"]),
+    ("west", ["인천", "경기", "옹진", "화성", "평택", "안산", "시흥", "김포", "충남", "태안", "보령",
+              "서산", "당진", "홍성", "서천", "전북", "군산", "부안", "고창", "영광", "목포", "신안",
+              "무안", "함평"]),
+    ("south", ["부산", "경남", "거제", "통영", "남해", "사천", "창원", "마산", "고성군", "전남", "여수",
+               "고흥", "완도", "진도", "해남", "장흥", "강진", "보성", "광양"]),
+]
+
+
+@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+def detect_ship_info(ship):
+    """배 홈페이지에서 이름과 주소를 읽고 지역 코드를 추정"""
+    try:
+        soup = BeautifulSoup(fetch_html(f"https://{ship}.sunsang24.com/"), "html.parser")
+    except Exception:
+        return {"title": ship, "address": "", "area": ""}
+    text = re.sub(r"\s+", " ", soup.get_text(" "))
+    title = soup.title.get_text(strip=True).split(",")[0] if soup.title else ship
+    m = re.search(r"오시는\s*길\s*:?\s*([가-힣0-9\- ]{4,40})", text)
+    addr = m.group(1).strip() if m else ""
+    hay = addr or text[:3000]
+    area = ""
+    # 시/군 단위(구체적) 먼저 확인
+    for code, places in AREA_BY_PLACE:
+        if any(p in hay for p in places if len(p) >= 2 and p not in ("경북", "경남", "전남", "전북",
+                                                                      "충남", "경기", "강원")):
+            area = code
+            break
+    if not area:
+        for code, places in AREA_BY_PLACE:
+            if any(p in hay for p in places):
+                area = code
+                break
+    return {"title": title, "address": addr, "area": area}
+
+
+def fish_match(species_text, selected):
+    if not selected:
+        return True
+    for f in selected:
+        for alias in FISH_ALIAS.get(f, [f]):
+            if alias in species_text:
+                return True
+    return False
+
+
+# ---------------------------------------------------------------- 화면
 st.set_page_config(page_title="선상24 예약조회", page_icon="🎣", layout="wide")
 st.title("🎣 선상24 실시간예약 조회")
-st.caption("배 홈페이지 주소의 앞부분(예: gamsung.sunsang24.com → gamsung)을 넣고 조회하세요.")
-
 
 @st.cache_data(ttl=180, show_spinner=False)
 def load_month(ship, y, m):
-    """한 배의 한 달 일정 (3분 캐시 — 사이트 부담 줄이기)"""
     html = fetch_html(schedule_url(ship, f"{y}{m:02d}"))
     return parse_schedule(html, y, ship)
 
 
-qp = st.query_params
-default_ships = qp.get("ships", "gamsung")
+areas, fish_list, filter_src = load_filter_options()
+area_names = list(areas.keys())
+code_to_name = {v: k for k, v in areas.items()}
 today = date.today()
 
-with st.form("search"):
-    c1, c2, c3 = st.columns([3, 1, 1])
-    ships_text = c1.text_input("선박 ID (쉼표로 여러 개)", value=default_ships)
-    start = c2.date_input("조회 시작월", value=today.replace(day=1))
-    n_months = c3.selectbox("기간", [1, 2, 3], format_func=lambda x: f"{x}개월")
-    submitted = st.form_submit_button("조회", type="primary", width="stretch")
+qp = st.query_params
+default_ships = qp.get("ships", "gamsung")
 
-ships = [s for s in (normalize_ship_id(x) for x in ships_text.split(",")) if s]
+with st.expander("⚓ 조회할 배 목록", expanded=not qp.get("ships")):
+    st.caption("배 홈페이지 주소의 앞부분을 쉼표로 넣으세요. 예: gamsung.sunsang24.com → gamsung")
+    ships_text = st.text_area("선박 ID", value=default_ships, height=70, label_visibility="collapsed")
+ships = [s for s in (normalize_ship_id(x) for x in ships_text.replace("\n", ",").split(",")) if s]
+
+st.subheader("예약 조회")
+with st.form("search"):
+    c1, c2, c3 = st.columns([2, 1, 2])
+    period = c1.date_input("날짜 선택 (시작일 ~ 종료일)", value=(today, today + timedelta(days=13)),
+                           min_value=today, max_value=today + timedelta(days=365), format="YYYY.MM.DD")
+    area_sel = c2.selectbox("지역 선택", area_names,
+                            index=area_names.index(code_to_name.get("all", area_names[0])))
+    fish_sel = c3.multiselect("어종 선택", fish_list, placeholder="전체 어종")
+    o1, o2, o3 = st.columns([1, 1, 2])
+    need = o1.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
+    only_open = o2.checkbox("예약 가능한 것만", value=True)
+    weekend = o3.checkbox("주말만")
+    submitted = st.form_submit_button("조회", type="primary", width="stretch")
+st.caption(f"지역·어종 목록 출처: {filter_src}")
 
 if submitted:
-    st.query_params["ships"] = ",".join(ships)  # 주소창 링크로 즐겨찾기 가능
-    rows, errors = [], []
-    y, m = start.year, start.month
-    months = []
-    for _ in range(n_months):
+    st.query_params["ships"] = ",".join(ships)
+    if isinstance(period, (tuple, list)):
+        d_from = period[0]
+        d_to = period[1] if len(period) > 1 else period[0]
+    else:
+        d_from = d_to = period
+    months, y, m = [], d_from.year, d_from.month
+    while (y, m) <= (d_to.year, d_to.month):
         months.append((y, m))
-        m += 1
-        if m > 12:
-            y, m = y + 1, 1
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+    rows, errors, info = [], [], {}
+    want_area = areas.get(area_sel, "all")
     with st.spinner("선상24에서 일정을 가져오는 중..."):
         for ship in ships:
+            info[ship] = detect_ship_info(ship)
+            if want_area != "all" and info[ship]["area"] and info[ship]["area"] != want_area:
+                continue  # 다른 지역 배는 조회 생략
             for (yy, mm) in months:
                 try:
                     items = load_month(ship, yy, mm)
@@ -257,49 +375,51 @@ if submitted:
                 except Exception as ex:
                     errors.append(f"{ship} {yy}.{mm}: {ex}")
                 time.sleep(0.3)
-    st.session_state["rows"] = rows
-    st.session_state["errors"] = errors
-    st.session_state["fetched"] = time.strftime("%H:%M:%S")
+    for r in rows:
+        r["area"] = code_to_name.get(info[r["ship_id"]]["area"], "미확인")
+        r["port"] = info[r["ship_id"]]["address"]
+    st.session_state.update(rows=rows, errors=errors, fetched=time.strftime("%H:%M:%S"),
+                            crit=(d_from, d_to, want_area, fish_sel, need, only_open, weekend))
 
 rows = st.session_state.get("rows")
 if rows is None:
-    st.info("조회 버튼을 누르면 결과가 여기에 표시됩니다.")
+    st.info("날짜·지역·어종을 고르고 [조회]를 누르세요.")
     st.stop()
 
 for e in st.session_state.get("errors", [])[:5]:
     st.warning(e)
 
-st.subheader("필터")
-f1, f2, f3, f4 = st.columns([2, 1, 1, 1])
-kw = f1.text_input("어종/배 이름 검색", placeholder="예: 쭈꾸미, 감성돔")
-need = f2.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
-only_open = f3.checkbox("예약 가능한 것만")
-weekend = f4.checkbox("주말만")
-
+d_from, d_to, want_area, fish_sel_c, need_c, only_open_c, weekend_c = st.session_state["crit"]
 view = []
 for r in rows:
-    if kw and kw not in r["species"] and kw not in r["boat"] and kw not in r["notice"]:
+    d = date.fromisoformat(r["date"][:10])
+    if not (d_from <= d <= d_to):
         continue
-    if only_open and not (r["remain"] is not None and r["remain"] >= need):
+    if want_area != "all" and r["area"] not in (code_to_name.get(want_area), "미확인"):
         continue
-    if weekend and not r["date"].endswith(("(토)", "(일)")):
+    if not fish_match(r["species"] + " " + r["boat"], fish_sel_c):
+        continue
+    if only_open_c and not (r["remain"] is not None and r["remain"] >= need_c):
+        continue
+    if weekend_c and not r["date"].endswith(("(토)", "(일)")):
         continue
     view.append(r)
 
-st.caption(f"{st.session_state.get('fetched')} 기준 · 전체 {len(rows)}건 중 {len(view)}건 표시")
+st.caption(f"{st.session_state.get('fetched')} 기준 · {len(view)}건")
 
 if view:
-    df = pd.DataFrame(view)[["date", "tide", "boat", "species", "time", "remain",
-                             "booked", "status", "notice", "url"]]
-    df.columns = ["날짜", "물때", "배", "어종", "운항시간", "남은자리", "예약", "상태", "공지", "예약페이지"]
+    df = pd.DataFrame(view)[["date", "tide", "area", "boat", "species", "time", "remain",
+                             "booked", "status", "port", "notice", "url"]]
+    df.columns = ["날짜", "물때", "지역", "배", "어종", "운항시간", "남은자리", "예약", "상태",
+                  "주소", "공지", "예약페이지"]
 
     def color(row):
-        ok = row["남은자리"] is not None and row["남은자리"] == row["남은자리"] and row["남은자리"] > 0
+        v = row["남은자리"]
+        ok = v is not None and v == v and v > 0
         return ["background-color: #e8f6ec" if ok else "color: #999"] * len(row)
 
     st.dataframe(
-        df.style.apply(color, axis=1),
-        width="stretch", hide_index=True, height=560,
+        df.style.apply(color, axis=1), width="stretch", hide_index=True, height=560,
         column_config={
             "예약페이지": st.column_config.LinkColumn("예약페이지", display_text="열기"),
             "공지": st.column_config.TextColumn("공지", width="medium"),
