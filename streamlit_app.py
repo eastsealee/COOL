@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-5 (클럽씨피싱 실제 구조)"
+APP_VERSION = "v10.14-6 (클럽씨피싱 N명만)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -139,12 +139,12 @@ PLACES = {
 
 
 # ---------------------------------------------------------------- 공통 유틸
-def fetch_html(url, tries=3, headers=None):
+def fetch_html(url, tries=3, headers=None, timeout=20):
     """페이지 가져오기 — 일시적 오류(시간초과, 429/5xx)는 잠깐 쉬었다가 다시 시도"""
     last_err = None
     for i in range(tries):
         try:
-            r = requests.get(url, headers=headers or HEADERS, timeout=20)
+            r = requests.get(url, headers=headers or HEADERS, timeout=timeout)
             code = getattr(r, "status_code", 200)
             if code in (429, 500, 502, 503, 504) and i < tries - 1:
                 time.sleep(1.5 * (i + 1))
@@ -514,7 +514,7 @@ def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
     def attempt(url, hdr):
         try:
             with SS_SEM:
-                html = fetch_html(url, headers=hdr, tries=2)
+                html = fetch_html(url, headers=hdr, tries=2, timeout=45)
                 time.sleep(0.15)
         except Exception as ex:
             probe.append(_probe(url, err=ex))
@@ -1173,8 +1173,73 @@ def _cs_mkdate(md, year, month):
     return d
 
 
+CS_TR_SPLIT = re.compile(r"<tr[\s>]", re.I)
+CS_LP_RE = re.compile(r"class=[\"'][^\"']*left_person[^\"']*[\"'][^>]*>(.*?)</td>", re.I | re.S)
+CS_STRONG_RE = re.compile(r"<strong[^>]*>(.*?)</strong>", re.I | re.S)
+CS_DN_RE = re.compile(r"data-dn_date=[\"'](\d{4}-\d{2}-\d{2})[\"']", re.I)
+CS_DESC_RE = re.compile(r"class=[\"']desc[\"'][^>]*>(.*?)</div>", re.I | re.S)
+CS_TIDE_RE = re.compile(r">\s*(\d{1,2}\s*물|조금|한조금|무시|한객기)\s*<")
+CS_N_RE = re.compile(r"^\s*(\d{1,3})\s*명\s*$")
+
+
+def _cs_txt(frag):
+    return _norm(re.sub(r"<[^>]+>", " ", frag).replace("&nbsp;", " "))
+
+
+def parse_clubsea_simple(html, year, month):
+    """가장 단순한 방식: 표의 줄(<tr>)마다 '남은인원' 칸이 'N명'인 배만 골라 날짜·배 이름·N명을 가져옴.
+    (예약완료·예약불가·'-' 줄과 예약자 이름 목록은 읽지 않음)"""
+    out, cur, tide, ctime = [], None, "", {}
+    for chunk in CS_TR_SPLIT.split(html)[1:]:
+        lp = CS_LP_RE.search(chunk)
+        head = chunk[:lp.start()] if lp else chunk
+        head_wo_desc = CS_DESC_RE.sub(" ", head)
+        md = CS_DATE_RE2.search(_cs_txt(head_wo_desc))   # 날짜 칸(또는 날짜 제목 줄)
+        if md:
+            cur = _cs_mkdate(md, year, month) or cur
+            mt = CS_TIDE_RE.search(head_wo_desc)
+            tide = re.sub(r"\s+", "", mt.group(1)) if mt else ""
+        if not lp:
+            continue
+        ms = CS_STRONG_RE.search(head)
+        name = _cs_txt(ms.group(1)) if ms else ""
+        if name == "공지" and cur is not None:          # 그날 공통 공지의 '출항 6시10분'
+            tg = CS_TIME_RE.search(_cs_txt(chunk[:lp.start()]))
+            if tg:
+                ctime[cur] = f"{int(tg.group(1)):02d}:{int(tg.group(2) or 0):02d} 출항"
+        mn = CS_N_RE.match(_cs_txt(lp.group(1)))
+        if not mn:
+            continue
+        if not name or name == "공지" or CS_DATE_RE2.search(name):
+            continue
+        mdn = CS_DN_RE.search(chunk)
+        d = date.fromisoformat(mdn.group(1)) if mdn else cur
+        if d is None:
+            continue
+        mdesc = CS_DESC_RE.search(chunk)
+        desc = _cs_txt(mdesc.group(1)) if mdesc else ""
+        tm = CS_TIME_RE.search(desc)
+        species = re.split(r"\s+-\s+|\s*[\"“(]", desc)[0].strip()
+        remain = int(mn.group(1))
+        out.append({**ship_cols(CS_SHIP), "date": d, "tide": tide if (mdn is None or d == cur) else "",
+                    "boat": name, "species": species or desc[:30],
+                    "time": f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else ctime.get(d, ""),
+                    "price": "", "remain": remain, "status": "예약가능" if remain > 0 else "마감",
+                    "notice": desc[len(species):].strip(" -")[:200] if species else "", "url": f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}",
+                    "home": f"{CS}/"})
+    uniq = {}
+    for r in out:
+        uniq.setdefault((r["date"], r["boat"]), r)
+    return list(uniq.values())
+
+
 def parse_clubsea(html, year, month, stats=None):
     """클럽씨피싱 예약 페이지 → 일정 목록 (배마다 한 줄). 예약자 이름 목록은 읽지 않음."""
+    simple = parse_clubsea_simple(html, year, month)
+    if simple:
+        if stats is not None:
+            stats.update(dates=len({r["date"] for r in simple}), boat_rows=len(simple), chars=len(html))
+        return simple
     soup = BeautifulSoup(html, "html.parser")
     if soup.select_one("td.left_person"):
         for tag in soup(["script", "style", "noscript"]):
@@ -1504,7 +1569,8 @@ if "ss" in site_codes:
 lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + snap_note + bg_note)
 if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
     for code, fn in CATALOG_FN.items():
-        fn.clear()
+        if hasattr(fn, "clear"):
+            fn.clear()
         ss.pop(f"partial_{code}", None)
     st.rerun()
 
@@ -1900,6 +1966,8 @@ def render_site(code):
     if site_errs and not sscope:
         st.error(f"{SITES[code]} 조회 실패 — 서버가 받은 내용: " + site_errs[0][len(SITES[code]) + 2:][:400]
                  + "  \n이 상자를 캡처해서 보내주세요.")
+    if code == "cs" and not sscope and not site_errs and q.get("cs"):
+        st.info("클럽씨피싱 페이지는 정상으로 읽었지만, 선택한 날짜에 남은 자리(N명)가 있는 배가 없습니다.")
     if not srows:
         if sscope:
             st.caption("남은자리가 있는 일정이 없습니다. [예약 가능한 것만]을 끄면 마감된 일정도 볼 수 있습니다.")
