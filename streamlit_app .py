@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-3 (클럽씨피싱 추가)"
+APP_VERSION = "v10.14-4 (클럽씨피싱 수정)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1071,77 +1071,126 @@ def _cs_lines(el):
     return [x for x in (re.sub(r"\s+", " ", t).strip() for t in el.get_text("\n").split("\n")) if x]
 
 
-def parse_clubsea(html, year, month):
-    """클럽씨피싱 예약 페이지 → 일정 목록 (배마다 한 줄)"""
+CS_DATE_RE2 = re.compile(r"(\d{1,2})\s*월\s*(\d{1,2})\s*일(?:\s*\(?\s*([월화수목금토일]))?")
+
+
+def _norm(t):
+    return re.sub(r"\s+", " ", t or "").strip()
+
+
+def _pos(el):
+    return (getattr(el, "sourceline", 0) or 0, getattr(el, "sourcepos", 0) or 0)
+
+
+def _smallest(soup, test, maxlen):
+    """조건에 맞는 글자를 가진 '가장 작은' 요소들 (날짜·물때가 여러 태그로 쪼개져 있어도 찾기 위해)"""
+    out = []
+    for el in soup.find_all(True):
+        if el.name in ("html", "body", "table", "tbody", "thead"):
+            continue
+        t = _norm(el.get_text(" "))
+        if not t or len(t) > maxlen or not test(t):
+            continue
+        if any(test(_norm(c.get_text(" "))) for c in el.find_all(True)):
+            continue                                     # 더 작은 자식이 이미 조건에 맞음
+        out.append((el, t))
+    return out
+
+
+def _cs_boat_cells(tr):
+    tds = tr.find_all("td", recursive=False)
+    if len(tds) < 2:
+        return None
+    last = _norm(tds[-1].get_text(" "))
+    first = _norm(tds[0].get_text(" "))
+    if CS_REMAIN_RE.match(last) or "예약하기" in first:
+        return tds
+    return None
+
+
+def parse_clubsea(html, year, month, stats=None):
+    """클럽씨피싱 예약 페이지 → 일정 목록 (배마다 한 줄). 예약자 이름 목록은 읽지 않음."""
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-    out, cur, tide, day_time, seen_rows = [], None, "", "", set()
-    for node in soup.find_all(string=True):
-        txt = re.sub(r"\s+", " ", node).strip()
-        if not txt:
+    events = []
+    for el, t in _smallest(soup, lambda t: bool(CS_DATE_RE2.search(t)), 30):
+        md = CS_DATE_RE2.search(t)
+        mo, dd = int(md.group(1)), int(md.group(2))
+        yy = year + (1 if mo < month - 6 else 0) - (1 if mo > month + 6 else 0)
+        try:
+            d = date(yy, mo, dd)
+        except ValueError:
             continue
-        tr = node.find_parent("tr")
-        tds = tr.find_all("td", recursive=False) if tr else []
-        is_boat_row = len(tds) >= 2 and (CS_REMAIN_RE.match(tds[-1].get_text(" ", strip=True) or "")
-                                         or "예약하기" in tds[0].get_text(" ", strip=True))
-        if is_boat_row:
-            if cur is None or id(tr) in seen_rows:
-                continue
-            seen_rows.add(id(tr))
-            name_el = tds[0].find(["strong", "b"])
-            name = (name_el.get_text(" ", strip=True) if name_el else tds[0].get_text(" ", strip=True))
-            name = re.sub(r"\s*예약하기\s*", " ", name).strip()
-            detail = [l for l in _cs_lines(tds[1]) if "님" not in l and not l.startswith("/")
-                      and l not in ("공지", "예약확정", "예약", "미정", "예약하기")]
-            detail = [re.sub(r"^공지\s*", "", l) for l in detail]
-            # 같은 줄에 붙은 예약 상태 표시(예약확정·예약·미정)와 그 뒤 내용은 잘라냄
-            detail = [re.split(r"\s*(?:예약확정|예약대기|(?<![가-힣])예약(?![가-힣])|(?<![가-힣])미정(?![가-힣]))", l)[0].strip()
-                      for l in detail]
-            detail = [l for l in detail if l]
-            species = next((l for l in detail if "낚시" in l), detail[0] if detail else "")
-            notice = " ".join(l for l in detail if l != species)
-            tm = CS_TIME_RE.search(notice) or CS_TIME_RE.search(species)
-            when = f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else day_time
-            rm = CS_REMAIN_RE.match(tds[-1].get_text(" ", strip=True) or "")
-            if rm and rm.group(1) is not None:
-                remain = int(rm.group(1))
-                status = "예약가능" if remain > 0 else "마감"
-            elif rm and rm.group(2):
-                remain, status = 0, "마감"
-            elif rm and rm.group(3):
-                remain, status = 0, re.sub(r"\s+", "", rm.group(3))
-            else:
-                remain, status = None, "확인필요"
-            out.append({**ship_cols(CS_SHIP), "date": cur, "tide": tide, "boat": name, "species": species,
-                        "time": when, "price": "", "remain": remain, "status": status,
-                        "notice": notice[:200],
-                        "url": f"{CS}/reservation?price_search=&search_date={cur:%Y-%m}&day={cur:%d}",
-                        "home": f"{CS}/"})
+        if md.group(3) and WEEK[d.weekday()] != md.group(3):
             continue
-        md = CS_DATE_RE.search(txt)
-        if md:
-            mo, dd = int(md.group(1)), int(md.group(2))
-            yy = year + (1 if mo < month - 6 else 0) - (1 if mo > month + 6 else 0)
-            try:
-                d = date(yy, mo, dd)
-            except ValueError:
-                continue
-            if WEEK[d.weekday()] == md.group(3):
-                cur, tide, day_time = d, "", ""
-                mt = CS_TIDE_RE.match(txt[md.end():].strip(" ),")) if txt[md.end():].strip(" ),") else None
-                if mt:
-                    tide = mt.group(1).replace(" ", "")
+        rest = t[md.end():].strip(" ),")
+        mt = CS_TIDE_RE.match(rest) if rest else None
+        events.append((_pos(el), "date", (d, mt.group(1).replace(" ", "") if mt else "")))
+    for el, t in _smallest(soup, lambda t: bool(CS_TIDE_RE.match(t)), 6):
+        if el.find_parent("tr") is not None and _cs_boat_cells(el.find_parent("tr")):
             continue
-        if cur is not None:
-            mt = CS_TIDE_RE.match(txt)
-            if mt and not tide:
-                tide = mt.group(1).replace(" ", "")
-                continue
-            tm = CS_TIME_RE.search(txt)
-            if tm and not day_time:
-                day_time = f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항"
-    # 같은 날 같은 배가 두 번 잡히면 하나만
+        events.append((_pos(el), "tide", CS_TIDE_RE.match(t).group(1).replace(" ", "")))
+    for el, t in _smallest(soup, lambda t: bool(CS_TIME_RE.search(t)), 80):
+        if el.find_parent("tr") is not None and _cs_boat_cells(el.find_parent("tr")):
+            continue
+        tm = CS_TIME_RE.search(t)
+        events.append((_pos(el), "time", f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항"))
+    n_rows = 0
+    for tr in soup.find_all("tr"):
+        tds = _cs_boat_cells(tr)
+        if tds:
+            n_rows += 1
+            events.append((_pos(tr), "boat", tds))
+    events.sort(key=lambda e: e[0])
+    if stats is not None:
+        stats.update(dates=sum(1 for e in events if e[1] == "date"), boat_rows=n_rows, chars=len(html))
+
+    out, cur, tide, day_time = [], None, "", ""
+    for _, kind, val in events:
+        if kind == "date":
+            cur, tide, day_time = val[0], val[1], ""
+            continue
+        if cur is None:
+            continue
+        if kind == "tide":
+            tide = tide or val
+            continue
+        if kind == "time":
+            day_time = day_time or val
+            continue
+        tds = val
+        name_el = tds[0].find(["strong", "b"])
+        src_el = name_el if name_el else tds[0]
+        for btn in src_el.find_all(["button", "a"]):
+            if "예약하기" in btn.get_text():
+                btn.extract()
+        name = _norm(re.sub(r"예약하기", " ", src_el.get_text("")))   # 줄바꿈으로 쪼개진 이름은 붙여서
+        detail = [l for l in _cs_lines(tds[1]) if "님" not in l and not l.startswith("/")
+                  and l not in ("공지", "예약확정", "예약", "미정", "예약하기")]
+        detail = [re.sub(r"^공지\s*", "", l) for l in detail]
+        # 같은 줄에 붙은 예약 상태 표시(예약확정·예약·미정)와 그 뒤 내용은 잘라냄
+        detail = [re.split(r"\s*(?:예약확정|예약대기|(?<![가-힣])예약(?![가-힣])|(?<![가-힣])미정(?![가-힣]))", l)[0].strip()
+                  for l in detail]
+        detail = [l for l in detail if l]
+        species = next((l for l in detail if "낚시" in l), detail[0] if detail else "")
+        notice = " ".join(l for l in detail if l != species)
+        tm = CS_TIME_RE.search(notice) or CS_TIME_RE.search(species)
+        when = f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else day_time
+        rm = CS_REMAIN_RE.match(_norm(tds[-1].get_text(" ")))
+        if rm and rm.group(1) is not None:
+            remain = int(rm.group(1))
+            status = "예약가능" if remain > 0 else "마감"
+        elif rm and rm.group(2):
+            remain, status = 0, "마감"
+        elif rm and rm.group(3):
+            remain, status = 0, re.sub(r"\s+", "", rm.group(3))
+        else:
+            remain, status = None, "확인필요"
+        out.append({**ship_cols(CS_SHIP), "date": cur, "tide": tide, "boat": name, "species": species,
+                    "time": when, "price": "", "remain": remain, "status": status, "notice": notice[:200],
+                    "url": f"{CS}/reservation?price_search=&search_date={cur:%Y-%m}&day={cur:%d}",
+                    "home": f"{CS}/"})
     uniq = {}
     for r in out:
         uniq.setdefault((r["date"], r["boat"]), r)
@@ -1149,10 +1198,16 @@ def parse_clubsea(html, year, month):
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def cs_page(dstr, _ver=CACHE_VER):
+def cs_page(dstr, _ver=CACHE_VER + 1):
     d = date.fromisoformat(dstr)
     html = fetch_html(f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}")
-    return parse_clubsea(html, d.year, d.month)
+    stats = {}
+    rows = parse_clubsea(html, d.year, d.month, stats)
+    if not rows:
+        head = " ".join(clean_lines(html))[:150]
+        raise RuntimeError(f"{d:%m/%d} 페이지에서 일정을 읽지 못함 — 글자 {stats.get('chars', 0):,}자, "
+                           f"날짜 {stats.get('dates', 0)}개·배 줄 {stats.get('boat_rows', 0)}개 인식 · 앞부분: {head}")
+    return rows
 
 
 def cs_ship(ship_t, days_t):
