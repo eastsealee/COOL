@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-6 (클럽씨피싱 N명만)"
+APP_VERSION = "v10.14-7 (클럽씨피싱 마감 외 전부)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1186,6 +1186,9 @@ def _cs_txt(frag):
     return _norm(re.sub(r"<[^>]+>", " ", frag).replace("&nbsp;", " "))
 
 
+CS_CLOSED = {"예약마감", "예약완료", "마감"}
+
+
 def parse_clubsea_simple(html, year, month):
     """가장 단순한 방식: 표의 줄(<tr>)마다 '남은인원' 칸이 'N명'인 배만 골라 날짜·배 이름·N명을 가져옴.
     (예약완료·예약불가·'-' 줄과 예약자 이름 목록은 읽지 않음)"""
@@ -1207,9 +1210,10 @@ def parse_clubsea_simple(html, year, month):
             tg = CS_TIME_RE.search(_cs_txt(chunk[:lp.start()]))
             if tg:
                 ctime[cur] = f"{int(tg.group(1)):02d}:{int(tg.group(2) or 0):02d} 출항"
-        mn = CS_N_RE.match(_cs_txt(lp.group(1)))
-        if not mn:
-            continue
+        lp_txt = _cs_txt(lp.group(1))
+        mn = CS_N_RE.match(lp_txt)
+        if not mn and (not lp_txt or lp_txt == "-" or re.sub(r"\s+", "", lp_txt) in CS_CLOSED):
+            continue                                     # 예약마감(예약완료)·빈 칸은 제외, 나머지는 모두 표시
         if not name or name == "공지" or CS_DATE_RE2.search(name):
             continue
         mdn = CS_DN_RE.search(chunk)
@@ -1220,11 +1224,12 @@ def parse_clubsea_simple(html, year, month):
         desc = _cs_txt(mdesc.group(1)) if mdesc else ""
         tm = CS_TIME_RE.search(desc)
         species = re.split(r"\s+-\s+|\s*[\"“(]", desc)[0].strip()
-        remain = int(mn.group(1))
+        remain = int(mn.group(1)) if mn else None
         out.append({**ship_cols(CS_SHIP), "date": d, "tide": tide if (mdn is None or d == cur) else "",
                     "boat": name, "species": species or desc[:30],
                     "time": f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else ctime.get(d, ""),
-                    "price": "", "remain": remain, "status": "예약가능" if remain > 0 else "마감",
+                    "price": "", "remain": remain,
+                    "status": ("예약가능" if remain > 0 else "마감") if mn else re.sub(r"\s+", "", lp_txt),
                     "notice": desc[len(species):].strip(" -")[:200] if species else "", "url": f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}",
                     "home": f"{CS}/"})
     uniq = {}
@@ -1889,7 +1894,8 @@ def name_ok(r):
 
 
 in_scope = [r for r in rows if r["date"] in day_set and r["site"] in site_codes and row_fish_ok(r) and name_ok(r)]
-view = [r for r in in_scope if not only_open or (r["remain"] is not None and r["remain"] >= need)]
+view = [r for r in in_scope if not only_open or r["site"] == "cs"          # 클럽씨피싱은 예약마감 외 전부 표시
+        or (r["remain"] is not None and r["remain"] >= need)]
 view.sort(key=(lambda r: (r["date"], r["sido"], r["sigungu"], r["ship"])) if sort_by == "날짜순"
           else (lambda r: (-(r["remain"] or 0), r["date"])))
 q = ss.get("queried", {})
