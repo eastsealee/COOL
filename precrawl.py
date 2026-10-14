@@ -18,13 +18,10 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
+import streamlit as _st                                   # 실제 streamlit을 쓰되, 캐시만 끔(배치 실행이라 필요 없음)
+
 OUT = sys.argv[1] if len(sys.argv) > 1 else "out"
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-# ---- streamlit_app.py의 수집·파싱 함수 불러오기 (화면 코드는 실행하지 않음)
-_src = open(os.path.join(HERE, "streamlit_app.py"), encoding="utf-8").read()
-_src = _src.split("# ================================================================ 화면")[0]
-import streamlit as _st                                   # 실제 streamlit을 쓰되, 캐시만 끔(배치 실행이라 필요 없음)
 
 
 def _passthru(*a, **k):
@@ -34,6 +31,10 @@ def _passthru(*a, **k):
 
 
 _st.cache_data = _st.cache_resource = _passthru
+
+# ---- streamlit_app.py의 수집·파싱 함수 불러오기 (화면 코드는 실행하지 않음)
+_src = open(os.path.join(HERE, "streamlit_app.py"), encoding="utf-8").read()
+_src = _src.split("# ================================================================ 화면")[0]
 core = {"__name__": "precrawl_core"}
 exec(_src, core)
 
@@ -49,7 +50,7 @@ def log(*a):
 
 
 def crawl_sea(sea, max_pages, found_all):
-    empty, new = 0, 0
+    empty, new, page = 0, 0, 0
     for page in range(1, max_pages + 1):
         got = core["_ss_board_page"](sea, page)
         if got is None:

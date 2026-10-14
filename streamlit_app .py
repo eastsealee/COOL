@@ -14,6 +14,7 @@
 로컬 실행:  pip install -r requirements.txt  →  streamlit run streamlit_app.py
 """
 import calendar
+import gzip
 import html as htmlmod
 import json
 import os
@@ -60,7 +61,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.13-20 (기온 16일 예보)"
+APP_VERSION = "v10.14-2 (선상24 사전조회)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -988,6 +989,71 @@ def tide_label(d):
     return "최소" if t["pct"] <= 0 else f"{t['pct']}%"
 
 
+# ---------------------------------------------------------------- 선상24 사전조회 데이터 (GitHub Actions가 data 브랜치에 저장)
+DEFAULT_DATA_REPO = "eastsealee/COOL"                     # 사전조회 데이터가 저장되는 GitHub 저장소
+
+
+def data_repo_slug():
+    """사전조회 데이터가 있는 GitHub 저장소 'owner/repo' — secrets의 DATA_REPO 또는 앱 폴더의 .git 설정에서 찾음"""
+    try:
+        v = st.secrets.get("DATA_REPO")
+        if v:
+            return str(v).strip()
+    except Exception:
+        pass
+    here = os.path.dirname(os.path.abspath(globals().get("__file__", "") or "."))
+    try:
+        txt = open(os.path.join(here, ".git", "config"), encoding="utf-8").read()
+        m = re.search(r"github\.com[:/]+([\w.-]+/[\w.-]+?)(?:\.git)?\s*$", txt, re.M)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return DEFAULT_DATA_REPO or None
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def load_snapshot(slug, _ver=CACHE_VER):
+    base = f"https://raw.githubusercontent.com/{slug}/data"
+    r1 = requests.get(f"{base}/ss_ships.json", headers=HEADERS, timeout=20)
+    r1.raise_for_status()
+    ships = json.loads(r1.content.decode("utf-8"))
+    sched, gen = {}, ""
+    try:
+        r2 = requests.get(f"{base}/ss_sched.json.gz", headers=HEADERS, timeout=30)
+        r2.raise_for_status()
+        js = json.loads(gzip.decompress(r2.content).decode("utf-8"))
+        sched, gen = js.get("ships", {}), js.get("generated", "")
+    except Exception:
+        pass
+    return {"ships": ships, "sched": sched, "generated": gen}
+
+
+def snapshot_ships(snap):
+    out = []
+    for sid, v in (snap or {}).get("ships", {}).items():
+        sido, sgg, port = ss_locate(v["name"], v["sea"])
+        out.append({"site": "ss", "id": int(sid), "name": v["name"], "sea": v["sea"], "sido": sido,
+                    "sigungu": sgg, "port": port, "hint": ""})
+    return out
+
+
+def snapshot_rows(snap, ship, ym):
+    """사전조회해 둔 일정을 앱 일정 형식으로 (해당 월만)"""
+    if not snap:
+        return []
+    gen_hm = snap.get("generated", "")[5:].replace("-", "/")   # '10/14 11:00'
+    out = []
+    for d, tide, boat, species, tm, remain, status, notice in snap.get("sched", {}).get(str(ship["id"]), []):
+        if d[:7].replace("-", "") != ym:
+            continue
+        out.append({**ship_cols(ship), "date": date.fromisoformat(d), "tide": tide, "boat": boat,
+                    "species": species, "time": tm, "price": "", "remain": remain, "status": status,
+                    "notice": notice, "url": f"{SS_APP}/ship/schedule_fleet/{ship['id']}/{ym}", "home": "",
+                    "snap": gen_hm})
+    return out
+
+
 # ---------------------------------------------------------------- 공통
 def ship_cols(ship):
     return {"site": ship["site"], "ship_id": ship["id"], "ship": ship["name"], "sea": ship["sea"],
@@ -1117,6 +1183,13 @@ ss.setdefault("cal_ym", (today.year, today.month))
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
 site_codes = [k for k, v in SITES.items() if v in site_sel]
 
+SNAP_SLUG = data_repo_slug()
+SNAP = None
+if SNAP_SLUG:
+    try:
+        SNAP = load_snapshot(SNAP_SLUG)
+    except Exception:
+        SNAP = None                                       # 아직 사전조회가 한 번도 안 돈 경우 등
 CATALOG_FN = {"ss": ss_catalog, "tf": tf_catalog}
 catalog, counts = [], {}
 with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸립니다)"):
@@ -1138,9 +1211,12 @@ with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸
                 ss[pkey] = {"rows": [], "msg": f"{SITES[code]} 목록 오류: {ex}"}
                 part = []
                 st.error(f"{SITES[code]} 배 목록을 불러오지 못했습니다: {ex}")
-        if code == "ss":                                 # 배경 수집으로 찾은 배 합치기
+        if code == "ss":                                 # 사전조회 목록 + 배경 수집으로 찾은 배 합치기
             have = {r["id"] for r in part}
-            part = part + [r for r in ss_bg_rows() if r["id"] not in have]
+            for extra in (snapshot_ships(SNAP), ss_bg_rows()):
+                add = [r for r in extra if r["id"] not in have]
+                part = part + add
+                have |= {r["id"] for r in add}
         counts[code] = len(part)
         catalog += part
 lc1, lc2 = st.columns([3, 1], vertical_alignment="center")
@@ -1152,7 +1228,11 @@ if "ss" in site_codes:
     if not _rd:
         bg_note = (" · 선상24 배 목록 확장 중(게시판 " + ", ".join(f"{SEAS[k]} {v}p" for k, v in _pg.items())
                    + ") — 몇 분 뒤 다시 조회하면 더 많은 배가 나옵니다")
-lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + bg_note)
+snap_note = ""
+if "ss" in site_codes:
+    snap_note = (f" · 선상24 사전조회: 배 {len(SNAP['ships'])}척, 일정 {SNAP['generated']} 기준" if SNAP
+                 else " · 선상24 사전조회 데이터 없음(아직 첫 실행 전)")
+lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + snap_note + bg_note)
 if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
     for code, fn in CATALOG_FN.items():
         fn.clear()
@@ -1288,6 +1368,7 @@ if go:
     ships = list(targets.values())
     if fish_sel:   # 선상24만 목록상 정보로 1차 압축 (더피싱 목록은 '외 N종'으로 잘려 있어 제외하면 안 됨)
         ships = [s for s in ships if s["site"] != "ss" or not s["hint"] or fish_match(s["hint"], fish_sel)]
+    overflow = []
     if len(ships) > MAX_SHIPS:
         # 사이트별로 번갈아 담아 한쪽 사이트만 잘리지 않게
         by = {k: [s for s in ships if s["site"] == k] for k in SITES}
@@ -1296,7 +1377,12 @@ if go:
             for k in SITES:
                 if by[k] and len(mixed) < MAX_SHIPS:
                     mixed.append(by[k].pop(0))
-        st.warning(f"배가 {len(ships)}척이라 {MAX_SHIPS}척만 조회합니다. 시·도나 시·군을 좁히면 전부 조회됩니다.")
+        overflow = [s for s in ships if s not in mixed]
+        n_snap = sum(1 for s in overflow if s["site"] == "ss" and SNAP and str(s["id"]) in SNAP["sched"])
+        st.warning(f"배가 {len(ships)}척이라 {MAX_SHIPS}척은 실시간으로 조회하고"
+                   + (f", 나머지 중 선상24 {n_snap}척은 사전조회 결과({SNAP['generated']} 기준)로 보여줍니다."
+                      if n_snap else " 나머지는 생략합니다.")
+                   + " 시·도나 시·군을 좁히면 전부 실시간으로 조회됩니다.")
         ships = mixed
     ss.queried = {k: sum(1 for s in ships if s["site"] == k) for k in SITES}
     months = tuple(sorted({f"{d.year}{d.month:02d}" for d in days}))
@@ -1311,10 +1397,17 @@ if go:
             if kind == "ss":
                 res = ss_month(freeze(s), arg)
                 if not res["rows"] and res["probe"]:
+                    fb = snapshot_rows(SNAP, s, arg)       # 실시간으로 못 읽으면 사전조회 결과로 대신
+                    if fb:
+                        return fb, None
                     probes.append((s["name"], res["probe"]))
                 return res["rows"], None
             return tf_ship(freeze(s), arg), None
         except Exception as ex:
+            if kind == "ss":
+                fb = snapshot_rows(SNAP, s, arg)
+                if fb:
+                    return fb, None
             return [], f"[{SITES[kind]}] {s['name']}: {ex}"
 
     with ThreadPoolExecutor(max_workers=WORKERS) as ex:
@@ -1324,6 +1417,12 @@ if go:
                 errors.append(err)
             bar.progress(i / max(1, len(jobs)), text=f"예약현황 가져오는 중... {i}/{len(jobs)}")
     bar.empty()
+    for s in overflow:                                    # 실시간 조회 한도를 넘은 선상24 배 → 사전조회 결과
+        if s["site"] == "ss":
+            for ym in months:
+                rows.extend(snapshot_rows(SNAP, s, ym))
+    ss.queried["ss"] = ss.queried.get("ss", 0) + sum(1 for s in overflow if s["site"] == "ss"
+                                                     and SNAP and str(s["id"]) in SNAP["sched"])
     tide, need_m = {}, set()
     for ym in months:                                     # 앞뒤 7일 계산을 위해 이웃 달도 함께
         y_, m_ = int(ym[:4]), int(ym[4:])
@@ -1539,7 +1638,7 @@ def render_site(code):
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
-        "상태": r["status"], "공지": r["notice"], "예약": r["url"],
+        "상태": r["status"] + (f" ({r['snap']} 기준)" if r.get("snap") else ""), "공지": r["notice"], "예약": r["url"],
         "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in srows])
     # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
