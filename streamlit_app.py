@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-9 (클럽씨피싱 어종무관 전부 표시)"
+APP_VERSION = "v10.14-10 (클럽씨피싱 글자깨짐 수정)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -167,6 +167,10 @@ def fetch_html(url, tries=3, headers=None, timeout=20):
         return raw.decode("utf-8-sig")
     except UnicodeDecodeError:
         pass
+    # ①-2 대부분 UTF-8인데 깨진 바이트가 몇 개 섞인 페이지(클럽씨피싱 등) → UTF-8로 읽고 깨진 글자만 버림
+    loose = raw.decode("utf-8", errors="replace")
+    if loose.count("\ufffd") <= max(20, len(raw) // 2000) and re.search(r"[가-힣]", loose):
+        return loose.lstrip("\ufeff")
     # ② 실패하면 선언된 인코딩 → 자동 추정 → cp949 순서
     headers = getattr(r, "headers", {}) or {}
     m = re.search(r"charset=([\w\-]+)", headers.get("Content-Type", ""), re.I)
