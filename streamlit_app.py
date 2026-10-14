@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-4 (클럽씨피싱 수정)"
+APP_VERSION = "v10.14-5 (클럽씨피싱 실제 구조)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1108,9 +1108,95 @@ def _cs_boat_cells(tr):
     return None
 
 
+def parse_clubsea_marked(soup, year, month):
+    """실제 클럽씨피싱 페이지 구조(2026-10 확인): 배 줄 = <tr> 안에 td.left_person(남은인원),
+    첫 칸 <strong>배 이름</strong> + 예약하기 버튼(data-dn_date=날짜), 둘째 칸 div.notice_title .desc(어종).
+    예약자 목록(div.reservation_list)은 읽지 않음."""
+    out, cur = [], None
+    for tr in soup.find_all("tr"):
+        th = tr.find("th")
+        if th is not None and not tr.select_one("td.left_person"):
+            md = CS_DATE_RE2.search(_norm(th.get_text(" ")))
+            if md:
+                cur = _cs_mkdate(md, year, month) or cur
+            continue
+        lp = tr.select_one("td.left_person")
+        if lp is None:
+            continue
+        tds = tr.find_all("td", recursive=False)
+        nm_el = tds[0].find("strong") if tds else None
+        name = _norm(nm_el.get_text("")) if nm_el else ""
+        md = CS_DATE_RE2.search(name)
+        if md:                                           # 날짜 구분 줄
+            cur = _cs_mkdate(md, year, month) or cur
+            continue
+        if not name or name == "공지":
+            continue
+        btn = tr.select_one("[data-dn_date]")
+        try:
+            d = date.fromisoformat(btn["data-dn_date"]) if btn else cur
+        except ValueError:
+            d = cur
+        if d is None:
+            continue
+        desc_el = tr.select_one("div.notice_title .desc") or tr.select_one("div.notice_title")
+        desc = [l for l in (_cs_lines(desc_el) if desc_el else []) if l != "공지"]
+        species = next((l for l in desc if "낚시" in l), desc[0] if desc else "")
+        notice = " ".join(l for l in desc if l != species)
+        tm = CS_TIME_RE.search(notice) or CS_TIME_RE.search(species)
+        rm = CS_REMAIN_RE.match(_norm(lp.get_text(" ")))
+        if rm and rm.group(1) is not None:
+            remain = int(rm.group(1))
+            status = "예약가능" if remain > 0 else "마감"
+        elif rm and rm.group(2):
+            remain, status = 0, "마감"
+        elif rm and rm.group(3):
+            remain, status = 0, re.sub(r"\s+", "", rm.group(3))
+        else:
+            remain, status = None, "확인필요"
+        out.append({**ship_cols(CS_SHIP), "date": d, "tide": "", "boat": name, "species": species,
+                    "time": f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else "",
+                    "price": "", "remain": remain, "status": status, "notice": notice[:200],
+                    "url": f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}", "home": f"{CS}/"})
+    return out
+
+
+def _cs_mkdate(md, year, month):
+    mo, dd = int(md.group(1)), int(md.group(2))
+    yy = year + (1 if mo < month - 6 else 0) - (1 if mo > month + 6 else 0)
+    try:
+        d = date(yy, mo, dd)
+    except ValueError:
+        return None
+    if md.group(3) and WEEK[d.weekday()] != md.group(3):
+        return None
+    return d
+
+
 def parse_clubsea(html, year, month, stats=None):
     """클럽씨피싱 예약 페이지 → 일정 목록 (배마다 한 줄). 예약자 이름 목록은 읽지 않음."""
     soup = BeautifulSoup(html, "html.parser")
+    if soup.select_one("td.left_person"):
+        for tag in soup(["script", "style", "noscript"]):
+            tag.decompose()
+        marked = parse_clubsea_marked(soup, year, month)
+        if stats is not None:
+            stats.update(dates=len({r["date"] for r in marked}), boat_rows=len(marked), chars=len(html))
+        if marked:
+            # 물때·공통 출항시간은 일반 방식으로 보충
+            extra = {(r["date"], r["boat"]): r for r in _parse_clubsea_generic(soup, year, month)}
+            uniq = {}
+            for r in marked:
+                g = extra.get((r["date"], r["boat"]))
+                if g:
+                    r["tide"] = r["tide"] or g["tide"]
+                    r["time"] = r["time"] or g["time"]
+                uniq.setdefault((r["date"], r["boat"]), r)
+            return list(uniq.values())
+    return _parse_clubsea_generic(soup, year, month, stats, html_len=len(html))
+
+
+def _parse_clubsea_generic(soup, year, month, stats=None, html_len=0):
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     events = []
@@ -1144,7 +1230,7 @@ def parse_clubsea(html, year, month, stats=None):
             events.append((_pos(tr), "boat", tds))
     events.sort(key=lambda e: e[0])
     if stats is not None:
-        stats.update(dates=sum(1 for e in events if e[1] == "date"), boat_rows=n_rows, chars=len(html))
+        stats.update(dates=sum(1 for e in events if e[1] == "date"), boat_rows=n_rows, chars=html_len)
 
     out, cur, tide, day_time = [], None, "", ""
     for _, kind, val in events:
@@ -1198,16 +1284,26 @@ def parse_clubsea(html, year, month, stats=None):
 
 
 @st.cache_data(ttl=180, show_spinner=False)
-def cs_page(dstr, _ver=CACHE_VER + 1):
+def cs_page(dstr, _ver=CACHE_VER + 2):
     d = date.fromisoformat(dstr)
-    html = fetch_html(f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}")
-    stats = {}
-    rows = parse_clubsea(html, d.year, d.month, stats)
-    if not rows:
-        head = " ".join(clean_lines(html))[:150]
-        raise RuntimeError(f"{d:%m/%d} 페이지에서 일정을 읽지 못함 — 글자 {stats.get('chars', 0):,}자, "
-                           f"날짜 {stats.get('dates', 0)}개·배 줄 {stats.get('boat_rows', 0)}개 인식 · 앞부분: {head}")
-    return rows
+    tries = [(f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}", None),
+             (f"{CS}/reservation", None),
+             (f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}",
+              {**MOBILE_HEADERS, "Referer": f"{CS}/"})]
+    notes = []
+    for url, hdr in tries:
+        try:
+            html = fetch_html(url, headers=hdr, tries=2)
+        except Exception as ex:
+            notes.append(f"접속 실패({type(ex).__name__}: {str(ex)[:80]})")
+            continue
+        stats = {}
+        rows = parse_clubsea(html, d.year, d.month, stats)
+        if rows:
+            return rows
+        head = " ".join(clean_lines(html))[:120]
+        notes.append(f"글자 {stats.get('chars', len(html)):,}자·배 줄 {stats.get('boat_rows', 0)}개 · 앞부분: {head}")
+    raise RuntimeError("클럽씨피싱 예약 페이지를 읽지 못함 — " + " / ".join(notes))
 
 
 def cs_ship(ship_t, days_t):
@@ -1337,7 +1433,7 @@ button[kind="primary"]:disabled {{opacity: .45;}}
 .chip.we {{background:#FFD8A8;}}
 </style>""", unsafe_allow_html=True)
 st.title("🎣 선상낚시 통합 예약조회")
-st.caption(f"선상24 · 더피싱 예약현황을 한 번에 조회합니다. · 버전 {APP_VERSION}")
+st.caption(f"선상24 · 더피싱 · 클럽씨피싱 예약현황을 한 번에 조회합니다. · 버전 {APP_VERSION}")
 
 today = kst_today()
 ss = st.session_state
@@ -1800,6 +1896,10 @@ def render_site(code):
                 f"<span class='badge'>예약가능 {n_ok}건</span>"
                 f"<span class='sub'>배 {len({r['boat'] for r in sscope}) if code == 'cs' else q.get(code, 0)}척 조회 · 표시 {len(srows)}건 / 해당 일정 {len(sscope)}건</span></div>",
                 unsafe_allow_html=True)
+    site_errs = [e for e in ss.get("errors", []) if e.startswith(f"[{SITES[code]}]")]
+    if site_errs and not sscope:
+        st.error(f"{SITES[code]} 조회 실패 — 서버가 받은 내용: " + site_errs[0][len(SITES[code]) + 2:][:400]
+                 + "  \n이 상자를 캡처해서 보내주세요.")
     if not srows:
         if sscope:
             st.caption("남은자리가 있는 일정이 없습니다. [예약 가능한 것만]을 끄면 마감된 일정도 볼 수 있습니다.")
