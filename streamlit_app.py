@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-8 (클럽씨피싱 마감 외 전부)"
+APP_VERSION = "v10.14-9 (클럽씨피싱 어종무관 전부 표시)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1222,7 +1222,7 @@ def parse_clubsea_simple(html, year, month):
         mn = CS_N_RE.match(lp_txt)
         mdn0 = CS_DN_RE.search(chunk)
         d0 = date.fromisoformat(mdn0.group(1)) if mdn0 else cur
-        if re.sub(r"\s+", "", lp_txt) in CS_CLOSED or (mn and int(mn.group(1)) == 0):
+        if (not mn and re.search(r"마\s*감|완\s*료", lp_txt)) or (mn and int(mn.group(1)) == 0):
             if d0 is not None:
                 closed.setdefault(d0, set()).add(name)
             continue                                     # 예약마감은 제외, 나머지는 모두 표시
@@ -1899,6 +1899,8 @@ day_set = set(days)
 
 
 def row_fish_ok(r):
+    if r["site"] == "cs":                                # 클럽씨피싱은 어종과 상관없이 예약마감 외 모든 배 표시
+        return True
     if fish_match(f"{r['species']} {r['notice']} {r['boat']}", fish_sel):
         return True
     # 더피싱 목록의 어종이 '…외 N종'으로 잘려 있으면 확인 불가 → 보여주고 표시
@@ -2001,7 +2003,7 @@ def render_site(code):
         st.caption("클럽씨피싱 사이트에서 읽은 내용 — " + " · ".join(diag)
                    + (f" · 받은 페이지 {len(pages)}개" if pages else ""))
         if raw_n and not sscope:
-            st.warning(f"클럽씨피싱 배 {raw_n}건을 읽었지만 [어종 선택] 또는 [배 이름 검색] 조건 때문에 모두 빠졌습니다.")
+            st.warning(f"클럽씨피싱 배 {raw_n}건을 읽었지만 [배 이름 검색] 조건 때문에 모두 빠졌습니다.")
     if code == "cs" and not sscope and not site_errs and q.get("cs") and not any(
             r["site"] == "cs" and r["date"] in day_set for r in (rows or [])):
         shut = [f"{d.month}/{d.day}({WEEK[d.weekday()]}) {CS_CLOSED_COUNT[d]}척"
