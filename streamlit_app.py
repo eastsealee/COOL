@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-7 (클럽씨피싱 마감 외 전부)"
+APP_VERSION = "v10.14-8 (클럽씨피싱 마감 외 전부)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1187,12 +1187,18 @@ def _cs_txt(frag):
 
 
 CS_CLOSED = {"예약마감", "예약완료", "마감"}
+@st.cache_resource(show_spinner=False)
+def _cs_closed_store():
+    return {}
+
+
+CS_CLOSED_COUNT = _cs_closed_store()                     # 날짜 → 예약마감 배 척수 (안내 문구용)
 
 
 def parse_clubsea_simple(html, year, month):
-    """가장 단순한 방식: 표의 줄(<tr>)마다 '남은인원' 칸이 'N명'인 배만 골라 날짜·배 이름·N명을 가져옴.
-    (예약완료·예약불가·'-' 줄과 예약자 이름 목록은 읽지 않음)"""
-    out, cur, tide, ctime = [], None, "", {}
+    """표의 줄(<tr>)마다 날짜·배 이름·남은인원 칸을 읽어, 예약마감(예약완료)이 아닌 배를 모두 가져옴.
+    마감된 배는 날짜별 척수만 CS_CLOSED_COUNT에 기록. 예약자 이름 목록은 읽지 않음."""
+    out, cur, tide, ctime, closed = [], None, "", {}, {}
     for chunk in CS_TR_SPLIT.split(html)[1:]:
         lp = CS_LP_RE.search(chunk)
         head = chunk[:lp.start()] if lp else chunk
@@ -1211,9 +1217,15 @@ def parse_clubsea_simple(html, year, month):
             if tg:
                 ctime[cur] = f"{int(tg.group(1)):02d}:{int(tg.group(2) or 0):02d} 출항"
         lp_txt = _cs_txt(lp.group(1))
+        if not lp_txt or lp_txt == "-":
+            continue
         mn = CS_N_RE.match(lp_txt)
-        if not mn and (not lp_txt or lp_txt == "-" or re.sub(r"\s+", "", lp_txt) in CS_CLOSED):
-            continue                                     # 예약마감(예약완료)·빈 칸은 제외, 나머지는 모두 표시
+        mdn0 = CS_DN_RE.search(chunk)
+        d0 = date.fromisoformat(mdn0.group(1)) if mdn0 else cur
+        if re.sub(r"\s+", "", lp_txt) in CS_CLOSED or (mn and int(mn.group(1)) == 0):
+            if d0 is not None:
+                closed.setdefault(d0, set()).add(name)
+            continue                                     # 예약마감은 제외, 나머지는 모두 표시
         if not name or name == "공지" or CS_DATE_RE2.search(name):
             continue
         mdn = CS_DN_RE.search(chunk)
@@ -1229,9 +1241,11 @@ def parse_clubsea_simple(html, year, month):
                     "boat": name, "species": species or desc[:30],
                     "time": f"{int(tm.group(1)):02d}:{int(tm.group(2) or 0):02d} 출항" if tm else ctime.get(d, ""),
                     "price": "", "remain": remain,
-                    "status": ("예약가능" if remain > 0 else "마감") if mn else re.sub(r"\s+", "", lp_txt),
+                    "status": "예약가능" if mn else re.sub(r"\s+", "", lp_txt),
                     "notice": desc[len(species):].strip(" -")[:200] if species else "", "url": f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}",
                     "home": f"{CS}/"})
+    for d_, names in closed.items():
+        CS_CLOSED_COUNT[d_] = len(names)
     uniq = {}
     for r in out:
         uniq.setdefault((r["date"], r["boat"]), r)
@@ -1370,6 +1384,11 @@ def cs_page(dstr, _ver=CACHE_VER + 2):
         stats = {}
         rows = parse_clubsea(html, d.year, d.month, stats)
         if rows:
+            opened = {}
+            for r in rows:
+                opened[r["date"]] = opened.get(r["date"], 0) + 1
+            CS_CLOSED_COUNT.setdefault("_pages", {})[dstr] = {
+                "chars": len(html), "open": opened, "at": kst_now().strftime("%H:%M:%S")}
             return rows
         head = " ".join(clean_lines(html))[:120]
         notes.append(f"글자 {stats.get('chars', len(html)):,}자·배 줄 {stats.get('boat_rows', 0)}개 · 앞부분: {head}")
@@ -1972,8 +1991,23 @@ def render_site(code):
     if site_errs and not sscope:
         st.error(f"{SITES[code]} 조회 실패 — 서버가 받은 내용: " + site_errs[0][len(SITES[code]) + 2:][:400]
                  + "  \n이 상자를 캡처해서 보내주세요.")
-    if code == "cs" and not sscope and not site_errs and q.get("cs"):
-        st.info("클럽씨피싱 페이지는 정상으로 읽었지만, 선택한 날짜에 남은 자리(N명)가 있는 배가 없습니다.")
+    if code == "cs" and q.get("cs"):
+        pages = CS_CLOSED_COUNT.get("_pages", {})
+        diag = []
+        for d in sorted(day_set):
+            n_open = max((p_["open"].get(d, 0) for p_ in pages.values()), default=0)
+            diag.append(f"{d.month}/{d.day}({WEEK[d.weekday()]}) 예약가능·기타 {n_open}척 / 예약마감 {CS_CLOSED_COUNT.get(d, 0)}척")
+        raw_n = sum(1 for r in (rows or []) if r["site"] == "cs" and r["date"] in day_set)
+        st.caption("클럽씨피싱 사이트에서 읽은 내용 — " + " · ".join(diag)
+                   + (f" · 받은 페이지 {len(pages)}개" if pages else ""))
+        if raw_n and not sscope:
+            st.warning(f"클럽씨피싱 배 {raw_n}건을 읽었지만 [어종 선택] 또는 [배 이름 검색] 조건 때문에 모두 빠졌습니다.")
+    if code == "cs" and not sscope and not site_errs and q.get("cs") and not any(
+            r["site"] == "cs" and r["date"] in day_set for r in (rows or [])):
+        shut = [f"{d.month}/{d.day}({WEEK[d.weekday()]}) {CS_CLOSED_COUNT[d]}척"
+                for d in sorted(day_set) if CS_CLOSED_COUNT.get(d)]
+        st.info("클럽씨피싱 예약 페이지를 정상으로 읽었습니다. 선택한 날짜는 모든 배가 예약마감입니다."
+                + (f" (예약마감: {', '.join(shut)})" if shut else ""))
     if not srows:
         if sscope:
             st.caption("남은자리가 있는 일정이 없습니다. [예약 가능한 것만]을 끄면 마감된 일정도 볼 수 있습니다.")
