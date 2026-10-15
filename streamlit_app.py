@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.15-1 (어종 쭈갑 추가)"
+APP_VERSION = "v10.15-2 (물때·예보전 표시 수정)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -812,7 +812,7 @@ def parse_tide(html, y, m):
         if WEEK[d.weekday()] != mt.group(1) or d in days:
             continue
         # 바다날씨 표 등 다른 내용이 섞이지 않게: 그날 블록에서 '시각 (높이)' 형태만 높이로 인정
-        heights = [int(h) for h in re.findall(r"\d{1,2}:\d{2}\s*\((\d{2,4})\)", block)][:4]
+        heights = [int(h) for h in re.findall(r"\d{1,2}:\d{2}\s*\(\s*(\d{1,4})\s*\)", block)][:4]   # '( 81)'처럼 괄호 안 공백 허용
         if len(heights) < 2 or max(heights) - min(heights) < 50:   # 만조·간조가 다 안 잡힌 날은 계산에서 제외
             continue
         # 하루 조차 = 만조 높이 평균 − 간조 높이 평균 (자정을 넘어 만조/간조가 3번만 있는 날도 고르게 계산)
@@ -829,7 +829,7 @@ def parse_tide(html, y, m):
 
 
 @st.cache_data(ttl=12 * 3600, show_spinner=False)
-def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 4):
+def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 5):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
     days = parse_tide(html, y, m)
@@ -2028,7 +2028,7 @@ st.markdown(f"""
 .rtbl .gf {{font-size: .88rem; white-space: nowrap;}}
 .rtbl .gk {{font-size: .74rem; opacity: .6; margin-right: 5px;}}
 .rtbl .gc {{margin-left: auto; font-size: .82rem; font-weight: 700; opacity: .8; white-space: nowrap;}}
-.rtbl .wxi {{display:inline-block; background:#fff; border:1px solid rgba(0,0,0,.12); border-radius:7px;
+.rtbl .wxi {{display:inline-block; background:#fff; color:#111; border:1px solid rgba(0,0,0,.12); border-radius:7px;
   padding:0 4px; margin-right:4px; line-height:1.4;}}
 .rtbl .wxa {{opacity:.55; margin:0 3px;}}
 .site-head {{display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:1.5rem 0 .55rem;
@@ -2128,10 +2128,15 @@ def render_site(code):
         else:
             st.caption("선택한 조건에 해당하는 일정이 없습니다.")
         return
+    # 물때표에 없는 날은 같은 날 다른 사이트(선상24 등) 일정에 적힌 물때를 씀
+    mul_any = {}
+    for r_ in (rows or []):
+        if r_.get("tide") and re.fullmatch(r"\d{1,2}물|조금|무시|한객기|한조금", r_["tide"]):
+            mul_any.setdefault(r_["date"], r_["tide"])
     df = pd.DataFrame([{
         "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})",
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x),
-        "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", ""),
+        "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", "") or mul_any.get(r["date"], ""),
         f"조류세기({TIDE_PORT_NAME})": tide_label(r["date"]),
         "날씨": ss.get("weather", {}).get(r["date"], "예보 전" if r["date"] > kst_today() + timedelta(days=6) else ""),
         "기온": temp_label(r["date"]),
@@ -2153,14 +2158,19 @@ def render_site(code):
         by_date.setdefault(r["date"], []).append(dr)
     for d in sorted(by_date):
         g = by_date[d]
-        dr0 = g[0]
+        dr0 = dict(g[0])
+        for k_ in ("물때", f"조류세기({TIDE_PORT_NAME})", "기온", "날씨"):   # 첫 배에 없으면 같은 날 다른 배 값으로
+            dr0[k_] = next((x[k_] for x in g if x[k_]), "")
         n_ok_d = sum(1 for x in g if x["_ok"])
         wx = ""
         if dr0["날씨"]:
             parts = []
             for seg in str(dr0["날씨"]).split(" → "):
                 ic, _, txt = seg.partition(" ")
-                parts.append(f"<span class='wxi'>{esc(ic)}</span>{esc(txt)}" if txt else esc(seg))
+                if txt and not re.search(r"[가-힣A-Za-z0-9]", ic):     # 앞 글자가 날씨 아이콘일 때만 상자에 넣음
+                    parts.append(f"<span class='wxi'>{esc(ic)}</span>{esc(txt)}")
+                else:                                                # '예보 전' 같은 글자는 그대로
+                    parts.append(esc(seg))
             wx = " <span class='wxa'>→</span> ".join(parts)
         we = " sun" if d.weekday() == 6 else " sat" if d.weekday() == 5 else ""
         facts = [("물때", dr0["물때"]), ("조류", dr0[f"조류세기({TIDE_PORT_NAME})"]), ("기온", dr0["기온"])]
