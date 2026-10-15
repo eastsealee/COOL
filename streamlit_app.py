@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.14-10 (클럽씨피싱 글자깨짐 수정)"
+APP_VERSION = "v10.15 (새 디자인)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1481,9 +1481,39 @@ def freeze(ship):
 
 # ================================================================ 화면
 st.set_page_config(page_title="선상낚시 예약조회", page_icon="🎣", layout="wide")
-ACCENT = "#F5A300"        # 강조색(앰버) — 다크/라이트 모드 모두에서 잘 보이는 색
+ACCENT = "#FFD43B"        # 강조색(부표 노랑) — 예약가능·선택·조회 버튼에 공통으로 씀
+INK = "#12304A"           # 깊은 바다색 — 머리띠·표 머리글
+SEA = "#2F7FC1"           # 바다 파랑 — 체크·선택 표시
 st.markdown(f"""
 <style>
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+.stApp, .stApp p, .stApp label, .stApp input, .stApp textarea, .stApp button, .stApp li, .stApp td, .stApp th,
+.stApp h1, .stApp h2, .stApp h3, .stApp [data-baseweb="select"] div, .stApp summary {{
+  font-family: "Pretendard Variable", Pretendard, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif !important;
+}}
+.block-container {{padding-top: 3.6rem !important; max-width: 1320px;}}
+.stApp [data-baseweb="tag"], .stApp [data-tag] {{background:{ACCENT} !important; color:{INK} !important; font-weight:700;}}
+.stApp [data-baseweb="tag"] *, .stApp [data-tag] * {{color:{INK} !important; fill:{INK} !important;}}
+.stApp [data-testid="stCheckbox"] label[data-selected="true"] > div:not([data-testid]),
+.stApp [data-testid="stRadioOption"][data-selected="true"] > div > div:first-child {{
+  background:{SEA} !important; border-color:{SEA} !important;}}
+/* ---------- 머리띠 ---------- */
+.hero {{display:flex; align-items:flex-end; justify-content:space-between; gap:16px; flex-wrap:wrap;
+  background:{INK}; color:#fff; border-radius:14px; padding:22px 26px 20px; margin-bottom:14px;
+  border-bottom:5px solid {ACCENT};}}
+.hero-t {{font-size:1.9rem; font-weight:800; letter-spacing:-.02em; line-height:1.2;}}
+.hero-s {{font-size:.95rem; opacity:.82; margin-top:4px;}}
+.hero-v {{font-size:.75rem; opacity:.6; white-space:nowrap;}}
+/* ---------- 단계 제목 ---------- */
+.step {{display:flex; align-items:center; gap:10px; margin:1.1rem 0 .45rem; flex-wrap:wrap;}}
+.step-n {{width:1.75rem; height:1.75rem; border-radius:50%; background:{ACCENT}; color:{INK}; font-weight:800;
+  display:inline-flex; align-items:center; justify-content:center; font-size:.95rem; flex:none;}}
+.step-t {{font-size:1.2rem; font-weight:800; letter-spacing:-.01em;}}
+.step-h {{font-size:.85rem; opacity:.62;}}
+.res-head {{font-size:1.45rem; font-weight:800; letter-spacing:-.02em; margin:1.6rem 0 .5rem;
+  padding-top:1.1rem; border-top:2px solid rgba(128,128,128,.25);}}
+.st-key-filters {{border:1px solid rgba(128,128,128,.28); border-radius:12px; padding:10px 14px 12px;
+  background:rgba(128,128,128,.05);}}
 /* ---------- 달력 카드 ---------- */
 .st-key-cal {{
   max-width: 560px; border: 1px solid rgba(128,128,128,.28); border-radius: 18px;
@@ -1498,7 +1528,7 @@ st.markdown(f"""
   font-size: 1.02rem; font-weight: 600; transition: all .12s ease;
 }}
 .st-key-cal .stButton button:hover:not(:disabled) {{
-  background: rgba(245,163,0,.16) !important; border-color: rgba(245,163,0,.55) !important;
+  background: rgba(255,212,59,.18) !important; border-color: rgba(255,212,59,.7) !important;
 }}
 .st-key-cal .stButton button p {{font-size: 1.08rem !important; font-weight: 700 !important;}}
 .st-key-cal div.st-key-calnav_prev button p, .st-key-cal div.st-key-calnav_next button p {{font-size: 1.6rem !important;
@@ -1516,17 +1546,28 @@ st.markdown(f"""
 .st-key-cal div.st-key-calnav_next {{margin-left: auto;}}
 /* ---------- 조회 버튼 ---------- */
 button[kind="primary"] {{background: {ACCENT} !important; border-color: {ACCENT} !important;
-  color: #1b1b1b !important; font-weight: 800 !important; font-size: 1.05rem !important; min-height: 3rem;}}
+  color: {INK} !important; font-weight: 800 !important; min-height: 3.2rem; border-radius: 12px !important;
+  box-shadow: 0 3px 0 #C9A21A;}}
+button[kind="primary"] p {{font-size: 1.12rem !important; font-weight: 800 !important;}}
+button[kind="primary"]:hover:not(:disabled) {{filter: brightness(1.04);}}
+button[kind="primary"]:active:not(:disabled) {{transform: translateY(2px); box-shadow: 0 1px 0 #C9A21A;}}
 button[kind="primary"]:disabled {{opacity: .45;}}
 /* ---------- 빠른 선택 버튼 ---------- */
 .st-key-quick {{max-width: 560px;}}
 .st-key-quick .stButton button {{border-radius: 999px !important; font-size: .88rem;}}
 .chips {{max-width:560px; display:flex; flex-wrap:wrap; gap:6px; margin:.3rem 0 .2rem;}}
-.chip {{background:{ACCENT}; color:#1b1b1b; font-weight:700; font-size:.82rem; padding:3px 10px; border-radius:999px;}}
-.chip.we {{background:#FFD8A8;}}
+.chip {{background:{ACCENT}; color:{INK}; font-weight:700; font-size:.85rem; padding:3px 11px; border-radius:999px;}}
+.chip.we {{background:#FFE8A3;}}
 </style>""", unsafe_allow_html=True)
-st.title("🎣 선상낚시 통합 예약조회")
-st.caption(f"선상24 · 더피싱 · 클럽씨피싱 예약현황을 한 번에 조회합니다. · 버전 {APP_VERSION}")
+st.markdown(f"""<div class='hero'>
+  <div class='hero-l'><div class='hero-t'>선상낚시 예약조회</div>
+  <div class='hero-s'>선상24, 더피싱, 클럽씨피싱의 남은 자리를 날짜별로 한 화면에서 봅니다</div></div>
+  <div class='hero-v'>{htmlmod.escape(APP_VERSION)}</div></div>""", unsafe_allow_html=True)
+
+
+def step_head(n, title, hint=""):
+    st.markdown(f"<div class='step'><span class='step-n'>{n}</span><span class='step-t'>{title}</span>"
+                f"<span class='step-h'>{hint}</span></div>", unsafe_allow_html=True)
 
 today = kst_today()
 ss = st.session_state
@@ -1581,146 +1622,151 @@ with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸
                 have |= {r["id"] for r in add}
         counts[code] = len(part)
         catalog += part
-lc1, lc2 = st.columns([3, 1], vertical_alignment="center")
-bg_note = ""
-if "ss" in site_codes:
-    _bs = ss_bg_state()
-    with _bs["lock"]:
-        _pg = dict(_bs["page"]); _rd = _bs["rounds"]
-    if not _rd:
-        bg_note = (" · 선상24 배 목록 확장 중(게시판 " + ", ".join(f"{SEAS[k]} {v}p" for k, v in _pg.items())
-                   + ") — 몇 분 뒤 다시 조회하면 더 많은 배가 나옵니다")
-snap_note = ""
-if "ss" in site_codes:
-    snap_note = (f" · 선상24 사전조회: 배 {len(SNAP['ships'])}척, 일정 {SNAP['generated']} 기준" if SNAP
-                 else " · 선상24 사전조회 데이터 없음(아직 첫 실행 전)")
-lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + snap_note + bg_note)
-if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
-    for code, fn in CATALOG_FN.items():
-        if hasattr(fn, "clear"):
-            fn.clear()
-        ss.pop(f"partial_{code}", None)
-    st.rerun()
+with st.expander("배 목록 · 다시 불러오기 · CSV 받기"):
+    lc1, lc2 = st.columns([3, 1], vertical_alignment="center")
+    bg_note = ""
+    if "ss" in site_codes:
+        _bs = ss_bg_state()
+        with _bs["lock"]:
+            _pg = dict(_bs["page"]); _rd = _bs["rounds"]
+        if not _rd:
+            bg_note = (" · 선상24 배 목록 확장 중(게시판 " + ", ".join(f"{SEAS[k]} {v}p" for k, v in _pg.items())
+                       + ") — 몇 분 뒤 다시 조회하면 더 많은 배가 나옵니다")
+    snap_note = ""
+    if "ss" in site_codes:
+        snap_note = (f" · 선상24 사전조회: 배 {len(SNAP['ships'])}척, 일정 {SNAP['generated']} 기준" if SNAP
+                     else " · 선상24 사전조회 데이터 없음(아직 첫 실행 전)")
+    lc1.caption("배 목록: " + " · ".join(f"{SITES[k]} {n}척" for k, n in counts.items()) + snap_note + bg_note)
+    if lc2.button("🔄 배 목록 다시 불러오기", width="stretch"):
+        for code, fn in CATALOG_FN.items():
+            if hasattr(fn, "clear"):
+                fn.clear()
+            ss.pop(f"partial_{code}", None)
+        st.rerun()
 
-def catalog_csv(code):
-    rows_ = [s for s in catalog if s["site"] == code]
-    df_ = pd.DataFrame([{
-        "사이트": SITES[code], "번호": s["id"], "배": s["name"], "바다": SEAS.get(s["sea"], s["sea"]),
-        "시도": s["sido"], "시군": s["sigungu"], "항구": s["port"],
-        "목록 어종/소개": s.get("hint", ""),
-        "예약페이지": (f"{SS_APP}/ship/schedule_fleet/{s['id']}" if code == "ss"
-                    else f"{CS}/reservation" if code == "cs"
-                    else f"{TF}/reservation/list.php?uid={s['id']}"),
-    } for s in sorted(rows_, key=lambda s: (s["sea"], s["sido"], s["sigungu"], s["port"], s["name"]))])
-    return df_.to_csv(index=False).encode("utf-8-sig"), len(rows_)
+    def catalog_csv(code):
+        rows_ = [s for s in catalog if s["site"] == code]
+        df_ = pd.DataFrame([{
+            "사이트": SITES[code], "번호": s["id"], "배": s["name"], "바다": SEAS.get(s["sea"], s["sea"]),
+            "시도": s["sido"], "시군": s["sigungu"], "항구": s["port"],
+            "목록 어종/소개": s.get("hint", ""),
+            "예약페이지": (f"{SS_APP}/ship/schedule_fleet/{s['id']}" if code == "ss"
+                        else f"{CS}/reservation" if code == "cs"
+                        else f"{TF}/reservation/list.php?uid={s['id']}"),
+        } for s in sorted(rows_, key=lambda s: (s["sea"], s["sido"], s["sigungu"], s["port"], s["name"]))])
+        return df_.to_csv(index=False).encode("utf-8-sig"), len(rows_)
 
 
-dcols = st.columns(max(2, len(site_codes)) + 1)
-for col, code in zip(dcols, site_codes):
-    data_, n_ = catalog_csv(code)
-    col.download_button(f"📥 {SITES[code]} 배 목록 CSV다운로드 ({n_}척)", data_, width="stretch",
-                        file_name=f"{SITES[code]}_배목록_{kst_today():%Y%m%d}.csv", mime="text/csv",
-                        key=f"dl_cat_{code}")
-if "ss" in site_codes and bg_note:
-    st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
+    dcols = st.columns(max(2, len(site_codes)) + 1)
+    for col, code in zip(dcols, site_codes):
+        data_, n_ = catalog_csv(code)
+        col.download_button(f"📥 {SITES[code]} 배 목록 CSV다운로드 ({n_}척)", data_, width="stretch",
+                            file_name=f"{SITES[code]}_배목록_{kst_today():%Y%m%d}.csv", mime="text/csv",
+                            key=f"dl_cat_{code}")
+    if "ss" in site_codes and bg_note:
+        st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
 fish_list = fish_options()
 
-# ----- ① 지역
-st.subheader("① 지역 선택")
-c1, c2, c3, c4 = st.columns(4)
-sea_name = c1.selectbox("바다", ["전체"] + list(SEAS.values()))
-sea_code = next((k for k, v in SEAS.items() if v == sea_name), "all")
-pool = [s for s in catalog if sea_code == "all" or s["sea"] == sea_code]
-sido = c2.selectbox("시·도", ["전체"] + sorted({s["sido"] for s in pool}, key=lambda x: (x == "기타", x)))
-pool = [s for s in pool if sido == "전체" or s["sido"] == sido]
-sigungu = c3.selectbox("시·군", ["전체"] + sorted({s["sigungu"] for s in pool}))
-pool = [s for s in pool if sigungu == "전체" or s["sigungu"] == sigungu]
-ports = sorted({s["port"] for s in pool if s["port"]})
-port = c4.selectbox("항구", ["전체"] + ports, disabled=not ports)
-pool = [s for s in pool if port == "전체" or s["port"] == port]
+left_col, right_col = st.columns([1.05, 1], gap="large")
+with left_col:
+    # ----- ① 지역
+    step_head(1, "지역", "바다 → 시·도 → 시·군 → 항구 순서로 좁혀 보세요")
+    c1, c2 = st.columns(2)
+    c3, c4 = st.columns(2)
+    sea_name = c1.selectbox("바다", ["전체"] + list(SEAS.values()))
+    sea_code = next((k for k, v in SEAS.items() if v == sea_name), "all")
+    pool = [s for s in catalog if sea_code == "all" or s["sea"] == sea_code]
+    sido = c2.selectbox("시·도", ["전체"] + sorted({s["sido"] for s in pool}, key=lambda x: (x == "기타", x)))
+    pool = [s for s in pool if sido == "전체" or s["sido"] == sido]
+    sigungu = c3.selectbox("시·군", ["전체"] + sorted({s["sigungu"] for s in pool}))
+    pool = [s for s in pool if sigungu == "전체" or s["sigungu"] == sigungu]
+    ports = sorted({s["port"] for s in pool if s["port"]})
+    port = c4.selectbox("항구", ["전체"] + ports, disabled=not ports)
+    pool = [s for s in pool if port == "전체" or s["port"] == port]
 
-with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
-    if pool:
-        st.dataframe(pd.DataFrame([{"사이트": SITES[s["site"]], "배": s["name"], "시·도": s["sido"],
-                                    "시·군": s["sigungu"], "항구": s["port"], "번호": s["id"]} for s in pool]),
-                     hide_index=True, width="stretch", height=220)
-    manual_text = st.text_input("목록에 없는 배 추가 (쉼표로 여러 개)",
-                                placeholder="선상24: 2174 또는 gamsung / 더피싱: tf:6198")
-manual = [r for r in (resolve_manual(t) for t in manual_text.split(",") if t.strip()) if r]
+    with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
+        if pool:
+            st.dataframe(pd.DataFrame([{"사이트": SITES[s["site"]], "배": s["name"], "시·도": s["sido"],
+                                        "시·군": s["sigungu"], "항구": s["port"], "번호": s["id"]} for s in pool]),
+                         hide_index=True, width="stretch", height=220)
+        manual_text = st.text_input("목록에 없는 배 추가 (쉼표로 여러 개)",
+                                    placeholder="선상24: 2174 또는 gamsung / 더피싱: tf:6198")
+    manual = [r for r in (resolve_manual(t) for t in manual_text.split(",") if t.strip()) if r]
 
-# ----- ② 날짜 (달력)
-st.subheader("② 날짜 선택")
-y, m = ss.cal_ym
-month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
+    # ----- ③ 어종
+    step_head(2, "어종", "비워 두면 모든 어종을 조회합니다")
+    fish_sel = st.multiselect("어종", fish_list, placeholder="전체 어종", label_visibility="collapsed")
 
-# 날짜별 스타일 (일=빨강, 토=파랑, 오늘=테두리, 선택=앰버로 채움)
-rules = []
-for d in month_days:
-    k = f".st-key-cal div.st-key-d{d.isoformat()} button"
-    if d in ss.sel_days:
-        rules.append(f"{k}{{background:{ACCENT} !important;color:#1b1b1b !important;"
-                     f"border-color:{ACCENT} !important;box-shadow:0 2px 8px rgba(245,163,0,.35);}}")
-    elif d.weekday() == 6:
-        rules.append(f"{k}{{color:#FF6B6B !important;}}")
-    elif d.weekday() == 5:
-        rules.append(f"{k}{{color:#4DABF7 !important;}}")
-    if d == today:
-        rules.append(f"{k}{{outline:2px solid {ACCENT};outline-offset:-2px;}}")
-st.markdown(f"<style>{''.join(rules)}</style>", unsafe_allow_html=True)
+with right_col:
+    # ----- ② 날짜 (달력)
+    step_head(3, "날짜", "여러 날을 함께 고를 수 있습니다")
+    y, m = ss.cal_ym
+    month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
 
-with st.container(key="cal"):
-    n1, n2, n3 = st.columns([1, 4, 1], vertical_alignment="center")
-    with n1:
-        if st.button("‹", key="calnav_prev", disabled=(y, m) <= (today.year, today.month)):
-            ss.cal_ym = (y - 1, 12) if m == 1 else (y, m - 1)
-            st.rerun()
-    sel_in_month = sum(1 for d in ss.sel_days if (d.year, d.month) == (y, m))
-    n2.markdown(f"<p class='cal-title'>{y}. {m:02d}</p>"
-                f"<p class='cal-sub'>이 달 {sel_in_month}일 선택</p>", unsafe_allow_html=True)
-    with n3:
-        if st.button("›", key="calnav_next"):
-            ss.cal_ym = (y + 1, 1) if m == 12 else (y, m + 1)
-            st.rerun()
-    for col, wd in zip(st.columns(7), ["일", "월", "화", "수", "목", "금", "토"]):
-        c = "#FF6B6B" if wd == "일" else "#4DABF7" if wd == "토" else "inherit"
-        col.markdown(f"<div class='wk' style='color:{c}'>{wd}</div>", unsafe_allow_html=True)
-    for week in calendar.Calendar(firstweekday=6).monthdatescalendar(y, m):
-        for col, d in zip(st.columns(7), week):
-            if d.month != m:
-                col.markdown("<div style='min-height:2.75rem'></div>", unsafe_allow_html=True)
-                continue
-            if col.button(str(d.day), key=f"d{d.isoformat()}", disabled=d < today, width="stretch",
-                          help=f"{d.month}월 {d.day}일 ({WEEK[d.weekday()]})"):
-                ss.sel_days.symmetric_difference_update({d})
+    # 날짜별 스타일 (일=빨강, 토=파랑, 오늘=테두리, 선택=앰버로 채움)
+    rules = []
+    for d in month_days:
+        k = f".st-key-cal div.st-key-d{d.isoformat()} button"
+        if d in ss.sel_days:
+            rules.append(f"{k}{{background:{ACCENT} !important;color:{INK} !important;"
+                         f"border-color:{ACCENT} !important;box-shadow:0 2px 8px rgba(255,212,59,.35);}}")
+        elif d.weekday() == 6:
+            rules.append(f"{k}{{color:#FF6B6B !important;}}")
+        elif d.weekday() == 5:
+            rules.append(f"{k}{{color:#4DABF7 !important;}}")
+        if d == today:
+            rules.append(f"{k}{{outline:2px solid {ACCENT};outline-offset:-2px;}}")
+    st.markdown(f"<style>{''.join(rules)}</style>", unsafe_allow_html=True)
+
+    with st.container(key="cal"):
+        n1, n2, n3 = st.columns([1, 4, 1], vertical_alignment="center")
+        with n1:
+            if st.button("‹", key="calnav_prev", disabled=(y, m) <= (today.year, today.month)):
+                ss.cal_ym = (y - 1, 12) if m == 1 else (y, m - 1)
                 st.rerun()
+        sel_in_month = sum(1 for d in ss.sel_days if (d.year, d.month) == (y, m))
+        n2.markdown(f"<p class='cal-title'>{y}. {m:02d}</p>"
+                    f"<p class='cal-sub'>이 달 {sel_in_month}일 선택</p>", unsafe_allow_html=True)
+        with n3:
+            if st.button("›", key="calnav_next"):
+                ss.cal_ym = (y + 1, 1) if m == 12 else (y, m + 1)
+                st.rerun()
+        for col, wd in zip(st.columns(7), ["일", "월", "화", "수", "목", "금", "토"]):
+            c = "#FF6B6B" if wd == "일" else "#4DABF7" if wd == "토" else "inherit"
+            col.markdown(f"<div class='wk' style='color:{c}'>{wd}</div>", unsafe_allow_html=True)
+        for week in calendar.Calendar(firstweekday=6).monthdatescalendar(y, m):
+            for col, d in zip(st.columns(7), week):
+                if d.month != m:
+                    col.markdown("<div style='min-height:2.75rem'></div>", unsafe_allow_html=True)
+                    continue
+                if col.button(str(d.day), key=f"d{d.isoformat()}", disabled=d < today, width="stretch",
+                              help=f"{d.month}월 {d.day}일 ({WEEK[d.weekday()]})"):
+                    ss.sel_days.symmetric_difference_update({d})
+                    st.rerun()
 
-with st.container(key="quick"):
-    b1, b2, b3, b4 = st.columns(4)
-    if b1.button("이번 주말", width="stretch"):
-        sat = today + timedelta(days=(5 - today.weekday()) % 7)
-        ss.sel_days = {d for d in (sat - timedelta(days=1) if today.weekday() == 6 else sat,
-                                   sat + timedelta(days=1)) if d >= today}
-        st.rerun()
-    if b2.button("앞으로 7일", width="stretch"):
-        ss.sel_days = {today + timedelta(days=i) for i in range(7)}
-        st.rerun()
-    if b3.button("이 달 주말", width="stretch"):
-        ss.sel_days = {d for d in month_days if d >= today and d.weekday() >= 5}
-        st.rerun()
-    if b4.button("선택 해제", width="stretch"):
-        ss.sel_days = set()
-        st.rerun()
-days = sorted(ss.sel_days)
-if days:
-    chips = "".join(f"<span class='chip{' we' if d.weekday() >= 5 else ''}'>"
-                    f"{d.month}/{d.day} {WEEK[d.weekday()]}</span>" for d in days)
-    st.markdown(f"<div class='chips'>{chips}</div>", unsafe_allow_html=True)
-else:
-    st.caption("선택한 날짜가 없습니다 — 달력에서 날짜를 눌러주세요.")
-
-# ----- ③ 어종
-st.subheader("③ 어종 선택")
-fish_sel = st.multiselect("어종", fish_list, placeholder="전체 어종", label_visibility="collapsed")
+    with st.container(key="quick"):
+        b1, b2, b3, b4 = st.columns(4)
+        if b1.button("이번 주말", width="stretch"):
+            sat = today + timedelta(days=(5 - today.weekday()) % 7)
+            ss.sel_days = {d for d in (sat - timedelta(days=1) if today.weekday() == 6 else sat,
+                                       sat + timedelta(days=1)) if d >= today}
+            st.rerun()
+        if b2.button("앞으로 7일", width="stretch"):
+            ss.sel_days = {today + timedelta(days=i) for i in range(7)}
+            st.rerun()
+        if b3.button("이 달 주말", width="stretch"):
+            ss.sel_days = {d for d in month_days if d >= today and d.weekday() >= 5}
+            st.rerun()
+        if b4.button("선택 해제", width="stretch"):
+            ss.sel_days = set()
+            st.rerun()
+    days = sorted(ss.sel_days)
+    if days:
+        chips = "".join(f"<span class='chip{' we' if d.weekday() >= 5 else ''}'>"
+                        f"{d.month}/{d.day} {WEEK[d.weekday()]}</span>" for d in days)
+        st.markdown(f"<div class='chips'>{chips}</div>", unsafe_allow_html=True)
+    else:
+        st.caption("선택한 날짜가 없습니다 — 달력에서 날짜를 눌러주세요.")
 
 # ----- 조회
 targets = {(s["site"], s["id"]): s for s in pool + manual}
@@ -1873,7 +1919,7 @@ if rows is None:
     st.info("사이트·지역·날짜·어종을 고르고 [조회]를 누르세요.")
     st.stop()
 
-st.subheader("조회 결과")
+st.markdown("<div class='res-head'>조회 결과</div>", unsafe_allow_html=True)
 q0 = ss.get("queried", {})
 if "ss" in site_codes and q0 and not q0.get("ss"):
     st.error("선상24 배를 한 척도 조회하지 못했습니다 — 선상24 배 목록을 불러오지 못했거나 선택한 지역에 선상24 배가 없습니다. "
@@ -1893,11 +1939,12 @@ if ss.errors:
     with st.expander(f"⚠️ {len(ss.errors)}건은 불러오지 못했습니다"):
         st.write("\n".join(f"- {e}" for e in ss.errors[:30]))
 
-f1, f2, f3, f4 = st.columns([1, 1, 1.3, 1.7], vertical_alignment="bottom")
-only_open = f1.checkbox("예약 가능한 것만", value=True)
-need = f2.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
-sort_by = f3.radio("정렬", ["날짜순", "남은자리 많은순"], horizontal=True)
-name_q = f4.text_input("🔍 배 이름으로 검색", placeholder="예: 동백호, 골드스타")
+with st.container(key="filters"):
+    f1, f2, f3, f4 = st.columns([1, 1, 1.3, 1.7], vertical_alignment="bottom")
+    only_open = f1.checkbox("예약 가능한 것만", value=True)
+    need = f2.number_input("최소 남은자리", min_value=1, max_value=30, value=1)
+    sort_by = f3.radio("정렬", ["날짜순", "남은자리 많은순"], horizontal=True)
+    name_q = f4.text_input("🔍 배 이름으로 검색", placeholder="예: 동백호, 골드스타")
 
 day_set = set(days)
 
@@ -1935,31 +1982,78 @@ if need_home:
         if r["site"] == "ss":
             r["home"] = homes.get(r["ship_id"]) or r["url"]
 
-st.markdown("""
+st.markdown(f"""
 <style>
-.rtbl-wrap {max-height: 560px; overflow: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 12px;}
-.rtbl {width: 100%; border-collapse: collapse; font-size: .9rem; white-space: nowrap;}
-.rtbl th {position: sticky; top: 0; z-index: 1; background: #2b2f36; color: #fff; text-align: left;
-  padding: 9px 10px; font-weight: 700;}
-.rtbl td {padding: 8px 10px; border-top: 1px solid rgba(128,128,128,.25);}
-.rtbl tr.ok td {background: #FFD43B !important; color: #111 !important; font-weight: 700;}
-.rtbl tr.ok td a {color: #0b4bd6 !important; text-decoration: underline;}
-.rtbl tr.ok td a.hp {color: #111 !important; background: #fff3; padding: 2px 8px; border-radius: 999px;
-  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}
-.rtbl tr.no td {color: #8c8c8c;}
-.rtbl td.nt {max-width: 280px; overflow: hidden; text-overflow: ellipsis;}
-.rtbl .wx {display:inline-block; background:#fff; border:1px solid rgba(0,0,0,.15); border-radius:7px;
-  padding:0 4px; margin-right:4px; line-height:1.35;}
-.rtbl .wxa {opacity:.6; margin:0 2px;}
-.site-head {display:flex; align-items:baseline; gap:10px; margin:1.2rem 0 .4rem;}
-.site-head .nm {font-size:1.25rem; font-weight:800;}
-.site-head .badge {background:#FFD43B; color:#111; font-weight:800; border-radius:999px; padding:2px 10px; font-size:.85rem;}
-.site-head .sub {opacity:.7; font-size:.85rem;}
+.rtbl-wrap {{max-height: 640px; overflow: auto; border: 1px solid rgba(128,128,128,.32); border-radius: 12px;}}
+.rtbl {{width: 100%; border-collapse: collapse; font-size: .92rem;}}
+.rtbl th {{position: sticky; top: 0; z-index: 2; background: {INK}; color: #fff; text-align: left;
+  padding: 10px 12px; font-weight: 700; font-size: .82rem; white-space: nowrap;}}
+.rtbl td {{padding: 9px 12px; border-top: 1px solid rgba(128,128,128,.2); vertical-align: middle;}}
+.rtbl th.c-남은자리, .rtbl td.c-남은자리 {{text-align: right;}}
+.rtbl td.c-남은자리 {{font-size: 1.08rem; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap;}}
+.rtbl td.c-배 {{min-width: 190px;}}
+.rtbl td.c-지역, .rtbl td.c-출항, .rtbl td.c-상태, .rtbl td.c-가격 {{white-space: nowrap;}}
+.rtbl td.c-어종 {{min-width: 110px; max-width: 220px;}}
+.rtbl td.c-공지 {{font-weight: 500 !important;}}
+.rtbl td.c-공지 .nt {{max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}}
+.rtbl a.bn {{color: inherit !important; text-decoration: none; font-weight: 700;}}
+.rtbl a.bn:hover {{text-decoration: underline;}}
+.rtbl tr.ok {{background: {ACCENT};}}
+.rtbl tr.ok td {{background: {ACCENT} !important; color: #111 !important; font-weight: 700;}}
+.rtbl tr.ok td.c-남은자리 {{color: {INK} !important;}}
+.rtbl tr.ok td a.hp {{color: #111 !important; background: rgba(255,255,255,.55); padding: 3px 10px; border-radius: 999px;
+  border: 1.5px solid #111; text-decoration: none; white-space: nowrap;}}
+.rtbl tr.ok td a.hp:hover {{background: #fff;}}
+.rtbl tr.no td {{opacity: .62;}}
+.rtbl tr.grp td {{background: rgba(110,140,170,.16); padding: 9px 12px; border-top: 2px solid rgba(110,140,170,.45);
+  position: sticky; top: 37px; z-index: 1; backdrop-filter: blur(6px);}}
+.rtbl .g {{display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px;}}
+.rtbl .gd {{font-size: 1.12rem; font-weight: 800; letter-spacing: -.01em; min-width: 76px;}}
+.rtbl .gd small {{font-size: .82rem; margin-left: 2px; font-weight: 700;}}
+.rtbl .gd.sun {{color: #E8484C;}}
+.rtbl .gd.sat {{color: #3B8FE8;}}
+.rtbl .gf {{font-size: .88rem; white-space: nowrap;}}
+.rtbl .gk {{font-size: .74rem; opacity: .6; margin-right: 5px;}}
+.rtbl .gc {{margin-left: auto; font-size: .82rem; font-weight: 700; opacity: .8; white-space: nowrap;}}
+.rtbl .wxi {{display:inline-block; background:#fff; border:1px solid rgba(0,0,0,.12); border-radius:7px;
+  padding:0 4px; margin-right:4px; line-height:1.4;}}
+.rtbl .wxa {{opacity:.55; margin:0 3px;}}
+.site-head {{display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:1.5rem 0 .55rem;
+  padding-left:12px; border-left:5px solid {ACCENT};}}
+.site-head .nm {{font-size:1.3rem; font-weight:800; letter-spacing:-.01em;}}
+.site-head .badge {{background:{ACCENT}; color:#111; font-weight:800; border-radius:999px; padding:3px 12px; font-size:.86rem;}}
+.site-head .badge.zero {{background:rgba(128,128,128,.22); color:inherit;}}
+.site-head .sub {{opacity:.65; font-size:.85rem;}}
+@media (max-width: 640px) {{
+  .hero {{padding:16px 16px 14px;}} .hero-t {{font-size:1.45rem;}}
+  /* 휴대폰: 표 대신 카드처럼 한 배씩 — 배 이름과 남은자리가 첫 줄 */
+  .rtbl-wrap {{max-height:none; overflow:visible; border:0;}}
+  .rtbl, .rtbl tbody {{display:block; width:100%;}}
+  .rtbl thead {{display:none;}}
+  .rtbl tr.grp {{display:block; margin-top:10px;}}
+  .rtbl tr.grp td {{display:block; position:static; border-radius:10px 10px 0 0; border-top:0;}}
+  .rtbl .gc {{margin-left:0;}}
+  .rtbl tr.ok, .rtbl tr.no {{display:grid; grid-template-columns:1fr auto; column-gap:8px;
+    border-top:1px solid rgba(128,128,128,.25); padding:8px 0 10px;}}
+  .rtbl tr.no {{background:rgba(128,128,128,.06);}}
+  .rtbl tr td {{border:0 !important; padding:2px 12px; background:transparent !important; white-space:normal !important;
+    max-width:none !important; min-width:0 !important;}}
+  .rtbl td.c-배 {{grid-column:1; grid-row:1; font-size:1rem; padding-top:4px;}}
+  .rtbl td.c-남은자리 {{grid-column:2; grid-row:1; font-size:1.25rem; padding-top:2px;}}
+  .rtbl td.c-지역, .rtbl td.c-어종, .rtbl td.c-출항, .rtbl td.c-가격, .rtbl td.c-공지 {{grid-column:1 / -1; font-size:.86rem;
+    font-weight:600 !important;}}
+  .rtbl td.c-공지 {{opacity:.8;}}
+  .rtbl td.c-공지 .nt {{max-width:none; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}}
+  .rtbl td.c-상태 {{grid-column:1 / -1; padding-top:6px;}}
+  .rtbl td:empty {{display:none;}}
+}}
 </style>""", unsafe_allow_html=True)
 
 
 def boat_label(r):
     b, sh = (r.get("boat") or "").strip(), r["ship"]
+    if r["site"] == "cs" and b:                          # 클럽씨피싱은 선사 이름이 사이트 이름과 같아 생략
+        return b
     if not b or b in sh:
         return sh
     return f"{b} ({sh})"
@@ -1989,9 +2083,10 @@ def render_site(code):
     srows = dedupe([r for r in view if r["site"] == code])
     sscope = dedupe([r for r in in_scope if r["site"] == code])
     n_ok = sum(1 for r in srows if (r["remain"] or 0) > 0)
-    st.markdown(f"<div class='site-head'><span class='nm'>{SITES[code]}</span>"
-                f"<span class='badge'>예약가능 {n_ok}건</span>"
-                f"<span class='sub'>배 {len({r['boat'] for r in sscope}) if code == 'cs' else q.get(code, 0)}척 조회 · 표시 {len(srows)}건 / 해당 일정 {len(sscope)}건</span></div>",
+    n_q = len({r['boat'] for r in sscope}) if code == 'cs' else q.get(code, 0)
+    st.markdown(f"<div class='site-head s-{code}'><span class='nm'>{SITES[code]}</span>"
+                f"<span class='badge{' zero' if not n_ok else ''}'>예약가능 {n_ok}건</span>"
+                f"<span class='sub'>배 {n_q}척 조회, 표시 {len(srows)}건 / 해당 일정 {len(sscope)}건</span></div>",
                 unsafe_allow_html=True)
     site_errs = [e for e in ss.get("errors", []) if e.startswith(f"[{SITES[code]}]")]
     if site_errs and not sscope:
@@ -2033,36 +2128,52 @@ def render_site(code):
         "상태": r["status"] + (f" ({r['snap']} 기준)" if r.get("snap") else ""), "공지": r["notice"], "예약": r["url"],
         "홈페이지": r.get("home") or "", "_ok": (r["remain"] or 0) > 0,
     } for r in srows])
-    # 표를 직접 HTML로 그려 색을 고정 (예약가능 = 노란 바탕 + 검은 글씨, 다크/라이트 모드 동일)
-    cols = ["날짜", "지역", "물때", f"조류세기({TIDE_PORT_NAME})", "날씨", "기온", "배", "어종", "출항", "가격", "남은자리", "상태", "공지", "예약"]
+    # 날짜별로 묶어서 그림: 날짜 줄에 물때·조류·날씨·기온을 한 번만, 그 아래에 배 목록
+    # (예약가능 = 노란 바탕 + 검은 굵은 글씨, 다크/라이트 모드 동일)
+    cols = ["배", "지역", "어종", "출항", "가격", "남은자리", "상태", "공지"]
     if code in ("ss", "cs"):
         cols.remove("가격")                               # 선상24·클럽씨피싱은 가격 칸이 없음
-    label = {"날씨": f"날씨({ss.get('weather_area', '바다날씨')})", "기온": "기온(오전6시 / 오전9시 / 낮12시 / 오후3시)"}
-    head = "".join(f"<th>{label.get(c, c)}</th>" for c in cols)
-    body = []
-    for _, r in df.iterrows():
-        cells = []
-        for c in cols:
-            v = r[c]
-            if c == "상태" and r["_ok"] and r["홈페이지"]:
-                cells.append(f"<td><a class='hp' href='{htmlmod.escape(r['홈페이지'])}' target='_blank' "
-                             f"title='선사 홈페이지 열기'>{htmlmod.escape(str(v))} ↗</a></td>")
-            elif c == "예약":
-                cells.append(f"<td><a href='{htmlmod.escape(v)}' target='_blank'>예약하기</a></td>")
-            elif c == "날씨" and v:
-                parts = []
-                for seg in str(v).split(" → "):
-                    ic, _, txt = seg.partition(" ")
-                    if txt:
-                        parts.append(f"<span class='wx'>{htmlmod.escape(ic)}</span>{htmlmod.escape(txt)}")
-                    else:
-                        parts.append(htmlmod.escape(seg))
-                cells.append(f"<td>{' <span class=wxa>→</span> '.join(parts)}</td>")
-            elif c == "공지":
-                cells.append(f"<td class='nt' title='{htmlmod.escape(str(v))}'>{htmlmod.escape(str(v))}</td>")
-            else:
-                cells.append(f"<td>{htmlmod.escape(str(v))}</td>")
-        body.append(f"<tr class='{'ok' if r['_ok'] else 'no'}'>{''.join(cells)}</tr>")
+    head = "".join(f"<th class='c-{c}'>{c}</th>" for c in cols)
+    esc = lambda v: htmlmod.escape(str(v))
+    body, by_date = [], {}
+    for r, (_, dr) in zip(srows, df.iterrows()):
+        by_date.setdefault(r["date"], []).append(dr)
+    for d in sorted(by_date):
+        g = by_date[d]
+        dr0 = g[0]
+        n_ok_d = sum(1 for x in g if x["_ok"])
+        wx = ""
+        if dr0["날씨"]:
+            parts = []
+            for seg in str(dr0["날씨"]).split(" → "):
+                ic, _, txt = seg.partition(" ")
+                parts.append(f"<span class='wxi'>{esc(ic)}</span>{esc(txt)}" if txt else esc(seg))
+            wx = " <span class='wxa'>→</span> ".join(parts)
+        we = " sun" if d.weekday() == 6 else " sat" if d.weekday() == 5 else ""
+        facts = [("물때", dr0["물때"]), ("조류", dr0[f"조류세기({TIDE_PORT_NAME})"]), ("기온", dr0["기온"])]
+        facts_html = "".join(f"<span class='gf'><span class='gk'>{k}</span>{esc(v)}</span>" for k, v in facts if v)
+        body.append(
+            f"<tr class='grp'><td colspan='{len(cols)}'><div class='g'>"
+            f"<span class='gd{we}'>{d.month}.{d.day}<small>({WEEK[d.weekday()]})</small></span>"
+            f"{facts_html}" + (f"<span class='gf gw'>{wx}</span>" if wx else "") +
+            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div></td></tr>")
+        for r in g:
+            cells = []
+            for c in cols:
+                v = r[c]
+                if c == "배":
+                    cells.append(f"<td class='c-배'><a class='bn' href='{esc(r['예약'])}' target='_blank' "
+                                 f"title='예약 페이지 열기'>{esc(v)}</a></td>")
+                elif c == "남은자리":
+                    cells.append(f"<td class='c-남은자리'>{esc(v) if v else '–'}</td>")
+                elif c == "상태" and r["_ok"] and r["홈페이지"]:
+                    cells.append(f"<td class='c-상태'><a class='hp' href='{esc(r['홈페이지'])}' target='_blank' "
+                                 f"title='선사 홈페이지 열기'>{esc(v)} ↗</a></td>")
+                elif c == "공지":
+                    cells.append(f"<td class='c-공지' title='{esc(v)}'><div class='nt'>{esc(v)}</div></td>")
+                else:
+                    cells.append(f"<td class='c-{c}'>{esc(v)}</td>")
+            body.append(f"<tr class='{'ok' if r['_ok'] else 'no'}'>{''.join(cells)}</tr>")
     st.markdown(f"<div class='rtbl-wrap'><table class='rtbl'><thead><tr>{head}</tr></thead>"
                 f"<tbody>{''.join(body)}</tbody></table></div>", unsafe_allow_html=True)
     st.download_button(f"{SITES[code]} 결과 CSV 다운로드",
