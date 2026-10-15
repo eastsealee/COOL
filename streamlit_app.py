@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.19 (조회 속도 개선)"
+APP_VERSION = "v10.19-1 (페이지 읽기 빠르게)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -196,7 +196,55 @@ def fetch_html(url, tries=3, headers=None, timeout=20):
         return raw.decode("cp949", errors="replace")
 
 
+# 페이지 해석 도구: lxml(빠름)이 설치돼 있으면 쓰고, 없으면 파이썬 기본 도구(html.parser)
+try:
+    import lxml  # noqa: F401
+    HTML_PARSER = "lxml"
+except Exception:
+    HTML_PARSER = "html.parser"
+
+
+def make_soup(html):
+    try:
+        return BeautifulSoup(html, HTML_PARSER)
+    except Exception:                                    # 만일을 대비해 기본 도구로 다시
+        return BeautifulSoup(html, "html.parser")
+
+
+def _clean_lines_lxml(html):
+    """clean_lines와 같은 결과를 lxml로 빠르게 (큰 페이지에서 약 5~8배). 실패하면 None"""
+    if HTML_PARSER != "lxml":
+        return None
+    try:
+        import lxml.html
+        if not html or not html.strip():
+            return []
+        root = lxml.html.document_fromstring(html)
+        for el in root.xpath("//script|//style|//noscript"):
+            el.drop_tree()
+        for img in root.xpath("//img"):                  # 상태가 아이콘(대체텍스트)으로만 나오는 경우 대비
+            alt = (img.get("alt") or "").strip()
+            repl = f"\n{alt}\n" if alt else ""
+            parent, prev = img.getparent(), img.getprevious()
+            if prev is not None:
+                prev.tail = (prev.tail or "") + repl + (img.tail or "")
+            else:
+                parent.text = (parent.text or "") + repl + (img.tail or "")
+            parent.remove(img)
+        out = []
+        for raw in "\n".join(root.itertext()).split("\n"):
+            s_ = re.sub(r"\s+", " ", raw).strip()
+            if s_:
+                out.append(s_)
+        return out
+    except Exception:
+        return None
+
+
 def clean_lines(html):
+    fast = _clean_lines_lxml(html)
+    if fast is not None:
+        return fast
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
@@ -451,7 +499,7 @@ def _ss_board_page(sea, page):
     except Exception:
         return None
     found = {}
-    for a in BeautifulSoup(html, "html.parser").find_all("a", href=True):
+    for a in make_soup(html).find_all("a", href=True):
         m = re.search(r"/ship/schedule/(\d+)", a["href"])
         name = re.sub(r"\s+", " ", a.get_text(" ", strip=True))
         if m and name and len(name) <= 30:
@@ -650,7 +698,7 @@ def _tf_list_page(page):
         html = tf_fetch(f"{TF}/reservation/list.php?page={page}")
     except Exception:
         return None, 0
-    soup = BeautifulSoup(html, "html.parser")
+    soup = make_soup(html)
     last = max([int(x) for x in re.findall(r"list\.php\?page=(\d+)", html)] or [page])
     items = {}
     for a in soup.find_all("a", href=True):
@@ -1581,7 +1629,7 @@ def parse_clubsea(html, year, month, stats=None):
         if stats is not None:
             stats.update(dates=len({r["date"] for r in simple}), boat_rows=len(simple), chars=len(html))
         return simple
-    soup = BeautifulSoup(html, "html.parser")
+    soup = BeautifulSoup(html, "html.parser")             # 이 부분은 기존 도구 유지(비교 시 결과가 달랐음)
     if soup.select_one("td.left_person"):
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()
@@ -1753,7 +1801,7 @@ def lm_cell_text(td):
 
 
 def parse_lamar(html, y, m):
-    soup = BeautifulSoup(html, "html.parser")
+    soup = make_soup(html)
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
     out, seen = [], set()
@@ -1824,7 +1872,7 @@ def ship_cols(ship):
 def fish_options(_ver=CACHE_VER):
     fish = []
     try:
-        soup = BeautifulSoup(fetch_html(f"{SS_APP}/ship/list?area=all"), "html.parser")
+        soup = make_soup(fetch_html(f"{SS_APP}/ship/list?area=all"))
         anchor = soup.find(string=re.compile(r"^\s*전체어종\s*$"))
         node = anchor.parent if anchor else None
         while node is not None and len(node.find_all(["a", "li", "button"])) < 15:
@@ -1871,7 +1919,7 @@ def resolve_manual(token):
     m = re.search(r"/ship/schedule(?:_fleet)?/(\d+)", html)
     if not m:
         return None
-    soup = BeautifulSoup(html, "html.parser")
+    soup = make_soup(html)
     title = soup.title.get_text(strip=True).split(",")[0] if soup.title else host
     return {"site": "ss", "id": int(m.group(1)), "name": title, "sea": "", "sido": "직접추가",
             "sigungu": "직접추가", "port": "", "hint": ""}
