@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.17 (휴대폰 팝업 선택)"
+APP_VERSION = "v10.17-2 (바람·파고 3시간 간격)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -916,6 +916,7 @@ def tide_weather(code=TIDE_PORT_CODE, _ver=CACHE_VER):
 
 # ---- 기온: 바다타임 날짜별 페이지(356-YYYY-MM-DD.html)의 시간별 지역날씨 표 (단기예보 기간만 값이 있음)
 TEMP_HOURS = ("06", "09", "12", "15")
+SEA_HOURS = ("00", "03", "06", "09", "12", "15", "18", "21")   # 바람·파고: 밤 12시부터 3시간 간격
 
 
 def parse_hourly_temps(html):
@@ -959,10 +960,12 @@ def day_temps(dstr, code=TIDE_PORT_CODE, _ver=CACHE_VER):
 TEMP_LAT, TEMP_LON = 36.533, 126.467                     # 남당항 (북위 36°32′, 동경 126°28′)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def openmeteo_temps(lat=TEMP_LAT, lon=TEMP_LON, _ver=CACHE_VER):
+@st.cache_data(ttl=600, show_spinner=False)
+def openmeteo_fc(lat=TEMP_LAT, lon=TEMP_LON, _ver=CACHE_VER):
+    """Open-Meteo 최신 예보 → ({(날짜, 'HH'): 기온°C}, {(날짜, 'HH'): 바람 m/s}) — 조회할 때마다 새로 받음"""
     url = ("https://api.open-meteo.com/v1/forecast"
-           f"?latitude={lat}&longitude={lon}&hourly=temperature_2m&timezone=Asia%2FSeoul&forecast_days=16")
+           f"?latitude={lat}&longitude={lon}&hourly=temperature_2m,wind_speed_10m&wind_speed_unit=ms"
+           "&timezone=Asia%2FSeoul&forecast_days=16")
     last = None
     for i in range(3):
         try:
@@ -974,24 +977,97 @@ def openmeteo_temps(lat=TEMP_LAT, lon=TEMP_LON, _ver=CACHE_VER):
             last = ex
             time.sleep(1.5 * (i + 1))
     else:
-        raise RuntimeError(f"기온 예보를 가져오지 못했습니다: {last}")
+        raise RuntimeError(f"기온·바람 예보를 가져오지 못했습니다: {last}")
     hourly = data.get("hourly", {})
-    out = {}
-    for t, v in zip(hourly.get("time", []), hourly.get("temperature_2m", [])):
-        if v is None:
-            continue
-        d, hh = t[:10], t[11:13]                          # '2026-10-19T06:00'
-        if hh in TEMP_HOURS:
-            out[(date.fromisoformat(d), hh)] = round(v)
-    return out
+    times = hourly.get("time", [])
+    temps, winds = {}, {}
+    for key, store, conv in (("temperature_2m", temps, round), ("wind_speed_10m", winds, lambda v: round(v))):
+        for t, v in zip(times, hourly.get(key, []) or []):
+            if v is None:
+                continue
+            d, hh = t[:10], t[11:13]                      # '2026-10-19T06:00'
+            if hh in (TEMP_HOURS if store is temps else SEA_HOURS):
+                store[(date.fromisoformat(d), hh)] = conv(v)
+    return temps, winds
+
+
+# 파고: Open-Meteo 해양 예보(공개 무료 API). 남당항은 천수만 안쪽이라 격자에 값이 없을 수 있어
+# 가까운 바다 지점부터 차례로 시도해 값이 있는 첫 지점을 씀
+WAVE_POINTS = [("천수만", 36.50, 126.40), ("천수만 입구", 36.42, 126.33), ("안면도 앞바다", 36.40, 126.20)]
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def openmeteo_waves(_ver=CACHE_VER):
+    """{(날짜, 'HH'): 파고 m}, 지점 이름 — 조회할 때마다 새로 받음"""
+    last = None
+    for name, lat, lon in WAVE_POINTS:
+        for days_ in (16, 8, 7):
+            url = ("https://marine-api.open-meteo.com/v1/marine"
+                   f"?latitude={lat}&longitude={lon}&hourly=wave_height&timezone=Asia%2FSeoul&forecast_days={days_}")
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=20)
+                if getattr(r, "status_code", 200) == 400:
+                    last = RuntimeError(f"{name}: 예보 기간 {days_}일 불가")
+                    continue
+                r.raise_for_status()
+                data = r.json()
+            except Exception as ex:
+                last = ex
+                break
+            hourly = data.get("hourly", {})
+            out = {}
+            for t, v in zip(hourly.get("time", []), hourly.get("wave_height", []) or []):
+                if v is not None and t[11:13] in SEA_HOURS:
+                    out[(date.fromisoformat(t[:10]), t[11:13])] = round(v, 1)
+            if out:
+                return out, name
+            last = RuntimeError(f"{name}: 파고 값 없음")
+            break
+    raise RuntimeError(f"파고 예보를 가져오지 못했습니다: {last}")
 
 
 def temp_label(d):
     t = ss.get("temps", {})
     vals = [t.get((d, h)) for h in TEMP_HOURS]
     if all(v is None for v in vals):
-        return "예보 전" if d > kst_today() else ""
+        return "예보 전"
     return " / ".join("–" if v is None else f"{v}°" for v in vals)
+
+
+def sea_label(d, key, unit):
+    """바람(m/s)·파고(m) — 밤 12시부터 3시간 간격, 예보가 없으면 '예보 전'"""
+    w = ss.get(key, {})
+    vals = [w.get((d, h)) for h in SEA_HOURS]
+    if all(v is None for v in vals):
+        return "예보 전"
+    return " / ".join(f"{int(h)}시 {'–' if v is None else v}" for h, v in zip(SEA_HOURS, vals)) + f" {unit}"
+
+
+def wind_label(d):
+    return sea_label(d, "winds", "m/s")
+
+
+def wave_label(d):
+    return sea_label(d, "waves", "m")
+
+
+def sea_grid_html(d):
+    """날짜 줄 아래 작은 표: 시각별 바람·파고"""
+    w, v = ss.get("winds", {}), ss.get("waves", {})
+    if not any((d, h) in w or (d, h) in v for h in SEA_HOURS):
+        return "<span class='gf'><span class='gk'>바람·파고</span>예보 전</span>"
+    def cell(x, warn):
+        if x is None:
+            return "<td>–</td>"
+        return f"<td class='{'hi' if x >= warn else ''}'>{x}</td>"
+    hrs = "".join(f"<th>{int(h)}시</th>" for h in SEA_HOURS)
+    wr = "".join(cell(w.get((d, h)), 8) for h in SEA_HOURS)
+    vr = "".join(cell(v.get((d, h)), 1.5) for h in SEA_HOURS)
+    wave_row = (f"<tr><th class='rk'>파고 m</th>{vr}</tr>" if any((d, h) in v for h in SEA_HOURS)
+                else f"<tr><th class='rk'>파고 m</th><td colspan='{len(SEA_HOURS)}'>예보 전</td></tr>")
+    wind_row = (f"<tr><th class='rk'>바람 m/s</th>{wr}</tr>" if any((d, h) in w for h in SEA_HOURS)
+                else f"<tr><th class='rk'>바람 m/s</th><td colspan='{len(SEA_HOURS)}'>예보 전</td></tr>")
+    return f"<table class='sea'><tr><th></th>{hrs}</tr>{wind_row}{wave_row}</table>"
 
 
 def tide_label(d):
@@ -2087,11 +2163,18 @@ if go:
             if ym in months:
                 errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
     ss.tide = tide_with_strength(tide)
+    openmeteo_fc.clear()                                 # 조회할 때마다 가장 최근 예보로
+    openmeteo_waves.clear()
     try:
-        ss.temps = openmeteo_temps()
+        ss.temps, ss.winds = openmeteo_fc()
     except Exception as ex:
-        ss.temps = {}
-        errors.append(f"[기온] {ex}")
+        ss.temps, ss.winds = {}, {}
+        errors.append(f"[기온·바람] {ex}")
+    try:
+        ss.waves, ss.wave_area = openmeteo_waves()
+    except Exception as ex:
+        ss.waves, ss.wave_area = {}, ""
+        errors.append(f"[파고] {ex}")
     try:
         ss.weather, ss.weather_area = tide_weather()
     except Exception as ex:
@@ -2255,6 +2338,13 @@ st.markdown(f"""
 .rtbl .wxi {{display:inline-block; background:#fff; color:#111; border:1px solid rgba(0,0,0,.12); border-radius:7px;
   padding:0 4px; margin-right:4px; line-height:1.4;}}
 .rtbl .wxa {{opacity:.55; margin:0 3px;}}
+.rtbl .seaw {{overflow-x: auto; margin-top: 6px;}}
+.rtbl table.sea {{border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums;}}
+.rtbl table.sea th, .rtbl table.sea td {{position: static; background: transparent; color: inherit; padding: 2px 8px;
+  border: 0; text-align: center; font-weight: 600; white-space: nowrap;}}
+.rtbl table.sea th {{opacity: .6; font-size: .72rem; font-weight: 700;}}
+.rtbl table.sea th.rk {{text-align: left; padding-left: 0;}}
+.rtbl table.sea td.hi {{color: #E8484C; font-weight: 800;}}
 .site-head {{display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:1.5rem 0 .55rem;
   padding-left:12px; border-left:5px solid {ACCENT};}}
 .site-head .nm {{font-size:1.3rem; font-weight:800; letter-spacing:-.01em;}}
@@ -2283,6 +2373,7 @@ st.markdown(f"""
   .rtbl td.c-공지 .nt {{max-width:none; white-space:normal; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;}}
   .rtbl td.c-상태 {{grid-column:1 / -1; padding-top:6px;}}
   .rtbl td:empty {{display:none;}}
+  .rtbl table.sea td, .rtbl table.sea th {{display: table-cell !important; padding: 2px 5px !important;}}
 }}
 </style>""", unsafe_allow_html=True)
 
@@ -2363,7 +2454,7 @@ def render_site(code):
         "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", "") or mul_any.get(r["date"], ""),
         f"조류세기({TIDE_PORT_NAME})": tide_label(r["date"]),
         "날씨": ss.get("weather", {}).get(r["date"], "예보 전" if r["date"] > kst_today() + timedelta(days=6) else ""),
-        "기온": temp_label(r["date"]),
+        "기온": temp_label(r["date"]), "바람": wind_label(r["date"]), "파고": wave_label(r["date"]),
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
@@ -2403,7 +2494,8 @@ def render_site(code):
             f"<tr class='grp'><td colspan='{len(cols)}'><div class='g'>"
             f"<span class='gd{we}'>{d.month}.{d.day}<small>({WEEK[d.weekday()]})</small></span>"
             f"{facts_html}" + (f"<span class='gf gw'>{wx}</span>" if wx else "") +
-            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div></td></tr>")
+            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div>"
+            f"<div class='seaw'>{sea_grid_html(d)}</div></td></tr>")
         for r in g:
             cells = []
             for c in cols:
@@ -2431,7 +2523,9 @@ def render_site(code):
 for code in site_codes:
     render_site(code)
 
-st.caption("물때·조류세기·날씨: 바다타임 남당항 · 기온: Open-Meteo 예보(남당항 위치, 최대 16일 앞까지)")
+st.caption("물때·조류세기·날씨: 바다타임 남당항 · 기온·바람: Open-Meteo 최신 예보(남당항 위치) · 파고: Open-Meteo 해양 예보"
+           + (f"({ss.get('wave_area')})" if ss.get("wave_area") else "")
+           + " · 조회할 때마다 새로 받음 · 바람 8m/s 이상, 파고 1.5m 이상은 빨간 글씨")
 
 with st.expander(f"🌊 조류세기 계산 근거 ({TIDE_PORT_NAME}, 바다타임 물때표)"):
     td = ss.get("tide", {})
