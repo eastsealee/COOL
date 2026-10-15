@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-5 (항구별 묶음·바람 Kts/m/s)"
+APP_VERSION = "v10.18-8 (전부 실시간 버튼 삭제)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -231,6 +231,58 @@ def tf_region(path):
 
 JJU_RE = re.compile(r"주꾸미|쭈꾸미|쭈꾸|주꾸")
 GAB_RE = re.compile(r"갑오징어|갑오|갑\b|&\s*갑")
+
+
+# 어종 '딱 그것만' 판별용: 표기 → 대표 이름
+FISH_CANON = {"쭈꾸미": "주꾸미", "쭈꾸": "주꾸미", "주꾸": "주꾸미", "갑오": "갑오징어", "조피볼락": "우럭",
+              "넙치": "광어", "광어다운샷": "광어", "보구치": "백조기", "뽈락": "볼락", "에깅": "무늬오징어",
+              "불볼락": "열기", "돌문어": "문어", "대문어": "문어", "피문어": "문어", "문치가자미": "도다리",
+              "아나고": "붕장어", "외수질": "대구", "타이라바": "참돔"}
+NOT_FISH_WORDS = {"시즌어종", "기타", "체험낚시", "갯바위", "좌대유터", "해루질", "탐사", "다잡아", "생미끼", "어초침선"}
+
+
+def fish_set(text):
+    """어종 글자 → 대표 어종 이름 집합. '쭈갑'은 주꾸미+갑오징어, '외 N종'은 알 수 없는 다른 어종(?)"""
+    t = text or ""
+    found = set()
+    if "쭈갑" in t or re.search(r"(쭈꾸미|주꾸미)\s*[&/,·]\s*갑(?!오)", t):
+        found |= {"주꾸미", "갑오징어"}
+        t = t.replace("쭈갑", " ")
+    names = set(SS_FISH) | set(TF_FISH) | set(FISH_CANON)
+    for n in sorted(names, key=len, reverse=True):      # 긴 이름부터 (갑오징어 안의 '오징어' 오인 방지)
+        if n in NOT_FISH_WORDS or n == "쭈갑" or n not in t:
+            continue
+        found.add(FISH_CANON.get(n, n))
+        t = t.replace(n, " ")
+    if re.search(r"외\s*\d+\s*종", text or ""):
+        found.add("?")
+    return found
+
+
+# 어종 선택별로 보여줄 배의 어종 조합
+#  주꾸미 → 쭈꾸미낚시(주꾸미만), 쭈갑(주꾸미+갑오징어), 갑오징어
+#  갑오징어 → 갑오징어만
+#  쭈갑 → 쭈꾸미낚시(주꾸미만), 쭈갑(주꾸미+갑오징어), 갑오징어
+FISH_ALLOWED = {
+    "주꾸미": [("주꾸미",), ("주꾸미", "갑오징어"), ("갑오징어",)],
+    "갑오징어": [("갑오징어",)],
+    "쭈갑": [("주꾸미",), ("주꾸미", "갑오징어"), ("갑오징어",)],
+}
+
+
+def fish_only_match(text, selected):
+    """선택한 어종'만' 하는 배: 글자에서 찾은 어종이 모두 선택한 어종 안에 있어야 함
+    (예: 갑오징어만 고르면 '주꾸미, 갑오징어'는 제외, 쭈갑을 고르면 주꾸미+갑오징어 모두 허용)"""
+    if not selected:
+        return True
+    got = fish_set(text)
+    if not got:
+        return False
+    for f in selected:                                   # 정해 둔 조합 (KIM 지정)
+        if any(got == set(c) for c in FISH_ALLOWED.get(f, ())):
+            return True
+    singles = {FISH_CANON.get(f, f) for f in selected if f not in FISH_ALLOWED}
+    return bool(singles) and got <= singles
 
 
 def fish_match(text, selected):
@@ -2260,6 +2312,7 @@ if go:
     if fish_sel:   # 선상24만 목록상 정보로 1차 압축 (더피싱 목록은 '외 N종'으로 잘려 있어 제외하면 안 됨)
         ships = [s for s in ships if s["site"] != "ss" or not s["hint"] or fish_match(s["hint"], fish_sel)]
     overflow = []
+    ss.overflow_note = ""
     if len(ships) > MAX_SHIPS:
         # 사이트별로 번갈아 담아 한쪽 사이트만 잘리지 않게
         by = {k: [s for s in ships if s["site"] == k] for k in SITES}
@@ -2270,10 +2323,10 @@ if go:
                     mixed.append(by[k].pop(0))
         overflow = [s for s in ships if s not in mixed]
         n_snap = sum(1 for s in overflow if s["site"] == "ss" and SNAP and str(s["id"]) in SNAP["sched"])
-        st.warning(f"배가 {len(ships)}척이라 {MAX_SHIPS}척은 실시간으로 조회하고"
-                   + (f", 나머지 중 선상24 {n_snap}척은 사전조회 결과({SNAP['generated']} 기준)로 보여줍니다."
-                      if n_snap else " 나머지는 생략합니다.")
-                   + " 시·도나 시·군을 좁히면 전부 실시간으로 조회됩니다.")
+        ss.overflow_note = (f"배가 {len(ships)}척이라 {MAX_SHIPS}척은 실시간으로 조회하고"
+                            + (f", 나머지 중 선상24 {n_snap}척은 사전조회 결과({SNAP['generated']} 기준)로 보여줍니다."
+                               if n_snap else " 나머지는 생략합니다.")
+                            + " 시·도나 시·군을 좁히면 전부 실시간으로 조회됩니다.")
         ships = mixed
     ss.queried = {k: sum(1 for s in ships if s["site"] == k) for k in SITES}
     months = tuple(sorted({f"{d.year}{d.month:02d}" for d in days}))
@@ -2448,6 +2501,8 @@ if rows is None:
     st.stop()
 
 st.markdown("<div class='res-head'>조회 결과</div>", unsafe_allow_html=True)
+if ss.get("overflow_note"):
+    st.warning(ss.overflow_note)
 q0 = ss.get("queried", {})
 if "ss" in site_codes and q0 and not q0.get("ss"):
     st.error("선상24 배를 한 척도 조회하지 못했습니다 — 선상24 배 목록을 불러오지 못했거나 선택한 지역에 선상24 배가 없습니다. "
@@ -2478,12 +2533,8 @@ day_set = set(days)
 
 
 def row_fish_ok(r):
-    if r["site"] == "cs":                                # 클럽씨피싱은 어종과 상관없이 예약마감 외 모든 배 표시
-        return True
-    if fish_match(f"{r['species']} {r['notice']} {r['boat']}", fish_sel):
-        return True
-    # 더피싱 목록의 어종이 '…외 N종'으로 잘려 있으면 확인 불가 → 보여주고 표시
-    return r["site"] == "tf" and bool(re.search(r"외\s*\d+\s*종", r["species"]))
+    """고른 어종'만' 하는 일정만 (어종 칸 기준, 어종 칸이 비었으면 공지로 판단)"""
+    return fish_only_match(r["species"] or r["notice"], fish_sel)
 
 
 def name_ok(r):
@@ -2650,7 +2701,7 @@ def render_site(code):
         st.caption("클럽씨피싱 사이트에서 읽은 내용 — " + " · ".join(diag)
                    + (f" · 받은 페이지 {len(pages)}개" if pages else ""))
         if raw_n and not sscope:
-            st.warning(f"클럽씨피싱 배 {raw_n}건을 읽었지만 [배 이름 검색] 조건 때문에 모두 빠졌습니다.")
+            st.warning(f"클럽씨피싱 배 {raw_n}건을 읽었지만 [어종 선택] 또는 [배 이름 검색] 조건 때문에 모두 빠졌습니다.")
     if code == "cs" and not sscope and not site_errs and q.get("cs") and not any(
             r["site"] == "cs" and r["date"] in day_set for r in (rows or [])):
         shut = [f"{d.month}/{d.day}({WEEK[d.weekday()]}) {CS_CLOSED_COUNT[d]}척"
