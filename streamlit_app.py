@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-18 (제주 시·도·기타 삭제)"
+APP_VERSION = "v10.19 (조회 속도 개선)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -2389,9 +2389,77 @@ if go:
            [("cs", s, tuple(days)) for s in ships if s["site"] == "cs"] + \
            [("lm", s, tuple(days)) for s in ships if s["site"] == "lm"]
     rows, errors, probes = [], [], []
+    t_start = time.time()
+    job_time = {}                                         # 사이트별 (걸린 시간 합, 건수)
+
+    # ---- 물때·조류·날씨(바다타임)와 기온·바람·파고(Open-Meteo)는 배 목록만으로 지역을 알 수 있으므로
+    #      예약현황 조회와 '동시에' 받아 둠 (전에는 예약현황이 다 끝난 뒤에 받아서 그만큼 더 기다렸음)
+    need_m = set()
+    for d in days:                                        # 앞뒤 7일 계산에 필요한 달만
+        for k in (-7, 0, 7):
+            dd = d + timedelta(days=k)
+            need_m.add(f"{dd.year}{dd.month:02d}")
+    stations = {}
+    locs = {}
+    for s in ships:
+        c_, n_ = bt_station_of(s)
+        stations.setdefault(c_, n_)
+        nm_, la_, lo_ = loc_of(s)
+        locs.setdefault(nm_, (nm_, la_, lo_))
+    stations.setdefault(TIDE_PORT_CODE, TIDE_PORT_NAME)
+    locs.setdefault(TIDE_PORT_NAME, (TIDE_PORT_NAME, TEMP_LAT, TEMP_LON))
+    stations = dict(list(stations.items())[:15])
+    loc_list = list(locs.values())[:30]
+
+    def _station(item):
+        code_, name_ = item
+        tide_, errs_ = {}, []
+        for ym in sorted(need_m):
+            try:
+                tide_.update(tide_month(ym, code_))
+            except Exception as ex_:
+                if ym in months:
+                    errs_.append(f"[조류세기] {name_} {ym[4:]}월 물때표: {ex_}")
+        try:
+            wx_ = tide_weather(code_)
+        except Exception as ex_:
+            wx_ = ({}, "바다날씨")
+            errs_.append(f"[날씨] {name_} 바다날씨: {ex_}")
+        return code_, tide_with_strength(tide_, code_), wx_, errs_
+
+    def _wave(loc_):
+        try:
+            return loc_[0], openmeteo_wave_at(*loc_), None
+        except Exception as ex_:
+            return loc_[0], None, str(ex_)
+
+    def _fc():
+        try:
+            return openmeteo_fc_multi(tuple(loc_list)), None
+        except Exception as ex_:
+            return {}, f"[기온·바람] {ex_}"
+
+    tide_weather.clear()                                  # 날씨·예보는 조회할 때마다 최신으로
+    openmeteo_fc_multi.clear()
+    openmeteo_wave_at.clear()
+    env_ex = ThreadPoolExecutor(max_workers=3)
+    env_t0 = time.time()
+    env_station_f = [env_ex.submit(_station, it) for it in stations.items()]
+    env_fc_f = env_ex.submit(_fc)
+    env_wave_f = [env_ex.submit(_wave, lc) for lc in loc_list]
+
     bar = st.progress(0.0, text="예약현황을 가져오는 중...")
 
     def work(job):
+        t_job = time.time()
+        try:
+            return _work(job)
+        finally:
+            k_ = job[0]
+            a_, n_ = job_time.get(k_, (0.0, 0))
+            job_time[k_] = (a_ + time.time() - t_job, n_ + 1)
+
+    def _work(job):
         kind, s, arg = job
         try:
             if kind == "ss":
@@ -2427,70 +2495,32 @@ if go:
                 rows.extend(snapshot_rows(SNAP, s, ym))
     ss.queried["ss"] = ss.queried.get("ss", 0) + sum(1 for s in overflow if s["site"] == "ss"
                                                      and SNAP and str(s["id"]) in SNAP["sched"])
-    tide, need_m = {}, set()
-    for ym in months:                                     # 앞뒤 7일 계산을 위해 이웃 달도 함께
-        y_, m_ = int(ym[:4]), int(ym[4:])
-        for k in (-1, 0, 1):
-            yy, mm = y_ + (m_ + k - 1) // 12, (m_ + k - 1) % 12 + 1
-            need_m.add(f"{yy}{mm:02d}")
-    # 물때·조류세기·날씨: 결과에 나온 항구마다 그 항구의 바다타임 지점으로
-    stations = {}
-    for r_ in rows:
-        c_, n_ = bt_station_of(r_)
-        stations.setdefault(c_, n_)
-    stations.setdefault(TIDE_PORT_CODE, TIDE_PORT_NAME)
-    stations = dict(list(stations.items())[:15])
-
-    def _station(item):
-        code_, name_ = item
-        tide_, errs_ = {}, []
-        for ym in sorted(need_m):
-            try:
-                tide_.update(tide_month(ym, code_))
-            except Exception as ex_:
-                if ym in months:
-                    errs_.append(f"[조류세기] {name_} {ym[4:]}월 물때표: {ex_}")
-        try:
-            wx_ = tide_weather(code_)
-        except Exception as ex_:
-            wx_ = ({}, "바다날씨")
-            errs_.append(f"[날씨] {name_} 바다날씨: {ex_}")
-        return code_, tide_with_strength(tide_, code_), wx_, errs_
-    tide_weather.clear()                                  # 날씨는 조회할 때마다 최신으로
+    t_jobs = time.time() - t_start
+    # ---- 동시에 받아 둔 물때·날씨·예보 결과 모으기
     ss.tide_by, ss.wx_by, ss.station_names = {}, {}, dict(stations)
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        for code_, td_, wx_, errs_ in ex.map(_station, list(stations.items())):
-            ss.tide_by[code_], ss.wx_by[code_] = td_, wx_
-            errors.extend(errs_)
+    for f_ in env_station_f:
+        code_, td_, wx_, errs_ = f_.result()
+        ss.tide_by[code_], ss.wx_by[code_] = td_, wx_
+        errors.extend(errs_)
     ss.tide = ss.tide_by.get(TIDE_PORT_CODE, {})
-    # 기온·바람·파고: 결과에 나온 항구(지역)마다 가장 최근 예보를 새로 받음
-    openmeteo_fc_multi.clear()
-    openmeteo_wave_at.clear()
-    locs = {}
-    for r_ in rows:
-        nm_, la_, lo_ = loc_of(r_)
-        locs.setdefault(nm_, (nm_, la_, lo_))
-    locs.setdefault(TIDE_PORT_NAME, (TIDE_PORT_NAME, TEMP_LAT, TEMP_LON))
-    loc_list = list(locs.values())[:30]
     sea = {nm_: {} for nm_, _, _ in loc_list}
-    try:
-        for nm_, (tp_, wd_, wm_) in openmeteo_fc_multi(tuple(loc_list)).items():
-            sea[nm_].update(temps=tp_, winds=wd_, winds_ms=wm_)
-    except Exception as ex:
-        errors.append(f"[기온·바람] {ex}")
-
-    def _wave(loc_):
-        try:
-            return loc_[0], openmeteo_wave_at(*loc_), None
-        except Exception as ex_:
-            return loc_[0], None, str(ex_)
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        for nm_, res_, err_ in ex.map(_wave, loc_list):
-            if res_:
-                sea[nm_].update(waves=res_[0], wave_area=res_[1])
-            elif err_:
-                errors.append(f"[파고] {err_}")
+    fc_res, fc_err = env_fc_f.result()
+    if fc_err:
+        errors.append(fc_err)
+    for nm_, (tp_, wd_, wm_) in fc_res.items():
+        sea.setdefault(nm_, {}).update(temps=tp_, winds=wd_, winds_ms=wm_)
+    for f_ in env_wave_f:
+        nm_, res_, err_ = f_.result()
+        if res_:
+            sea.setdefault(nm_, {}).update(waves=res_[0], wave_area=res_[1])
+        elif err_:
+            errors.append(f"[파고] {err_}")
+    env_ex.shutdown(wait=False)
     ss.sea = sea
+    t_env_wait = time.time() - t_start - t_jobs           # 예약현황이 끝난 뒤 날씨 등을 더 기다린 시간
+    ss.timing = {"total": time.time() - t_start, "jobs": t_jobs, "env_extra": max(0.0, t_env_wait),
+                 "sites": {k: (round(v[0], 1), v[1]) for k, v in job_time.items()},
+                 "stations": len(stations), "locs": len(loc_list)}
     _keep = set(days)                                     # 선택한 날짜만 보관(메모리 절약)
     rows = [r for r in rows if r["date"] in _keep]
     ss.rows, ss.errors = rows, errors
@@ -2608,12 +2638,20 @@ st.caption(f"🕒 {ss.fetched} (한국시간) 실시간 조회 결과 — 다시
            + (f" · 배 이름 '{name_q.strip()}' 검색 중" if name_q.strip() else ""))
 
 need_home = list({r["ship_id"] for r in view if r["site"] == "ss" and (r["remain"] or 0) > 0})[:80]
+_t_home = time.time()
 if need_home:
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    with ThreadPoolExecutor(max_workers=6) as ex:
         homes = dict(zip(need_home, ex.map(ss_home, need_home)))
     for r in view:
         if r["site"] == "ss":
             r["home"] = homes.get(r["ship_id"]) or r["url"]
+_home_sec = time.time() - _t_home
+_tm = ss.get("timing")
+if _tm:
+    _site_txt = ", ".join(f"{SITES[k]} {n}건" for k, (sec, n) in _tm["sites"].items())
+    st.caption(f"⏱ 걸린 시간: 예약현황 {_tm['jobs']:.1f}초({_site_txt}) · "
+               f"물때·날씨·바람·파고 추가 대기 {_tm['env_extra']:.1f}초(예약현황과 동시에 받음, 항구 {_tm['locs']}곳) · "
+               f"선사 홈페이지 링크 {_home_sec:.1f}초")
 
 st.markdown(f"""
 <style>
