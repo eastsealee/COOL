@@ -49,7 +49,7 @@ CACHE_VER = 3            # 저장된 목록을 새로 만들게 할 때 올림
 SS_BOARD_MAX_PAGES = 12
 TF_LIST_MAX_PAGES = 40
 MAX_SHIPS = 150
-WORKERS = 8
+WORKERS = 6
 WEEK = "월화수목금토일"
 KST = timezone(timedelta(hours=9))
 
@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18 (항구별 물때·조류·날씨)"
+APP_VERSION = "v10.18-1 (메모리 절약)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -510,7 +510,7 @@ def ss_bg_rows():
     return rows
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=300, max_entries=300, show_spinner=False)
 def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
     """선상24 한 척의 한 달 일정 → {"rows": [...], "probe": [...]}
     순서대로 시도: 앱 월별 일정 → (이번 달) 앱 일정 → 모바일 화면 → 배 홈페이지(xxx.sunsang24.com).
@@ -553,7 +553,7 @@ def ss_month(ship_t, yyyymm, _ver=CACHE_VER):
     return {"rows": [], "probe": probe}
 
 
-@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+@st.cache_data(ttl=7 * 24 * 3600, max_entries=400, show_spinner=False)
 def ss_home(ship_id, _ver=CACHE_VER):
     """선상24 배의 홈페이지(xxx.sunsang24.com) — 배 소개 페이지의 사진 경로 ship_img/<xxx>/ 에서 찾음"""
     try:
@@ -757,7 +757,7 @@ def tf_parse_home(html, ship):
     return out
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=180, max_entries=150, show_spinner=False)
 def tf_ship(ship_t, months, _ver=CACHE_VER):
     """더피싱 한 척: 예약 페이지 달력(이번 달) + 선사 홈페이지 예약현황(가까운 8일, 다른 달)"""
     ship = dict(ship_t)
@@ -828,7 +828,7 @@ def parse_tide(html, y, m):
     return days
 
 
-@st.cache_data(ttl=12 * 3600, show_spinner=False)
+@st.cache_data(ttl=12 * 3600, max_entries=60, show_spinner=False)
 def tide_month(yyyymm, code=TIDE_PORT_CODE, _ver=CACHE_VER + 5):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"https://www.badatime.com/{code}-{y}-{m:02d}-01.html")
@@ -957,7 +957,7 @@ def wx_icon(word):
     return "🌡️"
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=30, show_spinner=False)
 def tide_weather(code=TIDE_PORT_CODE, _ver=CACHE_VER):
     """{날짜: '☀️ 맑음' 또는 '🌧️ 흐리고 비 → ⛅ 구름많음'(오전→오후)}, 예보 지역명"""
     html = fetch_html(f"https://www.badatime.com/{code}.html")
@@ -1030,7 +1030,7 @@ def parse_hourly_temps(html):
     return out
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=10, show_spinner=False)
 def day_temps(dstr, code=TIDE_PORT_CODE, _ver=CACHE_VER):
     html = fetch_html(f"https://www.badatime.com/{code}-{dstr}.html")
     return parse_hourly_temps(html)
@@ -1109,7 +1109,7 @@ def _om_get(url):
     raise RuntimeError(str(last))
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=10, show_spinner=False)
 def openmeteo_fc_multi(locs, _ver=CACHE_VER):
     """locs = ((이름, 위도, 경도), ...) → {이름: (기온, 바람Kts)} — 한 번의 요청으로 여러 지점"""
     lats = ",".join(f"{la:.3f}" for _, la, _ in locs)
@@ -1139,7 +1139,7 @@ def _km(la1, lo1, la2, lo2):
     return math.hypot(dx, dy)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=40, show_spinner=False)
 def openmeteo_wave_at(name, lat, lon, _ver=CACHE_VER):
     """그 지역에서 가장 가까운, 파고 값이 있는 바다 지점의 예보 → ({(날짜, 'HH'): 파고 m}, 지점 설명)
     항구 좌표 자체가 육지·만 안쪽이라 값이 없을 수 있어, 주변 지점을 가까운 순서로 한 번에 받아 첫 값을 씀"""
@@ -1253,7 +1253,7 @@ def data_repo_slug():
     return DEFAULT_DATA_REPO or None
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_resource(ttl=600, max_entries=1, show_spinner=False)   # 큰 데이터라 복사하지 않고 공유(읽기 전용)
 def load_snapshot(slug, _ver=CACHE_VER):
     base = f"https://raw.githubusercontent.com/{slug}/data"
     r1 = requests.get(f"{base}/ss_ships.json", headers=HEADERS, timeout=20)
@@ -1271,12 +1271,20 @@ def load_snapshot(slug, _ver=CACHE_VER):
 
 
 def snapshot_ships(snap):
+    if not snap:
+        return []
+    return list(_snapshot_ships(snap.get("generated", ""), len(snap.get("ships", {})), snap))
+
+
+@st.cache_resource(max_entries=2, show_spinner=False)
+def _snapshot_ships(gen, n, _snap):                       # 사전조회 배 목록은 한 번만 변환해 공유
+    snap = _snap or {}
     out = []
     for sid, v in (snap or {}).get("ships", {}).items():
         sido, sgg, port = ss_locate(v["name"], v["sea"])
         out.append({"site": "ss", "id": int(sid), "name": v["name"], "sea": v["sea"], "sido": sido,
                     "sigungu": sgg, "port": port, "hint": ""})
-    return out
+    return tuple(out)
 
 
 def snapshot_rows(snap, ship, ym):
@@ -1607,7 +1615,7 @@ def _parse_clubsea_generic(soup, year, month, stats=None, html_len=0):
     return list(uniq.values())
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=180, max_entries=10, show_spinner=False)
 def cs_page(dstr, _ver=CACHE_VER + 2):
     d = date.fromisoformat(dstr)
     tries = [(f"{CS}/reservation?price_search=&search_date={d:%Y-%m}&day={d:%d}", None),
@@ -1709,7 +1717,7 @@ def parse_lamar(html, y, m):
     return out
 
 
-@st.cache_data(ttl=180, show_spinner=False)
+@st.cache_data(ttl=180, max_entries=6, show_spinner=False)
 def lm_month(yyyymm, _ver=CACHE_VER):
     y, m = int(yyyymm[:4]), int(yyyymm[4:])
     html = fetch_html(f"{LM}/index.asp?stype=M&ndate={y}-{m:02d}-01", timeout=30)
@@ -1767,7 +1775,7 @@ def fish_options(_ver=CACHE_VER):
     return fish
 
 
-@st.cache_data(ttl=7 * 24 * 3600, show_spinner=False)
+@st.cache_data(ttl=7 * 24 * 3600, max_entries=50, show_spinner=False)
 def resolve_manual(token):
     """직접 추가: 선상24 배번호/홈페이지(ss:2174, gamsung) 또는 더피싱 uid(tf:6198)"""
     t = token.strip()
@@ -2365,7 +2373,11 @@ if go:
             elif err_:
                 errors.append(f"[파고] {err_}")
     ss.sea = sea
+    _keep = set(days)                                     # 선택한 날짜만 보관(메모리 절약)
+    rows = [r for r in rows if r["date"] in _keep]
     ss.rows, ss.errors = rows, errors
+    import gc
+    gc.collect()
     ss.fetched = kst_now().strftime("%Y-%m-%d %H:%M:%S")
     ss.probes = probes
 
