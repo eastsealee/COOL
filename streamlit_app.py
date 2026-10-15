@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.16 (라마르호 추가)"
+APP_VERSION = "v10.17 (휴대폰 팝업 선택)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1607,6 +1607,25 @@ st.markdown(f"""
   padding-top:1.1rem; border-top:2px solid rgba(128,128,128,.25);}}
 .st-key-filters {{border:1px solid rgba(128,128,128,.28); border-radius:12px; padding:10px 14px 12px;
   background:rgba(128,128,128,.05);}}
+/* ---------- 휴대폰: 지역·어종·날짜 요약 버튼과 팝업 ---------- */
+.st-key-m_region button, .st-key-m_fish button, .st-key-m_days button {{
+  min-height: 3.4rem; justify-content: flex-start !important; width: 100%; text-align: left; border-radius: 12px !important;
+  border: 1.5px solid rgba(128,128,128,.4) !important; padding: 0 16px !important;}}
+.st-key-m_region button p, .st-key-m_fish button p, .st-key-m_days button p {{
+  font-size: 1.05rem !important; font-weight: 700 !important; white-space: normal; text-align: left;}}
+[data-testid="stDialog"] button[data-variant="pills"] {{min-height: 2.75rem; padding: 0 16px !important;
+  border-radius: 999px !important;}}
+[data-testid="stDialog"] button[data-variant="pills"] p {{font-size: 1.02rem !important; font-weight: 600 !important;}}
+[data-testid="stDialog"] button[data-variant="pills"][data-selected="true"] {{background: {ACCENT} !important;
+  border-color: {ACCENT} !important;}}
+[data-testid="stDialog"] button[data-variant="pills"][data-selected="true"] p {{color: {INK} !important; font-weight: 800 !important;}}
+[data-testid="stDialog"] .st-key-quick [data-testid="stHorizontalBlock"],
+[data-testid="stDialog"] .st-key-pk_fish_bar [data-testid="stHorizontalBlock"] {{flex-wrap: wrap !important; gap: 8px !important;}}
+[data-testid="stDialog"] .st-key-quick [data-testid="stColumn"],
+[data-testid="stDialog"] .st-key-pk_fish_bar [data-testid="stColumn"] {{min-width: calc(50% - 8px) !important;
+  flex: 1 1 calc(50% - 8px) !important; width: auto !important;}}
+[data-testid="stDialog"] .st-key-cal {{max-width: none; padding: 8px 4px 6px;}}
+[data-testid="stDialog"] .st-key-cal [data-testid="stHorizontalBlock"] {{gap: 3px !important;}}
 /* ---------- 달력 카드 ---------- */
 .st-key-cal {{
   max-width: 560px; border: 1px solid rgba(128,128,128,.28); border-radius: 18px;
@@ -1761,44 +1780,52 @@ with st.expander("배 목록 · 다시 불러오기 · CSV 받기"):
         st.caption("선상24 목록은 배경 수집이 끝날 때까지 계속 늘어납니다. 전체 목록이 필요하면 10~20분 뒤에 받으세요.")
 fish_list = fish_options()
 
-left_col, right_col = st.columns([1.05, 1], gap="large")
-with left_col:
-    # ----- ① 지역
-    step_head(1, "지역", "바다 → 시·도 → 시·군 → 항구 순서로 좁혀 보세요")
-    c1, c2 = st.columns(2)
-    c3, c4 = st.columns(2)
-    sea_name = c1.selectbox("바다", ["전체"] + list(SEAS.values()))
-    sea_code = next((k for k, v in SEAS.items() if v == sea_name), "all")
-    pool = [s for s in catalog if sea_code == "all" or s["sea"] == sea_code]
-    sido = c2.selectbox("시·도", ["전체"] + sorted({s["sido"] for s in pool}, key=lambda x: (x == "기타", x)))
-    pool = [s for s in pool if sido == "전체" or s["sido"] == sido]
-    sigungu = c3.selectbox("시·군", ["전체"] + sorted({s["sigungu"] for s in pool}))
-    pool = [s for s in pool if sigungu == "전체" or s["sigungu"] == sigungu]
-    ports = sorted({s["port"] for s in pool if s["port"]})
-    port = c4.selectbox("항구", ["전체"] + ports, disabled=not ports)
-    pool = [s for s in pool if port == "전체" or s["port"] == port]
+# ----- 휴대폰이면 지역·어종·날짜를 팝업으로 고름 (주소 끝에 ?view=m / ?view=pc 로 강제 가능)
+def is_phone():
+    v = st.query_params.get("view", "")
+    if v in ("m", "pc"):
+        return v == "m"
+    try:
+        ua = st.context.headers.get("User-Agent", "") or ""
+    except Exception:
+        ua = ""
+    return bool(re.search(r"iPhone|iPod|Android.+Mobile|Mobile Safari|Windows Phone", ua))
 
-    with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
-        if pool:
-            st.dataframe(pd.DataFrame([{"사이트": SITES[s["site"]], "배": s["name"], "시·도": s["sido"],
-                                        "시·군": s["sigungu"], "항구": s["port"], "번호": s["id"]} for s in pool]),
-                         hide_index=True, width="stretch", height=220)
-        manual_text = st.text_input("목록에 없는 배 추가 (쉼표로 여러 개)",
-                                    placeholder="선상24: 2174 또는 gamsung / 더피싱: tf:6198")
-    manual = [r for r in (resolve_manual(t) for t in manual_text.split(",") if t.strip()) if r]
 
-    # ----- ③ 어종
-    step_head(2, "어종", "비워 두면 모든 어종을 조회합니다")
-    fish_sel = st.multiselect("어종", fish_list, placeholder="전체 어종", label_visibility="collapsed")
+PHONE = is_phone()
+ss.setdefault("region", {"sea": "전체", "sido": "전체", "sgg": "전체", "port": "전체"})
+ss.setdefault("fish_v", [])
+fish_list_set = set(fish_list)
+ss.fish_v = [f for f in ss.fish_v if f in fish_list_set]
 
-with right_col:
-    # ----- ② 날짜 (달력)
-    step_head(3, "날짜", "여러 날을 함께 고를 수 있습니다")
+
+def region_pool(rg):
+    """지역 선택값 → (해당 배 목록, 정리된 선택값, 각 단계 선택지)"""
+    sea = rg.get("sea", "전체") if rg.get("sea") in ["전체"] + list(SEAS.values()) else "전체"
+    sea_code = next((k for k, v in SEAS.items() if v == sea), "all")
+    p_ = [s_ for s_ in catalog if sea_code == "all" or s_["sea"] == sea_code]
+    sidos = ["전체"] + sorted({s_["sido"] for s_ in p_}, key=lambda x: (x == "기타", x))
+    sido_ = rg.get("sido") if rg.get("sido") in sidos else "전체"
+    p_ = [s_ for s_ in p_ if sido_ == "전체" or s_["sido"] == sido_]
+    sggs = ["전체"] + sorted({s_["sigungu"] for s_ in p_})
+    sgg_ = rg.get("sgg") if rg.get("sgg") in sggs else "전체"
+    p_ = [s_ for s_ in p_ if sgg_ == "전체" or s_["sigungu"] == sgg_]
+    ports_ = ["전체"] + sorted({s_["port"] for s_ in p_ if s_["port"]})
+    port_ = rg.get("port") if rg.get("port") in ports_ else "전체"
+    p_ = [s_ for s_ in p_ if port_ == "전체" or s_["port"] == port_]
+    return p_, {"sea": sea, "sido": sido_, "sgg": sgg_, "port": port_}, (sidos, sggs, ports_)
+
+
+def region_text(rg):
+    parts = [v for v in (rg["sea"], rg["sido"], rg["sgg"], rg["port"]) if v != "전체"]
+    return " › ".join(parts) if parts else "전체 지역"
+
+
+def render_calendar(scope="app"):
+    """달력 + 빠른 선택. scope='fragment'면 팝업 안에서 팝업을 닫지 않고 다시 그림"""
     y, m = ss.cal_ym
     month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
-
-    # 날짜별 스타일 (일=빨강, 토=파랑, 오늘=테두리, 선택=앰버로 채움)
-    rules = []
+    rules = []                                           # 일=빨강, 토=파랑, 오늘=테두리, 선택=노랑
     for d in month_days:
         k = f".st-key-cal div.st-key-d{d.isoformat()} button"
         if d in ss.sel_days:
@@ -1811,20 +1838,19 @@ with right_col:
         if d == today:
             rules.append(f"{k}{{outline:2px solid {ACCENT};outline-offset:-2px;}}")
     st.markdown(f"<style>{''.join(rules)}</style>", unsafe_allow_html=True)
-
     with st.container(key="cal"):
         n1, n2, n3 = st.columns([1, 4, 1], vertical_alignment="center")
         with n1:
             if st.button("‹", key="calnav_prev", disabled=(y, m) <= (today.year, today.month)):
                 ss.cal_ym = (y - 1, 12) if m == 1 else (y, m - 1)
-                st.rerun()
+                st.rerun(scope=scope)
         sel_in_month = sum(1 for d in ss.sel_days if (d.year, d.month) == (y, m))
         n2.markdown(f"<p class='cal-title'>{y}. {m:02d}</p>"
                     f"<p class='cal-sub'>이 달 {sel_in_month}일 선택</p>", unsafe_allow_html=True)
         with n3:
             if st.button("›", key="calnav_next"):
                 ss.cal_ym = (y + 1, 1) if m == 12 else (y, m + 1)
-                st.rerun()
+                st.rerun(scope=scope)
         for col, wd in zip(st.columns(7), ["일", "월", "화", "수", "목", "금", "토"]):
             c = "#FF6B6B" if wd == "일" else "#4DABF7" if wd == "토" else "inherit"
             col.markdown(f"<div class='wk' style='color:{c}'>{wd}</div>", unsafe_allow_html=True)
@@ -1836,31 +1862,144 @@ with right_col:
                 if col.button(str(d.day), key=f"d{d.isoformat()}", disabled=d < today, width="stretch",
                               help=f"{d.month}월 {d.day}일 ({WEEK[d.weekday()]})"):
                     ss.sel_days.symmetric_difference_update({d})
-                    st.rerun()
-
+                    st.rerun(scope=scope)
     with st.container(key="quick"):
         b1, b2, b3, b4 = st.columns(4)
         if b1.button("이번 주말", width="stretch"):
             sat = today + timedelta(days=(5 - today.weekday()) % 7)
             ss.sel_days = {d for d in (sat - timedelta(days=1) if today.weekday() == 6 else sat,
                                        sat + timedelta(days=1)) if d >= today}
-            st.rerun()
+            st.rerun(scope=scope)
         if b2.button("앞으로 7일", width="stretch"):
             ss.sel_days = {today + timedelta(days=i) for i in range(7)}
-            st.rerun()
+            st.rerun(scope=scope)
         if b3.button("이 달 주말", width="stretch"):
             ss.sel_days = {d for d in month_days if d >= today and d.weekday() >= 5}
-            st.rerun()
+            st.rerun(scope=scope)
         if b4.button("선택 해제", width="stretch"):
             ss.sel_days = set()
-            st.rerun()
-    days = sorted(ss.sel_days)
-    if days:
+            st.rerun(scope=scope)
+
+
+def day_chips():
+    ds = sorted(ss.sel_days)
+    if ds:
         chips = "".join(f"<span class='chip{' we' if d.weekday() >= 5 else ''}'>"
-                        f"{d.month}/{d.day} {WEEK[d.weekday()]}</span>" for d in days)
+                        f"{d.month}/{d.day} {WEEK[d.weekday()]}</span>" for d in ds)
         st.markdown(f"<div class='chips'>{chips}</div>", unsafe_allow_html=True)
     else:
         st.caption("선택한 날짜가 없습니다 — 달력에서 날짜를 눌러주세요.")
+
+
+def _pick(label, options, cur, key):
+    v = st.pills(label, options, default=cur if cur in options else "전체", key=key)
+    return v or "전체"
+
+
+@st.dialog("지역 선택")
+def dlg_region():
+    t = ss.region
+    sea = _pick("바다", ["전체"] + list(SEAS.values()), t["sea"], "pk_sea")
+    _, rg1, (sidos, _, _) = region_pool({"sea": sea})
+    sido_ = _pick("시·도", sidos, t["sido"] if sea == t["sea"] else "전체", f"pk_sido_{sea}")
+    _, rg2, (_, sggs, _) = region_pool({"sea": sea, "sido": sido_})
+    sgg_ = _pick("시·군", sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "전체", f"pk_sgg_{sea}_{sido_}")
+    pool_, rg3, (_, _, ports_) = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_})
+    port_ = "전체"
+    if len(ports_) > 1:
+        port_ = _pick("항구", ports_, t["port"] if (sea, sido_, sgg_) == (t["sea"], t["sido"], t["sgg"]) else "전체",
+                      f"pk_port_{sea}_{sido_}_{sgg_}")
+    pool_, rg, _ = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_, "port": port_})
+    st.caption(f"선택: {region_text(rg)} · 배 {len(pool_)}척")
+    if st.button(f"이 지역으로 선택 (배 {len(pool_)}척)", type="primary", width="stretch", key="pk_ok"):
+        ss.region = rg
+        st.rerun()
+
+
+@st.dialog("어종 선택")
+def dlg_fish():
+    cur = ss.get("pk_fish", ss.fish_v) or []
+    with st.container(key="pk_fish_bar"):                 # 목록이 길어서 완료 버튼을 위에 둠
+        a1, a2 = st.columns(2)
+        if a1.button("전체 어종", width="stretch", key="pk_fish_all"):
+            ss.fish_v = []
+            st.rerun()
+        if a2.button(f"선택 완료 ({len(cur)}종)" if cur else "선택 완료", type="primary", width="stretch",
+                     key="pk_fish_ok"):
+            ss.fish_v = list(cur)
+            st.rerun()
+    st.pills("여러 개 고를 수 있고, 비워 두면 전체 어종입니다", fish_list, selection_mode="multi",
+             default=ss.fish_v, key="pk_fish")
+
+
+@st.dialog("날짜 선택")
+def dlg_days():
+    render_calendar("fragment")
+    day_chips()
+    if st.button(f"선택 완료 ({len(ss.sel_days)}일)", type="primary", width="stretch", key="pk_days_ok"):
+        st.rerun()
+
+
+if PHONE:
+    pool, ss.region, _ = region_pool(ss.region)
+    step_head(1, "지역")
+    if st.button(f"📍 {region_text(ss.region)}  ·  배 {len(pool)}척", key="m_region", width="stretch"):
+        dlg_region()
+    step_head(2, "어종")
+    if st.button("🐟 " + (", ".join(ss.fish_v) if ss.fish_v else "전체 어종"), key="m_fish", width="stretch"):
+        dlg_fish()
+    step_head(3, "날짜")
+    ds_ = sorted(ss.sel_days)
+    lab = ", ".join(f"{d.month}/{d.day}({WEEK[d.weekday()]})" for d in ds_[:6]) + (f" 외 {len(ds_) - 6}일" if len(ds_) > 6 else "")
+    if st.button("📅 " + (lab or "날짜를 고르세요"), key="m_days", width="stretch"):
+        dlg_days()
+    with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
+        if pool:
+            st.dataframe(pd.DataFrame([{"사이트": SITES[s["site"]], "배": s["name"], "항구": s["port"] or s["sigungu"]}
+                                       for s in pool]), hide_index=True, width="stretch", height=220)
+        manual_text = st.text_input("목록에 없는 배 추가 (쉼표로 여러 개)",
+                                    placeholder="선상24: 2174 또는 gamsung / 더피싱: tf:6198")
+    fish_sel = list(ss.fish_v)
+else:
+    left_col, right_col = st.columns([1.05, 1], gap="large")
+    with left_col:
+        # ----- ① 지역
+        step_head(1, "지역", "바다 → 시·도 → 시·군 → 항구 순서로 좁혀 보세요")
+        c1, c2 = st.columns(2)
+        c3, c4 = st.columns(2)
+        _, rg0, (sidos, sggs, ports_) = region_pool(ss.region)
+        seas_ = ["전체"] + list(SEAS.values())
+        sea_name = c1.selectbox("바다", seas_, index=seas_.index(rg0["sea"]))
+        _, rg0, (sidos, _, _) = region_pool({**rg0, "sea": sea_name})
+        sido = c2.selectbox("시·도", sidos, index=sidos.index(rg0["sido"]))
+        _, rg0, (_, sggs, _) = region_pool({**rg0, "sido": sido})
+        sigungu = c3.selectbox("시·군", sggs, index=sggs.index(rg0["sgg"]))
+        _, rg0, (_, _, ports_) = region_pool({**rg0, "sgg": sigungu})
+        port = c4.selectbox("항구", ports_, index=ports_.index(rg0["port"]), disabled=len(ports_) < 2)
+        pool, ss.region, _ = region_pool({**rg0, "port": port})
+
+        with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
+            if pool:
+                st.dataframe(pd.DataFrame([{"사이트": SITES[s["site"]], "배": s["name"], "시·도": s["sido"],
+                                            "시·군": s["sigungu"], "항구": s["port"], "번호": s["id"]} for s in pool]),
+                             hide_index=True, width="stretch", height=220)
+            manual_text = st.text_input("목록에 없는 배 추가 (쉼표로 여러 개)",
+                                        placeholder="선상24: 2174 또는 gamsung / 더피싱: tf:6198")
+
+        # ----- ② 어종
+        step_head(2, "어종", "비워 두면 모든 어종을 조회합니다")
+        fish_sel = st.multiselect("어종", fish_list, default=ss.fish_v, placeholder="전체 어종",
+                                  label_visibility="collapsed")
+        ss.fish_v = list(fish_sel)
+
+    with right_col:
+        # ----- ③ 날짜 (달력)
+        step_head(3, "날짜", "여러 날을 함께 고를 수 있습니다")
+        render_calendar("app")
+        day_chips()
+manual = [r for r in (resolve_manual(t) for t in manual_text.split(",") if t.strip()) if r]
+days = sorted(ss.sel_days)
+month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(*ss.cal_ym) for d in wk if d.month == ss.cal_ym[1]]
 
 # ----- 조회
 targets = {(s["site"], s["id"]): s for s in pool + manual}
