@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.15 (새 디자인)"
+APP_VERSION = "v10.15-1 (어종 쭈갑 추가)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -229,10 +229,19 @@ def tf_region(path):
     return sea, sido, sgg or sido, port
 
 
+JJU_RE = re.compile(r"주꾸미|쭈꾸미|쭈꾸|주꾸")
+GAB_RE = re.compile(r"갑오징어|갑오|갑\b|&\s*갑")
+
+
 def fish_match(text, selected):
     if not selected:
         return True
-    return any(alias in text for f in selected for alias in FISH_ALIAS.get(f, [f]))
+    for f in selected:
+        if any(alias in text for alias in FISH_ALIAS.get(f, [f])):
+            return True
+        if f == "쭈갑" and JJU_RE.search(text) and GAB_RE.search(text):   # 주꾸미와 갑오징어를 함께 하는 배
+            return True
+    return False
 
 
 # ---------------------------------------------------------------- 공통 일정 파싱 도구
@@ -1444,6 +1453,10 @@ def fish_options(_ver=CACHE_VER):
     for f in TF_FISH:
         if f not in fish:
             fish.append(f)
+    # '쭈갑'(주꾸미+갑오징어)은 주꾸미 바로 위에
+    fish = [f for f in fish if f != "쭈갑"]
+    at = next((i for i, f in enumerate(fish) if f in ("주꾸미", "쭈꾸미")), 0)
+    fish.insert(at, "쭈갑")
     return fish
 
 
