@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-4 (선상24 목록 자동 재시도)"
+APP_VERSION = "v10.18-5 (항구별 묶음·바람 Kts/m/s)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1120,15 +1120,16 @@ def openmeteo_fc_multi(locs, _ver=CACHE_VER):
     out = {}
     for (name, _, _), dat in zip(locs, data):
         hourly = dat.get("hourly", {}) or {}
-        temps, winds = {}, {}
+        temps, winds, winds_ms = {}, {}, {}
         for t, tv, wv in zip(hourly.get("time", []), hourly.get("temperature_2m", []) or [],
                              hourly.get("wind_speed_10m", []) or []):
             d, hh = date.fromisoformat(t[:10]), t[11:13]
             if tv is not None and hh in TEMP_HOURS:
                 temps[(d, hh)] = round(tv)
             if wv is not None and hh in SEA_HOURS:
-                winds[(d, hh)] = round(wv)
-        out[name] = (temps, winds)
+                winds[(d, hh)] = round(wv)                 # Kts
+                winds_ms[(d, hh)] = round(wv * 0.514444, 1)   # m/s (1 Kts = 0.514 m/s)
+        out[name] = (temps, winds, winds_ms)
     return out
 
 
@@ -1197,6 +1198,10 @@ def wind_label(d, key=TIDE_PORT_NAME):
     return sea_label(d, key, "winds", "Kts")
 
 
+def wind_ms_label(d, key=TIDE_PORT_NAME):
+    return sea_label(d, key, "winds_ms", "m/s")
+
+
 def wave_label(d, key=TIDE_PORT_NAME):
     return sea_label(d, key, "waves", "m")
 
@@ -1204,7 +1209,7 @@ def wave_label(d, key=TIDE_PORT_NAME):
 def sea_grid_html(d, key=TIDE_PORT_NAME):
     """날짜 줄 아래 작은 표: 그 지역의 시각별 바람·파고 (첫 칸 = 값을 가져온 지역)"""
     info = _sea(key)
-    w, v = info.get("winds", {}), info.get("waves", {})
+    w, v, wm = info.get("winds", {}), info.get("waves", {}), info.get("winds_ms", {})
     hrs = "".join(f"<th>{int(h)}시</th>" for h in SEA_HOURS)
 
     def cell(x, warn):
@@ -1212,13 +1217,15 @@ def sea_grid_html(d, key=TIDE_PORT_NAME):
             return "<td>–</td>"
         return f"<td class='{'hi' if x >= warn else ''}'>{x}</td>"
     wl = "<th class='rk'>바람<small>Kts</small></th>"
+    wml = "<th class='rk'>바람<small>m/s</small></th>"
     vl = "<th class='rk'>파고<small>m</small></th>"
     none = f"<td colspan='{len(SEA_HOURS)}'>예보 전</td>"
     wind_row = f"<tr>{wl}{''.join(cell(w.get((d, h)), 16) for h in SEA_HOURS) if any((d, h) in w for h in SEA_HOURS) else none}</tr>"
+    wms_row = f"<tr>{wml}{''.join(cell(wm.get((d, h)), 8) for h in SEA_HOURS) if any((d, h) in wm for h in SEA_HOURS) else none}</tr>"
     wave_row = f"<tr>{vl}{''.join(cell(v.get((d, h)), 1.5) for h in SEA_HOURS) if any((d, h) in v for h in SEA_HOURS) else none}</tr>"
     wa = info.get("wave_area") or ""
     loc = f"<small>파고: {htmlmod.escape(wa)}</small>" if wa and wa != key else ""   # 지역 이름은 바로 위 줄에 있음
-    return f"<table class='sea'><tr><th class='rk loc'>{loc}</th>{hrs}</tr>{wind_row}{wave_row}</table>"
+    return f"<table class='sea'><tr><th class='rk loc'>{loc}</th>{hrs}</tr>{wind_row}{wms_row}{wave_row}</table>"
 
 
 def tide_label(d, code=TIDE_PORT_CODE):
@@ -2360,8 +2367,8 @@ if go:
     loc_list = list(locs.values())[:30]
     sea = {nm_: {} for nm_, _, _ in loc_list}
     try:
-        for nm_, (tp_, wd_) in openmeteo_fc_multi(tuple(loc_list)).items():
-            sea[nm_].update(temps=tp_, winds=wd_)
+        for nm_, (tp_, wd_, wm_) in openmeteo_fc_multi(tuple(loc_list)).items():
+            sea[nm_].update(temps=tp_, winds=wd_, winds_ms=wm_)
     except Exception as ex:
         errors.append(f"[기온·바람] {ex}")
 
@@ -2540,8 +2547,8 @@ st.markdown(f"""
   padding:0 4px; margin-right:4px; line-height:1.4;}}
 .rtbl .wxa {{opacity:.55; margin:0 3px;}}
 .rtbl .seaw {{overflow-x: auto; margin-top: 4px;}}
-.rtbl .gl {{display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; padding-top: 6px;
-  border-top: 1px dashed rgba(128,128,128,.35);}}
+.rtbl .gl {{display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px;}}
+.rtbl > tbody > tr.grp.gport > td {{background: rgba(110,140,170,.08); border-top: 1px solid rgba(110,140,170,.35); padding: 8px 12px 6px 22px;}}
 .rtbl .gp {{font-weight: 800; font-size: .92rem;}}
 .rtbl .gs {{font-size: .72rem; opacity: .6;}}
 .rtbl table.sea {{border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums;}}
@@ -2669,7 +2676,8 @@ def render_site(code):
         "조류세기": tide_label(r["date"], bt_station_of(r)[0]),
         "날씨": ss.get("wx_by", {}).get(bt_station_of(r)[0], ({}, ""))[0].get(r["date"], "예보 전"),
         "물때지점": bt_station_of(r)[1],
-        "기온": temp_label(r["date"], loc_of(r)[0]), "바람": wind_label(r["date"], loc_of(r)[0]),
+        "기온": temp_label(r["date"], loc_of(r)[0]), "바람(Kts)": wind_label(r["date"], loc_of(r)[0]),
+        "바람(m/s)": wind_ms_label(r["date"], loc_of(r)[0]),
         "파고": wave_label(r["date"], loc_of(r)[0]), "_loc": loc_of(r)[0],
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
@@ -2691,13 +2699,13 @@ def render_site(code):
         g = by_date[d]
         n_ok_d = sum(1 for x in g if x["_ok"])
         we = " sun" if d.weekday() == 6 else " sat" if d.weekday() == 5 else ""
-        blocks = []
-        seen_loc = []
-        for x in g:                                       # 같은 날 여러 항구가 섞이면 항구마다 따로
-            if x["_loc"] in seen_loc:
-                continue
-            seen_loc.append(x["_loc"])
-            same = [y for y in g if y["_loc"] == x["_loc"]]
+        body.append(
+            f"<tr class='grp'><td colspan='{len(cols)}'><div class='g'>"
+            f"<span class='gd{we}'>{d.month}.{d.day}<small>({WEEK[d.weekday()]})</small></span>"
+            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div></td></tr>")
+        locs_d = list(dict.fromkeys(x["_loc"] for x in g))   # 이 날 나온 항구 (처음 나온 순서)
+        for lk in locs_d:
+            same = [y for y in g if y["_loc"] == lk]
             pick = lambda k_: next((y[k_] for y in same if y[k_]), "")
             wx = ""
             if pick("날씨"):
@@ -2709,36 +2717,35 @@ def render_site(code):
                     else:                                                # '예보 전' 같은 글자는 그대로
                         parts.append(esc(seg))
                 wx = " <span class='wxa'>→</span> ".join(parts)
-            st_nm = x["물때지점"]
+            st_nm = same[0]["물때지점"]
             facts = [("물때", pick("물때")), ("조류", pick("조류세기") or "예보 전"), ("기온", pick("기온"))]
             facts_html = "".join(f"<span class='gf'><span class='gk'>{k}</span>{esc(v)}</span>" for k, v in facts if v)
-            src = "" if st_nm == x["_loc"] else f"<span class='gs'>물때·날씨: 바다타임 {esc(st_nm)}</span>"
-            blocks.append(f"<div class='gl'><span class='gp'>📍 {esc(x['_loc'])}</span>{facts_html}"
-                          + (f"<span class='gf gw'>{wx}</span>" if wx else "") + src + "</div>"
-                          + f"<div class='seaw'>{sea_grid_html(d, x['_loc'])}</div>")
-            if len(blocks) >= 4:
-                break
-        body.append(
-            f"<tr class='grp'><td colspan='{len(cols)}'><div class='g'>"
-            f"<span class='gd{we}'>{d.month}.{d.day}<small>({WEEK[d.weekday()]})</small></span>"
-            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div>" + "".join(blocks) + "</td></tr>")
-        for r in g:
-            cells = []
-            for c in cols:
-                v = r[c]
-                if c == "배":
-                    cells.append(f"<td class='c-배'><a class='bn' href='{esc(r['예약'])}' target='_blank' "
-                                 f"title='예약 페이지 열기'>{esc(v)}</a></td>")
-                elif c == "남은자리":
-                    cells.append(f"<td class='c-남은자리'>{esc(v) if v else '–'}</td>")
-                elif c == "상태" and r["_ok"] and r["홈페이지"]:
-                    cells.append(f"<td class='c-상태'><a class='hp' href='{esc(r['홈페이지'])}' target='_blank' "
-                                 f"title='선사 홈페이지 열기'>{esc(v)} ↗</a></td>")
-                elif c == "공지":
-                    cells.append(f"<td class='c-공지' title='{esc(v)}'><div class='nt'>{esc(v)}</div></td>")
-                else:
-                    cells.append(f"<td class='c-{c}'>{esc(v)}</td>")
-            body.append(f"<tr class='{'ok' if r['_ok'] else 'no'}'>{''.join(cells)}</tr>")
+            src = "" if st_nm == lk else f"<span class='gs'>물때·날씨: 바다타임 {esc(st_nm)}</span>"
+            n_ok_l = sum(1 for y in same if y["_ok"])
+            # 항구 줄: 물때 / 조류 / 기온 / 날씨 + 바람·파고 표 → 바로 아래에 이 항구의 배들
+            body.append(
+                f"<tr class='grp gport'><td colspan='{len(cols)}'>"
+                f"<div class='gl'><span class='gp'>📍 {esc(lk)}</span>{facts_html}"
+                + (f"<span class='gf gw'>{wx}</span>" if wx else "") + src
+                + f"<span class='gc'>예약가능 {n_ok_l}척 / {len(same)}척</span></div>"
+                + f"<div class='seaw'>{sea_grid_html(d, lk)}</div></td></tr>")
+            for r in same:
+                cells = []
+                for c in cols:
+                    v = r[c]
+                    if c == "배":
+                        cells.append(f"<td class='c-배'><a class='bn' href='{esc(r['예약'])}' target='_blank' "
+                                     f"title='예약 페이지 열기'>{esc(v)}</a></td>")
+                    elif c == "남은자리":
+                        cells.append(f"<td class='c-남은자리'>{esc(v) if v else '–'}</td>")
+                    elif c == "상태" and r["_ok"] and r["홈페이지"]:
+                        cells.append(f"<td class='c-상태'><a class='hp' href='{esc(r['홈페이지'])}' target='_blank' "
+                                     f"title='선사 홈페이지 열기'>{esc(v)} ↗</a></td>")
+                    elif c == "공지":
+                        cells.append(f"<td class='c-공지' title='{esc(v)}'><div class='nt'>{esc(v)}</div></td>")
+                    else:
+                        cells.append(f"<td class='c-{c}'>{esc(v)}</td>")
+                body.append(f"<tr class='{'ok' if r['_ok'] else 'no'}'>{''.join(cells)}</tr>")
     st.markdown(f"<div class='rtbl-wrap'><table class='rtbl'><thead><tr>{head}</tr></thead>"
                 f"<tbody>{''.join(body)}</tbody></table></div>", unsafe_allow_html=True)
     st.download_button(f"{SITES[code]} 결과 CSV 다운로드",
@@ -2751,7 +2758,7 @@ for code in site_codes:
 
 st.caption("물때·조류세기·날씨: 바다타임(항구별 가장 가까운 지점) · 기온·바람: Open-Meteo 최신 예보(배가 출항하는 항구 위치) · 파고: Open-Meteo 해양 예보"
            + "(항구에서 가장 가까운, 값이 있는 바다 지점)"
-           + " · 조회할 때마다 새로 받음 · 바람 16Kts 이상, 파고 1.5m 이상은 빨간 글씨")
+           + " · 조회할 때마다 새로 받음 · 바람 16Kts(8m/s) 이상, 파고 1.5m 이상은 빨간 글씨")
 
 _stn = ss.get("station_names", {}) or {TIDE_PORT_CODE: TIDE_PORT_NAME}
 _used = [c_ for c_ in _stn if c_ != TIDE_PORT_CODE or len(_stn) == 1] or [TIDE_PORT_CODE]
