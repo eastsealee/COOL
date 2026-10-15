@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-1 (메모리 절약)"
+APP_VERSION = "v10.18-4 (선상24 목록 자동 재시도)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1945,20 +1945,24 @@ catalog, counts = [], {}
 with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸립니다)"):
     for code in site_codes:
         pkey = f"partial_{code}"
+        if pkey in ss and not ss[pkey]["rows"] and time.time() - ss[pkey].get("t", 0) > 60:
+            ss.pop(pkey)                                 # 한 척도 못 불러왔으면 1분 뒤 자동으로 다시 시도
         if pkey in ss:                                   # 이번 접속에서 이미 실패했던 사이트는 모은 만큼 사용
             part = ss[pkey]["rows"]
             st.warning(f"⚠️ {ss[pkey]['msg']} — 불러온 {len(part)}척으로 조회합니다. "
-                       f"아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다.")
+                       + ("1분 뒤 화면을 누르면 자동으로 다시 불러옵니다." if not part else
+                          "아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다."))
         else:
             try:
                 part = CATALOG_FN[code]()
             except CatalogError as ex:
-                ss[pkey] = {"rows": ex.rows, "msg": str(ex)}
+                ss[pkey] = {"rows": ex.rows, "msg": str(ex), "t": time.time()}
                 part = ex.rows
                 st.warning(f"⚠️ {ex} — 불러온 {len(part)}척으로 조회합니다. "
-                           f"아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다.")
+                           + ("1분 뒤 화면을 누르면 자동으로 다시 불러옵니다." if not part else
+                              "아래 [배 목록 다시 불러오기]로 재시도할 수 있습니다."))
             except Exception as ex:
-                ss[pkey] = {"rows": [], "msg": f"{SITES[code]} 목록 오류: {ex}"}
+                ss[pkey] = {"rows": [], "msg": f"{SITES[code]} 목록 오류: {ex}", "t": time.time()}
                 part = []
                 st.error(f"{SITES[code]} 배 목록을 불러오지 못했습니다: {ex}")
         if code == "ss":                                 # 사전조회 목록 + 배경 수집으로 찾은 배 합치기
@@ -2523,7 +2527,7 @@ st.markdown(f"""
 .rtbl tr.ok td a.hp:hover {{background: #fff;}}
 .rtbl tr.no td {{opacity: .62;}}
 .rtbl tr.grp td {{background: rgba(110,140,170,.16); padding: 9px 12px; border-top: 2px solid rgba(110,140,170,.45);
-  position: sticky; top: 37px; z-index: 1; backdrop-filter: blur(6px);}}
+}}
 .rtbl .g {{display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px;}}
 .rtbl .gd {{font-size: 1.12rem; font-weight: 800; letter-spacing: -.01em; min-width: 76px;}}
 .rtbl .gd small {{font-size: .82rem; margin-left: 2px; font-weight: 700;}}
