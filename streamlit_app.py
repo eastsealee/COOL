@@ -44,7 +44,7 @@ SS_APP = "https://app.sunsang24.com"
 TF = "https://thefishing.kr"
 CS = "https://www.clubsea.co.kr"
 SEAS = {"west": "서해", "east": "동해", "south": "남해", "jeju": "제주"}
-SITES = {"ss": "선상24", "tf": "더피싱", "cs": "클럽씨피싱"}
+SITES = {"ss": "선상24", "tf": "더피싱", "cs": "클럽씨피싱", "lm": "라마르호"}
 CACHE_VER = 3            # 저장된 목록을 새로 만들게 할 때 올림
 SS_BOARD_MAX_PAGES = 12
 TF_LIST_MAX_PAGES = 40
@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.15-2 (물때·예보전 표시 수정)"
+APP_VERSION = "v10.16 (라마르호 추가)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1425,6 +1425,86 @@ def cs_catalog(_ver=CACHE_VER):
     return [dict(CS_SHIP)]
 
 
+# ---------------------------------------------------------------- 라마르호 (lamar.totb.kr, 충남 홍성 남당항)
+# 월별 달력(index.asp?stype=M&ndate=YYYY-MM-01). 날짜 칸 글자 예: '26 쭈갑, 7물 쭈갑-9만원(잔여17)' / '31 쭈갑, 12물 쭈갑-9만원(완료)'
+# 칸 안의 예약자 목록('- 이름(1명) 입금확인')은 읽지도 저장하지도 않음.
+LM = "https://lamar.totb.kr"
+LM_SHIP = {"site": "lm", "id": 1, "name": "라마르호", "sea": "west", "sido": "충남", "sigungu": "홍성",
+           "port": "남당항", "hint": "쭈갑 주꾸미 갑오징어"}
+LM_DAY_RE = re.compile(r"^\s*(\d{1,2})(?=\s|$)")
+LM_PROD_RE = re.compile(r"([가-힣A-Za-z0-9·/&]+(?:\s*-\s*[\d,.]+\s*만?\s*원)?)\s*\(\s*(완료|마감|예약\s*마감|예약\s*불가|"
+                        r"잔여\s*(\d{1,3})\s*(?:명|석)?)\s*\)")
+LM_MUL_RE = re.compile(r"(\d{1,2}\s*물|조금|무시|한객기)")
+
+
+def lm_cell_text(td):
+    """날짜 칸 글자에서 예약자 목록 부분을 잘라냄('- 이름(N명)' 앞까지만 사용)"""
+    t = _norm(td.get_text(" "))
+    return re.split(r"\s-\s*\S+?\(\s*\d+\s*명\s*\)", t, maxsplit=1)[0]
+
+
+def parse_lamar(html, y, m):
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    out, seen = [], set()
+    for td in soup.find_all("td"):
+        if td.find("td"):                                   # 바깥 칸은 건너뛰고 가장 안쪽 칸만
+            continue
+        t = lm_cell_text(td)
+        md = LM_DAY_RE.match(t)
+        if not md:
+            continue
+        try:
+            d = date(y, m, int(md.group(1)))
+        except ValueError:
+            continue
+        head = t[:t.find("(")] if "(" in t else t
+        mm = LM_MUL_RE.search(head)
+        for pm in LM_PROD_RE.finditer(t):
+            prod = _norm(pm.group(1))
+            if (d, prod) in seen:
+                continue
+            seen.add((d, prod))
+            st_ = re.sub(r"\s+", "", pm.group(2))
+            if pm.group(3) is not None:
+                remain = int(pm.group(3))
+                status = "예약가능" if remain > 0 else "마감"
+            elif "불가" in st_:
+                remain, status = 0, "예약불가"
+            else:
+                remain, status = 0, "마감"
+            name, _, price = prod.partition("-")
+            out.append({**ship_cols(LM_SHIP), "date": d, "tide": re.sub(r"\s+", "", mm.group(1)) if mm else "",
+                        "boat": "라마르호", "species": name.strip(), "time": "",
+                        "price": price.strip(), "remain": remain, "status": status, "notice": "",
+                        "url": f"{LM}/index.asp?stype=M&ndate={y}-{m:02d}-01", "home": f"{LM}/"})
+    return out
+
+
+@st.cache_data(ttl=180, show_spinner=False)
+def lm_month(yyyymm, _ver=CACHE_VER):
+    y, m = int(yyyymm[:4]), int(yyyymm[4:])
+    html = fetch_html(f"{LM}/index.asp?stype=M&ndate={y}-{m:02d}-01", timeout=30)
+    rows = parse_lamar(html, y, m)
+    if not rows and "잔여" not in html and "완료" not in html:
+        head = " ".join(clean_lines(html))[:150]
+        raise RuntimeError(f"{m}월 달력을 읽지 못함 — 글자 {len(html):,}자 · 앞부분: {head}")
+    return rows
+
+
+def lm_ship(ship_t, days_t):
+    need = set(days_t)
+    out = []
+    for ym in sorted({f"{d.year}{d.month:02d}" for d in need}):
+        out += [r for r in lm_month(ym) if r["date"] in need]
+    return out
+
+
+def lm_catalog(_ver=CACHE_VER):
+    return [dict(LM_SHIP)]
+
+
 # ---------------------------------------------------------------- 공통
 def ship_cols(ship):
     return {"site": ship["site"], "ship_id": ship["id"], "ship": ship["name"], "sea": ship["sea"],
@@ -1574,7 +1654,7 @@ button[kind="primary"]:disabled {{opacity: .45;}}
 </style>""", unsafe_allow_html=True)
 st.markdown(f"""<div class='hero'>
   <div class='hero-l'><div class='hero-t'>선상낚시 예약조회</div>
-  <div class='hero-s'>선상24, 더피싱, 클럽씨피싱의 남은 자리를 날짜별로 한 화면에서 봅니다</div></div>
+  <div class='hero-s'>선상24, 더피싱, 클럽씨피싱, 라마르호의 남은 자리를 날짜별로 한 화면에서 봅니다</div></div>
   <div class='hero-v'>{htmlmod.escape(APP_VERSION)}</div></div>""", unsafe_allow_html=True)
 
 
@@ -1606,7 +1686,7 @@ if SNAP_SLUG:
         SNAP = load_snapshot(SNAP_SLUG)
     except Exception:
         SNAP = None                                       # 아직 사전조회가 한 번도 안 돈 경우 등
-CATALOG_FN = {"ss": ss_catalog, "tf": tf_catalog, "cs": cs_catalog}
+CATALOG_FN = {"ss": ss_catalog, "tf": tf_catalog, "cs": cs_catalog, "lm": lm_catalog}
 catalog, counts = [], {}
 with st.spinner("배 목록을 불러오는 중... (처음 한 번만 1~2분 걸립니다)"):
     for code in site_codes:
@@ -1665,6 +1745,7 @@ with st.expander("배 목록 · 다시 불러오기 · CSV 받기"):
             "목록 어종/소개": s.get("hint", ""),
             "예약페이지": (f"{SS_APP}/ship/schedule_fleet/{s['id']}" if code == "ss"
                         else f"{CS}/reservation" if code == "cs"
+                    else f"{LM}/" if code == "lm"
                         else f"{TF}/reservation/list.php?uid={s['id']}"),
         } for s in sorted(rows_, key=lambda s: (s["sea"], s["sido"], s["sigungu"], s["port"], s["name"]))])
         return df_.to_csv(index=False).encode("utf-8-sig"), len(rows_)
@@ -1789,6 +1870,7 @@ if go:
     ss_month.clear()                                     # 조회할 때마다 저장된 결과를 버리고 지금 시각 기준으로 새로 가져옴
     tf_ship.clear()
     cs_page.clear()
+    lm_month.clear()
     ships = list(targets.values())
     if fish_sel:   # 선상24만 목록상 정보로 1차 압축 (더피싱 목록은 '외 N종'으로 잘려 있어 제외하면 안 됨)
         ships = [s for s in ships if s["site"] != "ss" or not s["hint"] or fish_match(s["hint"], fish_sel)]
@@ -1812,7 +1894,8 @@ if go:
     months = tuple(sorted({f"{d.year}{d.month:02d}" for d in days}))
     jobs = [("ss", s, ym) for s in ships if s["site"] == "ss" for ym in months] + \
            [("tf", s, months) for s in ships if s["site"] == "tf"] + \
-           [("cs", s, tuple(days)) for s in ships if s["site"] == "cs"]
+           [("cs", s, tuple(days)) for s in ships if s["site"] == "cs"] + \
+           [("lm", s, tuple(days)) for s in ships if s["site"] == "lm"]
     rows, errors, probes = [], [], []
     bar = st.progress(0.0, text="예약현황을 가져오는 중...")
 
@@ -1829,6 +1912,8 @@ if go:
                 return res["rows"], None
             if kind == "cs":
                 return cs_ship(freeze(s), arg), None
+            if kind == "lm":
+                return lm_ship(freeze(s), arg), None
             return tf_ship(freeze(s), arg), None
         except Exception as ex:
             if kind == "ss":
@@ -2149,7 +2234,7 @@ def render_site(code):
     # 날짜별로 묶어서 그림: 날짜 줄에 물때·조류·날씨·기온을 한 번만, 그 아래에 배 목록
     # (예약가능 = 노란 바탕 + 검은 굵은 글씨, 다크/라이트 모드 동일)
     cols = ["배", "지역", "어종", "출항", "가격", "남은자리", "상태", "공지"]
-    if code in ("ss", "cs"):
+    if code in ("ss", "cs", "lm") and not any(r["price"] for r in srows):
         cols.remove("가격")                               # 선상24·클럽씨피싱은 가격 칸이 없음
     head = "".join(f"<th class='c-{c}'>{c}</th>" for c in cols)
     esc = lambda v: htmlmod.escape(str(v))
