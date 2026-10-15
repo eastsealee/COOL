@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.19-1 (페이지 읽기 빠르게)"
+APP_VERSION = "v10.19-2 (링크 동시 조회·사이트별 시간)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -2498,14 +2498,31 @@ if go:
 
     bar = st.progress(0.0, text="예약현황을 가져오는 중...")
 
+    day_set_q = set(days)
+    home_budget = [80]                                    # 선사 홈페이지 링크는 최대 80척까지만 (예전과 같음)
+
     def work(job):
         t_job = time.time()
         try:
             return _work(job)
         finally:
             k_ = job[0]
-            a_, n_ = job_time.get(k_, (0.0, 0))
-            job_time[k_] = (a_ + time.time() - t_job, n_ + 1)
+            dt_ = time.time() - t_job
+            a_, n_, m_ = job_time.get(k_, (0.0, 0, 0.0))
+            job_time[k_] = (a_ + dt_, n_ + 1, max(m_, dt_))
+
+    def _prefetch_home(s, rows_):
+        """예약가능한 선상24 배는 일정을 읽은 김에 선사 홈페이지 링크도 바로 찾아 둠(조회 뒤에 따로 기다리지 않게)"""
+        if not any(r_["date"] in day_set_q and (r_["remain"] or 0) > 0
+                   and fish_only_match(r_["species"] or r_["notice"], fish_sel) for r_ in rows_):
+            return
+        if home_budget[0] <= 0:
+            return
+        home_budget[0] -= 1
+        try:
+            ss_home(s["id"])                              # 결과는 7일 동안 기억됨 → 화면 그릴 때 바로 꺼내 씀
+        except Exception:
+            pass
 
     def _work(job):
         kind, s, arg = job
@@ -2517,6 +2534,7 @@ if go:
                     if fb:
                         return fb, None
                     probes.append((s["name"], res["probe"]))
+                _prefetch_home(s, res["rows"])
                 return res["rows"], None
             if kind == "cs":
                 return cs_ship(freeze(s), arg), None
@@ -2567,7 +2585,7 @@ if go:
     ss.sea = sea
     t_env_wait = time.time() - t_start - t_jobs           # 예약현황이 끝난 뒤 날씨 등을 더 기다린 시간
     ss.timing = {"total": time.time() - t_start, "jobs": t_jobs, "env_extra": max(0.0, t_env_wait),
-                 "sites": {k: (round(v[0], 1), v[1]) for k, v in job_time.items()},
+                 "sites": {k: (round(v[0], 1), v[1], round(v[2], 1)) for k, v in job_time.items()},
                  "stations": len(stations), "locs": len(loc_list)}
     _keep = set(days)                                     # 선택한 날짜만 보관(메모리 절약)
     rows = [r for r in rows if r["date"] in _keep]
@@ -2696,7 +2714,7 @@ if need_home:
 _home_sec = time.time() - _t_home
 _tm = ss.get("timing")
 if _tm:
-    _site_txt = ", ".join(f"{SITES[k]} {n}건" for k, (sec, n) in _tm["sites"].items())
+    _site_txt = ", ".join(f"{SITES[k]} {n}건 · 가장 느린 1건 {mx:.1f}초" for k, (sec, n, mx) in _tm["sites"].items())
     st.caption(f"⏱ 걸린 시간: 예약현황 {_tm['jobs']:.1f}초({_site_txt}) · "
                f"물때·날씨·바람·파고 추가 대기 {_tm['env_extra']:.1f}초(예약현황과 동시에 받음, 항구 {_tm['locs']}곳) · "
                f"선사 홈페이지 링크 {_home_sec:.1f}초")
