@@ -48,7 +48,7 @@ SITES = {"ss": "선상24", "tf": "더피싱", "cs": "클럽씨피싱", "lm": "�
 CACHE_VER = 3            # 저장된 목록을 새로 만들게 할 때 올림
 SS_BOARD_MAX_PAGES = 12
 TF_LIST_MAX_PAGES = 40
-MAX_SHIPS = 150
+MAX_SHIPS = 160
 WORKERS = 6
 WEEK = "월화수목금토일"
 KST = timezone(timedelta(hours=9))
@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-14 (지역 안내 삭제)"
+APP_VERSION = "v10.18-17 (조회 시 시·도 선택 안내)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -2105,15 +2105,18 @@ ss.fish_v = [f for f in ss.fish_v if f in fish_list_set]
 
 def region_pool(rg):
     """지역 선택값 → (해당 배 목록, 정리된 선택값, 각 단계 선택지)"""
-    sea = rg.get("sea", "전체") if rg.get("sea") in ["전체"] + list(SEAS.values()) else "전체"
+    # 바다는 '전체' 없음. 시·도는 직접 골라야 함(고르기 전에는 조회할 배 없음). 시·군은 첫 번째 자동 선택
+    seas = list(SEAS.values())
+    sea = rg.get("sea") if rg.get("sea") in seas else seas[0]
     sea_code = next((k for k, v in SEAS.items() if v == sea), "all")
-    p_ = [s_ for s_ in catalog if sea_code == "all" or s_["sea"] == sea_code]
-    # 시·도, 시·군은 '전체' 없이 하나를 꼭 고름 (없으면 첫 번째)
-    sidos = sorted({s_["sido"] for s_ in p_}, key=lambda x: (x == "기타", x)) or ["전체"]
-    sido_ = rg.get("sido") if rg.get("sido") in sidos else sidos[0]
-    p_ = [s_ for s_ in p_ if sido_ == "전체" or s_["sido"] == sido_]
-    sggs = sorted({s_["sigungu"] for s_ in p_}) or ["전체"]
-    sgg_ = rg.get("sgg") if rg.get("sgg") in sggs else sggs[0]
+    p_ = [s_ for s_ in catalog if s_["sea"] == sea_code]
+    sidos = sorted({s_["sido"] for s_ in p_}, key=lambda x: (x == "기타", x))
+    sido_ = rg.get("sido") if rg.get("sido") in sidos else None
+    if sido_ is None:
+        return [], {"sea": sea, "sido": None, "sgg": None, "port": "전체"}, (sidos, [], ["전체"])
+    p_ = [s_ for s_ in p_ if s_["sido"] == sido_]
+    sggs = sorted({s_["sigungu"] for s_ in p_})
+    sgg_ = rg.get("sgg") if rg.get("sgg") in sggs else (sggs[0] if sggs else None)
     p_ = [s_ for s_ in p_ if sgg_ == "전체" or s_["sigungu"] == sgg_]
     ports_ = ["전체"] + sorted({s_["port"] for s_ in p_ if s_["port"]})
     port_ = rg.get("port") if rg.get("port") in ports_ else "전체"
@@ -2122,8 +2125,10 @@ def region_pool(rg):
 
 
 def region_text(rg):
-    parts = [v for v in (rg["sea"], rg["sido"], rg["sgg"], rg["port"]) if v != "전체"]
-    return " › ".join(parts) if parts else "전체 지역"
+    if not rg.get("sido"):
+        return f"{rg['sea']} › 시·도를 선택하세요"
+    parts = [v for v in (rg["sea"], rg["sido"], rg["sgg"], rg["port"]) if v and v != "전체"]
+    return " › ".join(parts)
 
 
 def render_calendar(scope="app"):
@@ -2205,9 +2210,13 @@ def _pick(label, options, cur, key):
 @st.dialog("지역 선택")
 def dlg_region():
     t = ss.region
-    sea = _pick("바다", ["전체"] + list(SEAS.values()), t["sea"], "pk_sea")
+    sea = _pick("바다", list(SEAS.values()), t["sea"], "pk_sea")
     _, rg1, (sidos, _, _) = region_pool({"sea": sea})
-    sido_ = _pick(SIDO_LABEL, sidos, t["sido"] if sea == t["sea"] else "", f"pk_sido_{sea}")
+    sido_ = st.pills(SIDO_LABEL, sidos, default=t["sido"] if (sea == t["sea"] and t["sido"] in sidos) else None,
+                     key=f"pk_sido_{sea}")
+    if not sido_:
+        st.info("시·도를 선택하세요.")
+        return
     _, rg2, (_, sggs, _) = region_pool({"sea": sea, "sido": sido_})
     sgg_ = _pick(SGG_LABEL, sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "", f"pk_sgg_{sea}_{sido_}")
     pool_, rg3, (_, _, ports_) = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_})
@@ -2217,7 +2226,8 @@ def dlg_region():
                       f"pk_port_{sea}_{sido_}_{sgg_}")
     pool_, rg, _ = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_, "port": port_})
     st.caption(f"선택: {region_text(rg)} · 배 {len(pool_)}척")
-    if st.button(f"이 지역으로 선택 (배 {len(pool_)}척)", type="primary", width="stretch", key="pk_ok"):
+    if st.button(f"이 지역으로 선택 (배 {len(pool_)}척)", type="primary", width="stretch", key="pk_ok",
+                 disabled=not rg.get("sido")):
         ss.region = rg
         st.rerun()
 
@@ -2273,16 +2283,30 @@ else:
         step_head(1, "지역")
         c1, c2 = st.columns(2, vertical_alignment="bottom")
         c3, c4 = st.columns(2, vertical_alignment="bottom")
-        _, rg0, (sidos, sggs, ports_) = region_pool(ss.region)
-        seas_ = ["전체"] + list(SEAS.values())
-        sea_name = c1.selectbox("바다", seas_, index=seas_.index(rg0["sea"]))
-        _, rg0, (sidos, _, _) = region_pool({**rg0, "sea": sea_name})
-        sido = c2.selectbox(SIDO_LABEL, sidos, index=sidos.index(rg0["sido"]))
-        _, rg0, (_, sggs, _) = region_pool({**rg0, "sido": sido})
-        sigungu = c3.selectbox(SGG_LABEL, sggs, index=sggs.index(rg0["sgg"]))
-        _, rg0, (_, _, ports_) = region_pool({**rg0, "sgg": sigungu})
-        port = c4.selectbox("항구", ports_, index=ports_.index(rg0["port"]), disabled=len(ports_) < 2)
-        pool, ss.region, _ = region_pool({**rg0, "port": port})
+        # 위젯 값은 key로 기억(화면을 다시 그려도 선택이 유지됨). 바다를 바꾸면 시·도는 다시 고르게 함
+        rg = ss.region
+        seas_ = list(SEAS.values())
+        if ss.get("w_sea") not in seas_:
+            ss.w_sea = rg["sea"] if rg.get("sea") in seas_ else seas_[0]
+            ss.w_prev_sea = ss.w_sea
+            ss.w_sido, ss.w_sgg, ss.w_port = rg.get("sido"), rg.get("sgg"), rg.get("port", "전체")
+        sea_name = c1.selectbox("바다", seas_, key="w_sea")
+        if ss.get("w_prev_sea") != sea_name:              # 바다를 바꿨으면 시·도 선택을 비움
+            ss.w_sido, ss.w_prev_sea = None, sea_name
+        _, _, (sidos, _, _) = region_pool({"sea": sea_name})
+        if ss.get("w_sido") not in sidos:
+            ss.w_sido = None
+        sido = c2.selectbox(SIDO_LABEL, sidos, key="w_sido", placeholder="시·도를 선택하세요")
+        _, _, (_, sggs, _) = region_pool({"sea": sea_name, "sido": sido})
+        if ss.get("w_sgg") not in sggs:
+            ss.w_sgg = sggs[0] if sggs else None
+        sigungu = c3.selectbox(SGG_LABEL, sggs, key="w_sgg", placeholder="시·도를 먼저 선택하세요",
+                               disabled=not sggs)
+        _, _, (_, _, ports_) = region_pool({"sea": sea_name, "sido": sido, "sgg": sigungu})
+        if ss.get("w_port") not in ports_:
+            ss.w_port = "전체"
+        port = c4.selectbox("항구", ports_, key="w_port", disabled=len(ports_) < 2)
+        pool, ss.region, _ = region_pool({"sea": sea_name, "sido": sido, "sgg": sigungu, "port": port})
 
         with st.expander(f"선택 지역의 배 {len(pool)}척 보기 · 직접 추가"):
             if pool:
@@ -2309,8 +2333,15 @@ month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(*ss.cal_ym) fo
 
 # ----- 조회
 targets = {(s["site"], s["id"]): s for s in pool + manual}
-go = st.button(f"조회 (배 {len(targets)}척)", type="primary", width="stretch",
-               disabled=not (days and targets))
+go_click = st.button(f"조회 (배 {len(targets)}척)", type="primary", width="stretch")
+go = go_click and bool(days and targets)
+if go_click and not go:                                  # 누를 수는 있지만, 빠진 선택을 알려 줌
+    if not ss.region.get("sido") and not manual:
+        st.error("시·도를 선택하세요.")
+    elif not targets:
+        st.error("선택한 지역에 조회할 배가 없습니다. 다른 시·군이나 항구를 선택하세요.")
+    if not days:
+        st.error("날짜를 선택하세요.")
 if go:
     ss_month.clear()                                     # 조회할 때마다 저장된 결과를 버리고 지금 시각 기준으로 새로 가져옴
     tf_ship.clear()
