@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-11 (시·군 안내 변경)"
+APP_VERSION = "v10.18-14 (지역 안내 삭제)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1977,9 +1977,9 @@ def step_head(n, title, hint="", warn=False):
                 f"<span class='step-h{' warn' if warn else ''}'>{hint}</span></div>", unsafe_allow_html=True)
 
 
-REGION_TIP = "(실시간조회를 원하시면 목적지의 항구를 선택하세요)"
-SIDO_LABEL = "시·도 (시·도 전체조회시 실시간조회가 안됩니다)"
-SGG_LABEL = "시·군 (실시간조회를 원하시면 시나 군을 선택하세요)"
+REGION_TIP = "(실시간조회를 원하시면 목적지의 시 또는 군이나 항구를 선택하세요)"
+SIDO_LABEL = "시·도"
+SGG_LABEL = "시·군"
 
 today = kst_today()
 ss = st.session_state
@@ -2097,7 +2097,7 @@ def is_phone():
 
 
 PHONE = is_phone()
-ss.setdefault("region", {"sea": "전체", "sido": "전체", "sgg": "전체", "port": "전체"})
+ss.setdefault("region", {"sea": "서해", "sido": "충남", "sgg": "홍성", "port": "전체"})   # 처음 열 때 기본 지역
 ss.setdefault("fish_v", [])
 fish_list_set = set(fish_list)
 ss.fish_v = [f for f in ss.fish_v if f in fish_list_set]
@@ -2108,11 +2108,12 @@ def region_pool(rg):
     sea = rg.get("sea", "전체") if rg.get("sea") in ["전체"] + list(SEAS.values()) else "전체"
     sea_code = next((k for k, v in SEAS.items() if v == sea), "all")
     p_ = [s_ for s_ in catalog if sea_code == "all" or s_["sea"] == sea_code]
-    sidos = ["전체"] + sorted({s_["sido"] for s_ in p_}, key=lambda x: (x == "기타", x))
-    sido_ = rg.get("sido") if rg.get("sido") in sidos else "전체"
+    # 시·도, 시·군은 '전체' 없이 하나를 꼭 고름 (없으면 첫 번째)
+    sidos = sorted({s_["sido"] for s_ in p_}, key=lambda x: (x == "기타", x)) or ["전체"]
+    sido_ = rg.get("sido") if rg.get("sido") in sidos else sidos[0]
     p_ = [s_ for s_ in p_ if sido_ == "전체" or s_["sido"] == sido_]
-    sggs = ["전체"] + sorted({s_["sigungu"] for s_ in p_})
-    sgg_ = rg.get("sgg") if rg.get("sgg") in sggs else "전체"
+    sggs = sorted({s_["sigungu"] for s_ in p_}) or ["전체"]
+    sgg_ = rg.get("sgg") if rg.get("sgg") in sggs else sggs[0]
     p_ = [s_ for s_ in p_ if sgg_ == "전체" or s_["sigungu"] == sgg_]
     ports_ = ["전체"] + sorted({s_["port"] for s_ in p_ if s_["port"]})
     port_ = rg.get("port") if rg.get("port") in ports_ else "전체"
@@ -2196,19 +2197,19 @@ def day_chips():
 
 
 def _pick(label, options, cur, key):
-    v = st.pills(label, options, default=cur if cur in options else "전체", key=key)
-    return v or "전체"
+    dflt = cur if cur in options else ("전체" if "전체" in options else options[0])
+    v = st.pills(label, options, default=dflt, key=key)
+    return v or dflt
 
 
 @st.dialog("지역 선택")
 def dlg_region():
     t = ss.region
-    st.markdown(f"<span class='step-h warn'>{REGION_TIP}</span>", unsafe_allow_html=True)
     sea = _pick("바다", ["전체"] + list(SEAS.values()), t["sea"], "pk_sea")
     _, rg1, (sidos, _, _) = region_pool({"sea": sea})
-    sido_ = _pick(SIDO_LABEL, sidos, t["sido"] if sea == t["sea"] else "전체", f"pk_sido_{sea}")
+    sido_ = _pick(SIDO_LABEL, sidos, t["sido"] if sea == t["sea"] else "", f"pk_sido_{sea}")
     _, rg2, (_, sggs, _) = region_pool({"sea": sea, "sido": sido_})
-    sgg_ = _pick(SGG_LABEL, sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "전체", f"pk_sgg_{sea}_{sido_}")
+    sgg_ = _pick(SGG_LABEL, sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "", f"pk_sgg_{sea}_{sido_}")
     pool_, rg3, (_, _, ports_) = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_})
     port_ = "전체"
     if len(ports_) > 1:
@@ -2247,7 +2248,7 @@ def dlg_days():
 
 if PHONE:
     pool, ss.region, _ = region_pool(ss.region)
-    step_head(1, "지역", REGION_TIP, warn=True)
+    step_head(1, "지역")
     if st.button(f"📍 {region_text(ss.region)}  ·  배 {len(pool)}척", key="m_region", width="stretch"):
         dlg_region()
     step_head(2, "어종")
@@ -2269,7 +2270,7 @@ else:
     left_col, right_col = st.columns([1.05, 1], gap="large")
     with left_col:
         # ----- ① 지역
-        step_head(1, "지역", REGION_TIP, warn=True)
+        step_head(1, "지역")
         c1, c2 = st.columns(2, vertical_alignment="bottom")
         c3, c4 = st.columns(2, vertical_alignment="bottom")
         _, rg0, (sidos, sggs, ports_) = region_pool(ss.region)
