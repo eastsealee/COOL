@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.17-4 (바람·파고 지역 표시)"
+APP_VERSION = "v10.18 (항구별 물때·조류·날씨)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -844,10 +844,90 @@ FLOW_ZERO, FLOW_FULL = 201.0, 732.0                       # 사리 → 조금 (�
 FLOW_ZERO_UP, FLOW_FULL_UP = 234.0, 727.0                 # 조금 → 사리 (물살이 세지는 기간)
 
 
-def tide_with_strength(all_days):
+# 바다타임 지점 번호 (2026-10 바다타임 지역 메뉴에서 확인). 항구 → 시·군 → 시·도 순서로 찾음
+BT_CODES = {
+    # 인천·경기
+    "인천": 158, "연안부두": 158, "인천남항": 158, "영종도": 159, "영흥도": 151, "덕적도": 141, "옹진": 141,
+    "선재도": 378, "강화": 163, "자월도": 377, "이작도": 152, "대이작도": 611, "승봉도": 171, "장봉항": 160,
+    "오이도": 380, "시흥": 380, "월곶포구": 162, "대부도": 438, "방아머리": 379, "탄도항": 157, "안산": 157,
+    "전곡항": 618, "궁평항": 466, "제부도": 150, "국화도": 147, "화성": 618, "평택": 149, "김포": 158,
+    # 충남
+    "당진": 148, "장고항": 370, "왜목항": 180, "한진항": 148, "석문": 620, "도비도": 1413, "대난지도": 369,
+    "서산": 145, "삼길포": 144, "삼길포항": 144, "구도항": 363, "간월도항": 129,
+    "태안": 231, "학암포": 136, "만대항": 366, "신진도항": 132, "신진도": 132, "안흥항": 1410, "안흥": 1410,
+    "모항": 134, "모항항": 134, "천리포항": 135, "만리포항": 631, "채석포항": 359, "마검포항": 1400, "마검포": 1400,
+    "안면도": 175, "백사장항": 175, "방포항": 358, "영목항": 354, "곰섬항": 465, "몽산포": 525, "드르니항": 1399,
+    "홍성": 356, "남당항": 356, "궁리항": 1392, "어사어항": 1390,
+    "보령": 127, "오천항": 355, "대천항": 126, "무창포항": 236, "원산도": 353, "삽시도": 352, "외연도항": 125,
+    "녹도항": 350, "호도": 351,
+    "서천": 523, "홍원항": 523, "마량": 123, "장항": 121,
+    # 전북
+    "군산": 120, "비응항": 118, "야미도": 348, "선유도": 115, "어청도": 124, "신시도": 1361, "무녀도항": 1362,
+    "부안": 430, "격포": 430, "격포항": 430, "위도": 112, "곰소항": 188, "모항방파제": 1349, "궁항": 1351,
+    "고창": 343, "구시포항": 343, "동호항": 344,
+    # 전남 서부
+    "영광": 111, "계마항": 429, "법성포": 521, "향화도항": 339, "낙월도": 341, "송이도": 342, "안마도": 110,
+    "무안": 189, "도리포": 189, "목포": 105, "목포북항": 516, "신안": 336, "증도": 336, "임자도": 107,
+    "압해도": 1307, "자은도": 325, "암태도": 460, "비금도": 475, "도초도": 468, "흑산도": 91, "홍도항": 92,
+    "가거도": 90, "진도": 1229, "진도항": 1229, "서망항": 79, "팽목": 85, "하조도": 86, "관매도": 322,
+    "해남": 508, "땅끝항": 508, "어란진항": 78, "송호항": 654, "영암": 105,
+    "완도": 60, "화흥포": 302, "소안항": 63, "보길도": 306, "청산도": 61, "여서도": 65, "금당도": 54,
+    "평일도": 55, "생일도": 488, "신지도": 457, "약산도": 56, "고금도": 714,
+    "강진": 62, "마량항": 62, "장흥": 410, "회진항": 410, "보성": 719, "율포항": 719,
+    # 전남 동부
+    "고흥": 443, "녹동": 443, "녹동항": 443, "나로도항": 48, "나로도": 48, "거금도": 407, "발포항": 760,
+    "여수": 41, "국동항": 271, "돌산": 270, "돌산항": 270, "소호항": 826, "신덕항": 890, "백야도": 228,
+    "화양": 228, "낭도항": 43, "안도항": 507, "여수연도항": 268, "거문도": 51, "손죽도": 49, "초도": 52,
+    "광양": 39, "순천": 222,
+    # 경남·부산
+    "남해": 36, "미조항": 36, "물건항": 30, "상주면": 579, "노량리": 34, "하동": 277,
+    "사천": 31, "삼천포": 31, "삼천포항": 31, "대포항": 542,
+    "통영": 25, "삼덕항": 257, "척포": 1024, "욕지도": 29, "연화도": 256, "사량도": 28, "매물도": 1081, "한산도": 1071,
+    "고성": 26, "맥전포항": 503, "거제": 19, "장승포항": 19, "지세포항": 20, "구조라": 21, "다대다포항": 250,
+    "저구리": 22, "옥포항": 18, "칠천도": 1133,
+    "마산": 8, "창원": 8, "진해": 6, "부산": 1, "다대포": 3, "다대포항": 1149, "영도": 2, "가덕도": 5,
+    "해운대": 241, "기장": 218, "대변항": 218,
+    # 동해
+    "울산": 214, "정자": 212, "정자항": 212, "방어진항": 215, "강양항": 494,
+    "경주": 211, "감포": 211, "감포항": 211, "읍천항": 495, "포항": 208, "구룡포": 209, "구룡포항": 209,
+    "양포항": 210, "영일만항": 535, "영덕": 205, "강구": 205, "강구항": 205, "축산": 204, "축산항": 204,
+    "울진": 202, "후포": 203, "후포항": 203, "죽변항": 202, "울릉도": 199,
+    "삼척": 197, "임원": 198, "임원항": 198, "장호항": 448, "궁촌항": 499, "동해": 196, "묵호": 195, "묵호항": 195,
+    "강릉": 496, "주문진": 194, "주문진항": 194, "사천진항": 530, "남애항": 531, "양양": 193, "기사문항": 193,
+    "수산항": 445, "속초": 192, "대포항(속초)": 529, "고성(강원)": 191, "거진": 191, "대진항": 528,
+    "아야진항": 444, "공현진항": 497,
+    # 제주
+    "제주": 67, "도두항": 483, "애월항": 558, "한림항": 77, "차귀도": 318, "김녕항": 308, "추자도": 66,
+    "서귀포": 72, "모슬포": 73, "모슬포항": 73, "성산": 71, "성산항": 71, "화순항": 74, "위미항": 481,
+    "표선항": 314, "우도": 1226,
+    # 시·도 대표
+    "경기": 618, "충남": 356, "전북": 120, "전남": 105, "경북": 208, "경남": 25,
+}
+FLOW_CALIBRATED = {356}                                   # 바다타임 물흐름%와 대조해 기준값을 맞춘 지점(남당항)
+
+
+def bt_station_of(r):
+    """일정/배 → (바다타임 지점 번호, 지점 이름). 항구 → 시·군 → 시·도, 모르면 남당항"""
+    # 강원 고성과 경남 고성 구분
+    if r.get("sido") == "강원" and r.get("sigungu") == "고성" and not r.get("port"):
+        return 191, "거진"
+    for nm in (r.get("port"), r.get("sigungu"), r.get("sido")):
+        n = (nm or "").strip()
+        for k in (n, n + "항", n[:-1] if n.endswith("항") else None):
+            if k and k in BT_CODES:
+                return BT_CODES[k], k
+    return TIDE_PORT_CODE, TIDE_PORT_NAME
+
+
+def tide_with_strength(all_days, code=TIDE_PORT_CODE):
     out = {}
+    flows = [v["flow"] for v in all_days.values() if v.get("flow") is not None]
+    fmin, fmax = (min(flows), max(flows)) if flows else (0, 0)
     for d, v in all_days.items():
-        if v.get("flow") is not None:
+        if v.get("flow") is not None and code not in FLOW_CALIBRATED:
+            # 다른 항구: 받은 석 달 안에서 가장 약한 날 0% ~ 가장 센 날 100%
+            pct = round((v["flow"] - fmin) / (fmax - fmin) * 100) if fmax > fmin else None
+        elif v.get("flow") is not None:
             prev = all_days.get(d - timedelta(days=1), {}).get("flow")
             rising = prev is not None and v["flow"] > prev and len(v.get("heights", [])) >= 4
             z, f = (FLOW_ZERO_UP, FLOW_FULL_UP) if rising else (FLOW_ZERO, FLOW_FULL)
@@ -956,127 +1036,193 @@ def day_temps(dstr, code=TIDE_PORT_CODE, _ver=CACHE_VER):
     return parse_hourly_temps(html)
 
 
-# 기온 예보: Open-Meteo 공개 날씨 API (앱에서 쓰라고 공개된 무료 API — 비상업 용도). 남당항 좌표 기준 16일치 시간별 기온
+# 기온·바람·파고 예보: Open-Meteo 공개 무료 API(비상업 용도). 배가 출항하는 항구(없으면 시·군, 시·도) 좌표 기준.
 TEMP_LAT, TEMP_LON = 36.533, 126.467                     # 남당항 (북위 36°32′, 동경 126°28′)
+# 항구·지명 좌표(대략, 소수 둘째 자리) — 예보 격자가 수 km 단위라 이 정도면 충분
+COORDS = {
+    "인천": (37.45, 126.60), "연안부두": (37.45, 126.60), "인천남항": (37.44, 126.61), "영종도": (37.49, 126.52),
+    "영흥도": (37.25, 126.47), "덕적도": (37.23, 126.14), "옹진": (37.23, 126.14), "강화": (37.70, 126.45),
+    "선재도": (37.24, 126.51), "오이도": (37.34, 126.68), "시흥": (37.34, 126.68), "전곡항": (37.19, 126.65),
+    "궁평항": (37.12, 126.68), "제부도": (37.17, 126.62), "화성": (37.15, 126.66), "대부도": (37.25, 126.58),
+    "탄도항": (37.20, 126.64), "안산": (37.25, 126.58), "평택": (36.97, 126.83), "김포": (37.62, 126.62),
+    "당진": (36.98, 126.60), "장고항": (37.00, 126.55), "왜목항": (37.00, 126.54), "한진항": (36.97, 126.75),
+    "석문": (36.98, 126.59), "서산": (37.00, 126.45), "삼길포": (37.00, 126.45), "태안": (36.75, 126.30),
+    "신진도항": (36.68, 126.14), "안흥항": (36.68, 126.15), "마검포항": (36.60, 126.30), "모항": (36.79, 126.15),
+    "학암포": (36.89, 126.20), "안면도": (36.50, 126.35), "영목항": (36.39, 126.43), "백사장항": (36.58, 126.31),
+    "홍성": (36.53, 126.47), "남당항": (36.53, 126.47), "보령": (36.33, 126.51), "오천항": (36.44, 126.52),
+    "대천항": (36.33, 126.51), "무창포항": (36.25, 126.54), "원산도": (36.38, 126.42), "서천": (36.08, 126.69),
+    "홍원항": (36.15, 126.50), "군산": (35.97, 126.55), "비응항": (35.94, 126.52), "야미도": (35.86, 126.51),
+    "부안": (35.73, 126.73), "격포": (35.62, 126.47), "위도": (35.62, 126.30), "고창": (35.48, 126.48),
+    "영광": (35.40, 126.40), "목포": (34.78, 126.38), "신안": (34.83, 126.10), "무안": (35.00, 126.40),
+    "영암": (34.78, 126.45), "진도": (34.48, 126.26), "해남": (34.36, 126.53), "완도": (34.31, 126.76),
+    "여수": (34.74, 127.74), "돌산항": (34.70, 127.75), "고흥": (34.60, 127.28), "녹동항": (34.52, 127.14),
+    "장흥": (34.55, 126.95), "강진": (34.55, 126.77), "보성": (34.73, 127.25), "광양": (34.93, 127.70),
+    "속초": (38.20, 128.60), "양양": (38.08, 128.67), "주문진항": (37.89, 128.83), "강릉": (37.77, 128.95),
+    "동해": (37.55, 129.12), "묵호항": (37.55, 129.12), "삼척": (37.43, 129.19), "임원항": (37.23, 129.35),
+    "고성": (38.38, 128.47), "대진항": (38.50, 128.43), "아야진항": (38.27, 128.56), "공현진항": (38.36, 128.51),
+    "울진": (36.99, 129.42), "후포항": (36.68, 129.46), "영덕": (36.41, 129.37), "강구항": (36.36, 129.39),
+    "축산항": (36.51, 129.45), "포항": (36.03, 129.38), "구룡포항": (35.99, 129.56), "경주": (35.83, 129.48),
+    "감포항": (35.81, 129.50), "울산": (35.50, 129.38), "정자항": (35.62, 129.45), "부산": (35.10, 129.04),
+    "기장": (35.24, 129.23), "다대포": (35.05, 128.97), "거제": (34.88, 128.62), "통영": (34.84, 128.43),
+    "남해": (34.84, 127.89), "사천": (34.93, 128.07), "삼천포항": (34.93, 128.07), "진해": (35.13, 128.70),
+    "마산": (35.20, 128.57), "창원": (35.15, 128.65), "제주": (33.52, 126.53), "서귀포": (33.24, 126.56),
+    "한림항": (33.42, 126.27), "도두항": (33.51, 126.47), "김녕항": (33.56, 126.76), "차귀도": (33.31, 126.16),
+    "모슬포항": (33.22, 126.25), "성산항": (33.47, 126.93), "애월항": (33.47, 126.31),
+    # 시·도 중심(바닷가 대표 지점)
+    "경기": (37.15, 126.66), "충남": (36.53, 126.47), "전북": (35.80, 126.55), "전남": (34.78, 126.38),
+    "경북": (36.03, 129.38), "경남": (34.85, 128.43),
+}
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def openmeteo_fc(lat=TEMP_LAT, lon=TEMP_LON, _ver=CACHE_VER):
-    """Open-Meteo 최신 예보 → ({(날짜, 'HH'): 기온°C}, {(날짜, 'HH'): 바람 Kts}) — 조회할 때마다 새로 받음"""
-    url = ("https://api.open-meteo.com/v1/forecast"
-           f"?latitude={lat}&longitude={lon}&hourly=temperature_2m,wind_speed_10m&wind_speed_unit=kn"
-           "&timezone=Asia%2FSeoul&forecast_days=16")
+def _coord_of(name):
+    n = (name or "").strip()
+    for k in (n, n + "항", n[:-1] if n.endswith("항") else None):
+        if k and k in COORDS:
+            return k, COORDS[k]
+    return None
+
+
+def loc_of(r):
+    """일정/배 → (지역 이름, 위도, 경도). 항구 → 시·군 → 시·도 순서로 찾고, 모르면 남당항"""
+    for nm in (r.get("port"), r.get("sigungu"), r.get("sido")):
+        hit = _coord_of(nm)
+        if hit:
+            return hit[0], hit[1][0], hit[1][1]
+    return TIDE_PORT_NAME, TEMP_LAT, TEMP_LON
+
+
+def _om_get(url):
     last = None
     for i in range(3):
         try:
-            r = requests.get(url, headers=HEADERS, timeout=20)
+            r = requests.get(url, headers=HEADERS, timeout=25)
+            if getattr(r, "status_code", 200) == 400:
+                raise ValueError("400")
             r.raise_for_status()
             data = r.json()
-            break
+            return data if isinstance(data, list) else [data]
+        except ValueError:
+            raise
         except Exception as ex:
             last = ex
             time.sleep(1.5 * (i + 1))
-    else:
-        raise RuntimeError(f"기온·바람 예보를 가져오지 못했습니다: {last}")
-    hourly = data.get("hourly", {})
-    times = hourly.get("time", [])
-    temps, winds = {}, {}
-    for key, store, conv in (("temperature_2m", temps, round), ("wind_speed_10m", winds, lambda v: round(v))):
-        for t, v in zip(times, hourly.get(key, []) or []):
-            if v is None:
-                continue
-            d, hh = t[:10], t[11:13]                      # '2026-10-19T06:00'
-            if hh in (TEMP_HOURS if store is temps else SEA_HOURS):
-                store[(date.fromisoformat(d), hh)] = conv(v)
-    return temps, winds
-
-
-# 파고: Open-Meteo 해양 예보(공개 무료 API). 남당항은 천수만 안쪽이라 격자에 값이 없을 수 있어
-# 가까운 바다 지점부터 차례로 시도해 값이 있는 첫 지점을 씀
-WAVE_POINTS = [("천수만", 36.50, 126.40), ("천수만 입구", 36.42, 126.33), ("안면도 앞바다", 36.40, 126.20)]
+    raise RuntimeError(str(last))
 
 
 @st.cache_data(ttl=600, show_spinner=False)
-def openmeteo_waves(_ver=CACHE_VER):
-    """{(날짜, 'HH'): 파고 m}, 지점 이름 — 조회할 때마다 새로 받음"""
+def openmeteo_fc_multi(locs, _ver=CACHE_VER):
+    """locs = ((이름, 위도, 경도), ...) → {이름: (기온, 바람Kts)} — 한 번의 요청으로 여러 지점"""
+    lats = ",".join(f"{la:.3f}" for _, la, _ in locs)
+    lons = ",".join(f"{lo:.3f}" for _, _, lo in locs)
+    data = _om_get("https://api.open-meteo.com/v1/forecast"
+                   f"?latitude={lats}&longitude={lons}&hourly=temperature_2m,wind_speed_10m&wind_speed_unit=kn"
+                   "&timezone=Asia%2FSeoul&forecast_days=16")
+    out = {}
+    for (name, _, _), dat in zip(locs, data):
+        hourly = dat.get("hourly", {}) or {}
+        temps, winds = {}, {}
+        for t, tv, wv in zip(hourly.get("time", []), hourly.get("temperature_2m", []) or [],
+                             hourly.get("wind_speed_10m", []) or []):
+            d, hh = date.fromisoformat(t[:10]), t[11:13]
+            if tv is not None and hh in TEMP_HOURS:
+                temps[(d, hh)] = round(tv)
+            if wv is not None and hh in SEA_HOURS:
+                winds[(d, hh)] = round(wv)
+        out[name] = (temps, winds)
+    return out
+
+
+def _km(la1, lo1, la2, lo2):
+    import math
+    dy = (la2 - la1) * 111.0
+    dx = (lo2 - lo1) * 111.0 * math.cos(math.radians((la1 + la2) / 2))
+    return math.hypot(dx, dy)
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def openmeteo_wave_at(name, lat, lon, _ver=CACHE_VER):
+    """그 지역에서 가장 가까운, 파고 값이 있는 바다 지점의 예보 → ({(날짜, 'HH'): 파고 m}, 지점 설명)
+    항구 좌표 자체가 육지·만 안쪽이라 값이 없을 수 있어, 주변 지점을 가까운 순서로 한 번에 받아 첫 값을 씀"""
+    cands = [(lat, lon)]
+    for r_ in (0.06, 0.12, 0.2, 0.3, 0.45):
+        for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1), (.7, .7), (.7, -.7), (-.7, .7), (-.7, -.7)):
+            cands.append((round(lat + dy * r_, 3), round(lon + dx * r_, 3)))
+    cands.sort(key=lambda c: _km(lat, lon, *c))
     last = None
-    for name, lat, lon in WAVE_POINTS:
-        for days_ in (16, 8, 7):
-            url = ("https://marine-api.open-meteo.com/v1/marine"
-                   f"?latitude={lat}&longitude={lon}&hourly=wave_height&timezone=Asia%2FSeoul&forecast_days={days_}")
-            try:
-                r = requests.get(url, headers=HEADERS, timeout=20)
-                if getattr(r, "status_code", 200) == 400:
-                    last = RuntimeError(f"{name}: 예보 기간 {days_}일 불가")
-                    continue
-                r.raise_for_status()
-                data = r.json()
-            except Exception as ex:
-                last = ex
-                break
-            hourly = data.get("hourly", {})
-            out = {}
-            for t, v in zip(hourly.get("time", []), hourly.get("wave_height", []) or []):
-                if v is not None and t[11:13] in SEA_HOURS:
-                    out[(date.fromisoformat(t[:10]), t[11:13])] = round(v, 1)
-            if out:
-                return out, name
-            last = RuntimeError(f"{name}: 파고 값 없음")
+    for days_ in (16, 8, 7):
+        try:
+            data = _om_get("https://marine-api.open-meteo.com/v1/marine"
+                           f"?latitude={','.join(str(c[0]) for c in cands)}&longitude={','.join(str(c[1]) for c in cands)}"
+                           f"&hourly=wave_height&timezone=Asia%2FSeoul&forecast_days={days_}")
             break
-    raise RuntimeError(f"파고 예보를 가져오지 못했습니다: {last}")
+        except ValueError:
+            last = f"예보 기간 {days_}일 불가"
+            continue
+    else:
+        raise RuntimeError(f"{name} 파고 예보를 가져오지 못했습니다: {last}")
+    for (cla, clo), dat in zip(cands, data):
+        hourly = dat.get("hourly", {}) or {}
+        out = {}
+        for t, v in zip(hourly.get("time", []), hourly.get("wave_height", []) or []):
+            if v is not None and t[11:13] in SEA_HOURS:
+                out[(date.fromisoformat(t[:10]), t[11:13])] = round(v, 1)
+        if out:
+            km = _km(lat, lon, cla, clo)
+            return out, (name if km < 3 else f"{name} 앞바다 약 {km:.0f}km")
+    raise RuntimeError(f"{name} 근처 바다에서 파고 값을 찾지 못했습니다")
 
 
-def temp_label(d):
-    t = ss.get("temps", {})
+def _sea(key):
+    return ss.get("sea", {}).get(key, {})
+
+
+def temp_label(d, key=TIDE_PORT_NAME):
+    t = _sea(key).get("temps", {})
     vals = [t.get((d, h)) for h in TEMP_HOURS]
     if all(v is None for v in vals):
         return "예보 전"
     return " / ".join("–" if v is None else f"{v}°" for v in vals)
 
 
-def sea_label(d, key, unit):
+def sea_label(d, key, field, unit):
     """바람(Kts)·파고(m) — 밤 12시부터 3시간 간격, 예보가 없으면 '예보 전'"""
-    w = ss.get(key, {})
+    w = _sea(key).get(field, {})
     vals = [w.get((d, h)) for h in SEA_HOURS]
     if all(v is None for v in vals):
         return "예보 전"
     return " / ".join(f"{int(h)}시 {'–' if v is None else v}" for h, v in zip(SEA_HOURS, vals)) + f" {unit}"
 
 
-def wind_label(d):
-    return sea_label(d, "winds", "Kts")
+def wind_label(d, key=TIDE_PORT_NAME):
+    return sea_label(d, key, "winds", "Kts")
 
 
-def wave_label(d):
-    return sea_label(d, "waves", "m")
+def wave_label(d, key=TIDE_PORT_NAME):
+    return sea_label(d, key, "waves", "m")
 
 
-def sea_grid_html(d):
-    """날짜 줄 아래 작은 표: 시각별 바람·파고"""
-    w, v = ss.get("winds", {}), ss.get("waves", {})
-    if not any((d, h) in w or (d, h) in v for h in SEA_HOURS):
-        return "<span class='gf'><span class='gk'>바람·파고</span>예보 전</span>"
+def sea_grid_html(d, key=TIDE_PORT_NAME):
+    """날짜 줄 아래 작은 표: 그 지역의 시각별 바람·파고 (첫 칸 = 값을 가져온 지역)"""
+    info = _sea(key)
+    w, v = info.get("winds", {}), info.get("waves", {})
+    hrs = "".join(f"<th>{int(h)}시</th>" for h in SEA_HOURS)
+
     def cell(x, warn):
         if x is None:
             return "<td>–</td>"
         return f"<td class='{'hi' if x >= warn else ''}'>{x}</td>"
-    hrs = "".join(f"<th>{int(h)}시</th>" for h in SEA_HOURS)
-    wr = "".join(cell(w.get((d, h)), 16) for h in SEA_HOURS)          # 16 Kts ≈ 8 m/s
-    vr = "".join(cell(v.get((d, h)), 1.5) for h in SEA_HOURS)
     wl = "<th class='rk'>바람<small>Kts</small></th>"
     vl = "<th class='rk'>파고<small>m</small></th>"
-    wave_row = (f"<tr>{vl}{vr}</tr>" if any((d, h) in v for h in SEA_HOURS)
-                else f"<tr>{vl}<td colspan='{len(SEA_HOURS)}'>예보 전</td></tr>")
-    wind_row = (f"<tr>{wl}{wr}</tr>" if any((d, h) in w for h in SEA_HOURS)
-                else f"<tr>{wl}<td colspan='{len(SEA_HOURS)}'>예보 전</td></tr>")
-    # 첫 칸 = 바람·파고 값을 가져온 지역 (바람은 남당항 좌표, 파고는 값이 있는 가까운 바다 지점)
-    wa = ss.get("wave_area") or ""
-    loc = TIDE_PORT_NAME if not wa or wa == TIDE_PORT_NAME else f"{TIDE_PORT_NAME}<small>파고: {htmlmod.escape(wa)}</small>"
-    return f"<table class='sea'><tr><th class='rk loc'>📍 {loc}</th>{hrs}</tr>{wind_row}{wave_row}</table>"
+    none = f"<td colspan='{len(SEA_HOURS)}'>예보 전</td>"
+    wind_row = f"<tr>{wl}{''.join(cell(w.get((d, h)), 16) for h in SEA_HOURS) if any((d, h) in w for h in SEA_HOURS) else none}</tr>"
+    wave_row = f"<tr>{vl}{''.join(cell(v.get((d, h)), 1.5) for h in SEA_HOURS) if any((d, h) in v for h in SEA_HOURS) else none}</tr>"
+    wa = info.get("wave_area") or ""
+    loc = f"<small>파고: {htmlmod.escape(wa)}</small>" if wa and wa != key else ""   # 지역 이름은 바로 위 줄에 있음
+    return f"<table class='sea'><tr><th class='rk loc'>{loc}</th>{hrs}</tr>{wind_row}{wave_row}</table>"
 
 
-def tide_label(d):
-    t = ss.get("tide", {}).get(d)
+def tide_label(d, code=TIDE_PORT_CODE):
+    t = ss.get("tide_by", {}).get(code, {}).get(d)
     if not t:
         return ""
     if t.get("pct") is None:
@@ -1768,7 +1914,7 @@ ss.setdefault("sel_days", set())
 if ss.get("app_ver") != APP_VERSION:
     # 앱이 새 버전으로 바뀌면 이전 버전이 계산해 둔 조회 결과(조류세기 포함)를 버림 → 새 계산식으로 다시 조회
     had_rows = "rows" in ss
-    for k in ("rows", "errors", "tide", "probes", "queried", "fetched"):
+    for k in ("rows", "errors", "tide", "tide_by", "wx_by", "sea", "probes", "queried", "fetched"):
         ss.pop(k, None)
     ss.sel_days = set()                                  # 이전 버전에서 미리 골라져 있던 날짜도 해제
     ss.app_ver = APP_VERSION
@@ -2161,30 +2307,64 @@ if go:
         for k in (-1, 0, 1):
             yy, mm = y_ + (m_ + k - 1) // 12, (m_ + k - 1) % 12 + 1
             need_m.add(f"{yy}{mm:02d}")
-    for ym in sorted(need_m):
+    # 물때·조류세기·날씨: 결과에 나온 항구마다 그 항구의 바다타임 지점으로
+    stations = {}
+    for r_ in rows:
+        c_, n_ = bt_station_of(r_)
+        stations.setdefault(c_, n_)
+    stations.setdefault(TIDE_PORT_CODE, TIDE_PORT_NAME)
+    stations = dict(list(stations.items())[:15])
+
+    def _station(item):
+        code_, name_ = item
+        tide_, errs_ = {}, []
+        for ym in sorted(need_m):
+            try:
+                tide_.update(tide_month(ym, code_))
+            except Exception as ex_:
+                if ym in months:
+                    errs_.append(f"[조류세기] {name_} {ym[4:]}월 물때표: {ex_}")
         try:
-            tide.update(tide_month(ym))
-        except Exception as ex:
-            if ym in months:
-                errors.append(f"[조류세기] {TIDE_PORT_NAME} {ym[4:]}월 물때표: {ex}")
-    ss.tide = tide_with_strength(tide)
-    openmeteo_fc.clear()                                 # 조회할 때마다 가장 최근 예보로
-    openmeteo_waves.clear()
+            wx_ = tide_weather(code_)
+        except Exception as ex_:
+            wx_ = ({}, "바다날씨")
+            errs_.append(f"[날씨] {name_} 바다날씨: {ex_}")
+        return code_, tide_with_strength(tide_, code_), wx_, errs_
+    tide_weather.clear()                                  # 날씨는 조회할 때마다 최신으로
+    ss.tide_by, ss.wx_by, ss.station_names = {}, {}, dict(stations)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for code_, td_, wx_, errs_ in ex.map(_station, list(stations.items())):
+            ss.tide_by[code_], ss.wx_by[code_] = td_, wx_
+            errors.extend(errs_)
+    ss.tide = ss.tide_by.get(TIDE_PORT_CODE, {})
+    # 기온·바람·파고: 결과에 나온 항구(지역)마다 가장 최근 예보를 새로 받음
+    openmeteo_fc_multi.clear()
+    openmeteo_wave_at.clear()
+    locs = {}
+    for r_ in rows:
+        nm_, la_, lo_ = loc_of(r_)
+        locs.setdefault(nm_, (nm_, la_, lo_))
+    locs.setdefault(TIDE_PORT_NAME, (TIDE_PORT_NAME, TEMP_LAT, TEMP_LON))
+    loc_list = list(locs.values())[:30]
+    sea = {nm_: {} for nm_, _, _ in loc_list}
     try:
-        ss.temps, ss.winds = openmeteo_fc()
+        for nm_, (tp_, wd_) in openmeteo_fc_multi(tuple(loc_list)).items():
+            sea[nm_].update(temps=tp_, winds=wd_)
     except Exception as ex:
-        ss.temps, ss.winds = {}, {}
         errors.append(f"[기온·바람] {ex}")
-    try:
-        ss.waves, ss.wave_area = openmeteo_waves()
-    except Exception as ex:
-        ss.waves, ss.wave_area = {}, ""
-        errors.append(f"[파고] {ex}")
-    try:
-        ss.weather, ss.weather_area = tide_weather()
-    except Exception as ex:
-        ss.weather, ss.weather_area = {}, "바다날씨"
-        errors.append(f"[날씨] {TIDE_PORT_NAME} 바다날씨: {ex}")
+
+    def _wave(loc_):
+        try:
+            return loc_[0], openmeteo_wave_at(*loc_), None
+        except Exception as ex_:
+            return loc_[0], None, str(ex_)
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for nm_, res_, err_ in ex.map(_wave, loc_list):
+            if res_:
+                sea[nm_].update(waves=res_[0], wave_area=res_[1])
+            elif err_:
+                errors.append(f"[파고] {err_}")
+    ss.sea = sea
     ss.rows, ss.errors = rows, errors
     ss.fetched = kst_now().strftime("%Y-%m-%d %H:%M:%S")
     ss.probes = probes
@@ -2343,7 +2523,11 @@ st.markdown(f"""
 .rtbl .wxi {{display:inline-block; background:#fff; color:#111; border:1px solid rgba(0,0,0,.12); border-radius:7px;
   padding:0 4px; margin-right:4px; line-height:1.4;}}
 .rtbl .wxa {{opacity:.55; margin:0 3px;}}
-.rtbl .seaw {{overflow-x: auto; margin-top: 6px;}}
+.rtbl .seaw {{overflow-x: auto; margin-top: 4px;}}
+.rtbl .gl {{display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; padding-top: 6px;
+  border-top: 1px dashed rgba(128,128,128,.35);}}
+.rtbl .gp {{font-weight: 800; font-size: .92rem;}}
+.rtbl .gs {{font-size: .72rem; opacity: .6;}}
 .rtbl table.sea {{border-collapse: collapse; font-size: .8rem; font-variant-numeric: tabular-nums;}}
 .rtbl table.sea th, .rtbl table.sea td {{position: static; background: transparent; color: inherit; padding: 2px 8px;
   border: 0; text-align: center; font-weight: 600; white-space: nowrap;}}
@@ -2382,6 +2566,11 @@ st.markdown(f"""
   .rtbl td.c-상태 {{grid-column:1 / -1; padding-top:6px;}}
   .rtbl td:empty {{display:none;}}
   .rtbl table.sea td, .rtbl table.sea th {{display: table-cell !important; padding: 2px 5px !important;}}
+  .rtbl tr.grp td {{max-width: calc(100vw - 32px) !important; overflow: hidden;}}
+  .rtbl .seaw {{max-width: calc(100vw - 56px); overflow-x: auto;}}
+  .rtbl .gf {{white-space: normal;}}
+  .rtbl table.sea {{font-size: .74rem;}}
+  .rtbl table.sea th.loc small {{max-width: 70px; white-space: normal;}}
 }}
 </style>""", unsafe_allow_html=True)
 
@@ -2459,10 +2648,13 @@ def render_site(code):
     df = pd.DataFrame([{
         "날짜": f"{r['date']:%m.%d}({WEEK[r['date'].weekday()]})",
         "지역": " ".join(x for x in (r["sido"], r["sigungu"], r["port"]) if x),
-        "물때": r["tide"] or (ss.get("tide", {}).get(r["date"], {}) or {}).get("mul", "") or mul_any.get(r["date"], ""),
-        f"조류세기({TIDE_PORT_NAME})": tide_label(r["date"]),
-        "날씨": ss.get("weather", {}).get(r["date"], "예보 전" if r["date"] > kst_today() + timedelta(days=6) else ""),
-        "기온": temp_label(r["date"]), "바람": wind_label(r["date"]), "파고": wave_label(r["date"]),
+        "물때": (ss.get("tide_by", {}).get(bt_station_of(r)[0], {}).get(r["date"], {}) or {}).get("mul", "")
+                or r["tide"] or mul_any.get(r["date"], ""),
+        "조류세기": tide_label(r["date"], bt_station_of(r)[0]),
+        "날씨": ss.get("wx_by", {}).get(bt_station_of(r)[0], ({}, ""))[0].get(r["date"], "예보 전"),
+        "물때지점": bt_station_of(r)[1],
+        "기온": temp_label(r["date"], loc_of(r)[0]), "바람": wind_label(r["date"], loc_of(r)[0]),
+        "파고": wave_label(r["date"], loc_of(r)[0]), "_loc": loc_of(r)[0],
         "배": boat_label(r),
         "어종": r["species"], "출항": r["time"], "가격": r["price"],
         "남은자리": "" if r["remain"] is None else f"{r['remain']}명",
@@ -2481,29 +2673,39 @@ def render_site(code):
         by_date.setdefault(r["date"], []).append(dr)
     for d in sorted(by_date):
         g = by_date[d]
-        dr0 = dict(g[0])
-        for k_ in ("물때", f"조류세기({TIDE_PORT_NAME})", "기온", "날씨"):   # 첫 배에 없으면 같은 날 다른 배 값으로
-            dr0[k_] = next((x[k_] for x in g if x[k_]), "")
         n_ok_d = sum(1 for x in g if x["_ok"])
-        wx = ""
-        if dr0["날씨"]:
-            parts = []
-            for seg in str(dr0["날씨"]).split(" → "):
-                ic, _, txt = seg.partition(" ")
-                if txt and not re.search(r"[가-힣A-Za-z0-9]", ic):     # 앞 글자가 날씨 아이콘일 때만 상자에 넣음
-                    parts.append(f"<span class='wxi'>{esc(ic)}</span>{esc(txt)}")
-                else:                                                # '예보 전' 같은 글자는 그대로
-                    parts.append(esc(seg))
-            wx = " <span class='wxa'>→</span> ".join(parts)
         we = " sun" if d.weekday() == 6 else " sat" if d.weekday() == 5 else ""
-        facts = [("물때", dr0["물때"]), ("조류", dr0[f"조류세기({TIDE_PORT_NAME})"]), ("기온", dr0["기온"])]
-        facts_html = "".join(f"<span class='gf'><span class='gk'>{k}</span>{esc(v)}</span>" for k, v in facts if v)
+        blocks = []
+        seen_loc = []
+        for x in g:                                       # 같은 날 여러 항구가 섞이면 항구마다 따로
+            if x["_loc"] in seen_loc:
+                continue
+            seen_loc.append(x["_loc"])
+            same = [y for y in g if y["_loc"] == x["_loc"]]
+            pick = lambda k_: next((y[k_] for y in same if y[k_]), "")
+            wx = ""
+            if pick("날씨"):
+                parts = []
+                for seg in str(pick("날씨")).split(" → "):
+                    ic, _, txt = seg.partition(" ")
+                    if txt and not re.search(r"[가-힣A-Za-z0-9]", ic):     # 앞 글자가 날씨 아이콘일 때만 상자에 넣음
+                        parts.append(f"<span class='wxi'>{esc(ic)}</span>{esc(txt)}")
+                    else:                                                # '예보 전' 같은 글자는 그대로
+                        parts.append(esc(seg))
+                wx = " <span class='wxa'>→</span> ".join(parts)
+            st_nm = x["물때지점"]
+            facts = [("물때", pick("물때")), ("조류", pick("조류세기") or "예보 전"), ("기온", pick("기온"))]
+            facts_html = "".join(f"<span class='gf'><span class='gk'>{k}</span>{esc(v)}</span>" for k, v in facts if v)
+            src = "" if st_nm == x["_loc"] else f"<span class='gs'>물때·날씨: 바다타임 {esc(st_nm)}</span>"
+            blocks.append(f"<div class='gl'><span class='gp'>📍 {esc(x['_loc'])}</span>{facts_html}"
+                          + (f"<span class='gf gw'>{wx}</span>" if wx else "") + src + "</div>"
+                          + f"<div class='seaw'>{sea_grid_html(d, x['_loc'])}</div>")
+            if len(blocks) >= 4:
+                break
         body.append(
             f"<tr class='grp'><td colspan='{len(cols)}'><div class='g'>"
             f"<span class='gd{we}'>{d.month}.{d.day}<small>({WEEK[d.weekday()]})</small></span>"
-            f"{facts_html}" + (f"<span class='gf gw'>{wx}</span>" if wx else "") +
-            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div>"
-            f"<div class='seaw'>{sea_grid_html(d)}</div></td></tr>")
+            f"<span class='gc'>예약가능 {n_ok_d}척 / {len(g)}척</span></div>" + "".join(blocks) + "</td></tr>")
         for r in g:
             cells = []
             for c in cols:
@@ -2524,26 +2726,32 @@ def render_site(code):
     st.markdown(f"<div class='rtbl-wrap'><table class='rtbl'><thead><tr>{head}</tr></thead>"
                 f"<tbody>{''.join(body)}</tbody></table></div>", unsafe_allow_html=True)
     st.download_button(f"{SITES[code]} 결과 CSV 다운로드",
-                       df.drop(columns=["_ok"]).to_csv(index=False).encode("utf-8-sig"),
+                       df.drop(columns=["_ok", "_loc", "물때지점"]).to_csv(index=False).encode("utf-8-sig"),
                        file_name=f"{SITES[code]}_예약_{today:%Y%m%d}.csv", mime="text/csv", key=f"dl_res_{code}")
 
 
 for code in site_codes:
     render_site(code)
 
-st.caption("물때·조류세기·날씨: 바다타임 남당항 · 기온·바람: Open-Meteo 최신 예보(남당항 위치) · 파고: Open-Meteo 해양 예보"
-           + (f"({ss.get('wave_area')})" if ss.get("wave_area") else "")
+st.caption("물때·조류세기·날씨: 바다타임(항구별 가장 가까운 지점) · 기온·바람: Open-Meteo 최신 예보(배가 출항하는 항구 위치) · 파고: Open-Meteo 해양 예보"
+           + "(항구에서 가장 가까운, 값이 있는 바다 지점)"
            + " · 조회할 때마다 새로 받음 · 바람 16Kts 이상, 파고 1.5m 이상은 빨간 글씨")
 
-with st.expander(f"🌊 조류세기 계산 근거 ({TIDE_PORT_NAME}, 바다타임 물때표)"):
-    td = ss.get("tide", {})
+_stn = ss.get("station_names", {}) or {TIDE_PORT_CODE: TIDE_PORT_NAME}
+_used = [c_ for c_ in _stn if c_ != TIDE_PORT_CODE or len(_stn) == 1] or [TIDE_PORT_CODE]
+with st.expander(f"🌊 조류세기 계산 근거 (바다타임 물때표: {', '.join(_stn[c_] for c_ in _used)})"):
+  for _code in _used:
+    td = ss.get("tide_by", {}).get(_code, {})
+    st.markdown(f"**{_stn.get(_code, _code)}**" + ("" if _code in FLOW_CALIBRATED else
+                " — 이 항구는 조회한 석 달 안에서 물흐름이 가장 약한 날 0%, 가장 센 날 100%로 계산"))
     if not td:
         st.caption("물때표를 불러오지 못했습니다.")
     else:
         show = sorted({d + timedelta(days=k) for d in days for k in range(-7, 8)} & set(td))
-        st.caption("조류세기 = 바다타임 '물흐름'과 같은 눈금. 하루 ▲/▼ 높이 변화 평균이 201cm면 0%(최소), 732cm면 100%.")
+        if _code in FLOW_CALIBRATED:
+            st.caption("조류세기 = 바다타임 '물흐름'과 같은 눈금. 하루 ▲/▼ 높이 변화 평균이 201cm면 0%(최소), 732cm면 100%.")
         st.dataframe(pd.DataFrame([{
             "날짜": f"{d:%m.%d}({WEEK[d.weekday()]})" + (" ◀" if d in day_set else ""), "물때": td[d]["mul"],
             "만조·간조 높이(cm)": ", ".join(str(h) for h in td[d].get("heights", [])),
-            "물흐름 지표(▲▼ 평균 cm)": td[d].get("flow"), "조류세기": tide_label(d),
+            "물흐름 지표(▲▼ 평균 cm)": td[d].get("flow"), "조류세기": tide_label(d, _code),
         } for d in show]), hide_index=True, width="stretch")
