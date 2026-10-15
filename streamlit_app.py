@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.18-8 (전부 실시간 버튼 삭제)"
+APP_VERSION = "v10.18-11 (시·군 안내 변경)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1897,6 +1897,7 @@ st.markdown(f"""
   display:inline-flex; align-items:center; justify-content:center; font-size:.95rem; flex:none;}}
 .step-t {{font-size:1.2rem; font-weight:800; letter-spacing:-.01em;}}
 .step-h {{font-size:.85rem; opacity:.62;}}
+.step-h.warn {{opacity:1; color:{INK}; background:{ACCENT}; font-weight:700; padding:2px 10px; border-radius:6px;}}
 .res-head {{font-size:1.45rem; font-weight:800; letter-spacing:-.02em; margin:1.6rem 0 .5rem;
   padding-top:1.1rem; border-top:2px solid rgba(128,128,128,.25);}}
 .st-key-filters {{border:1px solid rgba(128,128,128,.28); border-radius:12px; padding:10px 14px 12px;
@@ -1971,9 +1972,14 @@ st.markdown(f"""<div class='hero'>
   <div class='hero-v'>{htmlmod.escape(APP_VERSION)}</div></div>""", unsafe_allow_html=True)
 
 
-def step_head(n, title, hint=""):
+def step_head(n, title, hint="", warn=False):
     st.markdown(f"<div class='step'><span class='step-n'>{n}</span><span class='step-t'>{title}</span>"
-                f"<span class='step-h'>{hint}</span></div>", unsafe_allow_html=True)
+                f"<span class='step-h{' warn' if warn else ''}'>{hint}</span></div>", unsafe_allow_html=True)
+
+
+REGION_TIP = "(실시간조회를 원하시면 목적지의 항구를 선택하세요)"
+SIDO_LABEL = "시·도 (시·도 전체조회시 실시간조회가 안됩니다)"
+SGG_LABEL = "시·군 (실시간조회를 원하시면 시나 군을 선택하세요)"
 
 today = kst_today()
 ss = st.session_state
@@ -2197,11 +2203,12 @@ def _pick(label, options, cur, key):
 @st.dialog("지역 선택")
 def dlg_region():
     t = ss.region
+    st.markdown(f"<span class='step-h warn'>{REGION_TIP}</span>", unsafe_allow_html=True)
     sea = _pick("바다", ["전체"] + list(SEAS.values()), t["sea"], "pk_sea")
     _, rg1, (sidos, _, _) = region_pool({"sea": sea})
-    sido_ = _pick("시·도", sidos, t["sido"] if sea == t["sea"] else "전체", f"pk_sido_{sea}")
+    sido_ = _pick(SIDO_LABEL, sidos, t["sido"] if sea == t["sea"] else "전체", f"pk_sido_{sea}")
     _, rg2, (_, sggs, _) = region_pool({"sea": sea, "sido": sido_})
-    sgg_ = _pick("시·군", sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "전체", f"pk_sgg_{sea}_{sido_}")
+    sgg_ = _pick(SGG_LABEL, sggs, t["sgg"] if (sea, sido_) == (t["sea"], t["sido"]) else "전체", f"pk_sgg_{sea}_{sido_}")
     pool_, rg3, (_, _, ports_) = region_pool({"sea": sea, "sido": sido_, "sgg": sgg_})
     port_ = "전체"
     if len(ports_) > 1:
@@ -2240,7 +2247,7 @@ def dlg_days():
 
 if PHONE:
     pool, ss.region, _ = region_pool(ss.region)
-    step_head(1, "지역")
+    step_head(1, "지역", REGION_TIP, warn=True)
     if st.button(f"📍 {region_text(ss.region)}  ·  배 {len(pool)}척", key="m_region", width="stretch"):
         dlg_region()
     step_head(2, "어종")
@@ -2262,16 +2269,16 @@ else:
     left_col, right_col = st.columns([1.05, 1], gap="large")
     with left_col:
         # ----- ① 지역
-        step_head(1, "지역", "바다 → 시·도 → 시·군 → 항구 순서로 좁혀 보세요")
-        c1, c2 = st.columns(2)
-        c3, c4 = st.columns(2)
+        step_head(1, "지역", REGION_TIP, warn=True)
+        c1, c2 = st.columns(2, vertical_alignment="bottom")
+        c3, c4 = st.columns(2, vertical_alignment="bottom")
         _, rg0, (sidos, sggs, ports_) = region_pool(ss.region)
         seas_ = ["전체"] + list(SEAS.values())
         sea_name = c1.selectbox("바다", seas_, index=seas_.index(rg0["sea"]))
         _, rg0, (sidos, _, _) = region_pool({**rg0, "sea": sea_name})
-        sido = c2.selectbox("시·도", sidos, index=sidos.index(rg0["sido"]))
+        sido = c2.selectbox(SIDO_LABEL, sidos, index=sidos.index(rg0["sido"]))
         _, rg0, (_, sggs, _) = region_pool({**rg0, "sido": sido})
-        sigungu = c3.selectbox("시·군", sggs, index=sggs.index(rg0["sgg"]))
+        sigungu = c3.selectbox(SGG_LABEL, sggs, index=sggs.index(rg0["sgg"]))
         _, rg0, (_, _, ports_) = region_pool({**rg0, "sgg": sigungu})
         port = c4.selectbox("항구", ports_, index=ports_.index(rg0["port"]), disabled=len(ports_) < 2)
         pool, ss.region, _ = region_pool({**rg0, "port": port})
