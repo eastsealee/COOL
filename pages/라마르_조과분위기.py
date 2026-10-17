@@ -1,4 +1,4 @@
-"""라마르호 조과 분위기 조회 (2018~2026년 9~12월)
+"""라마르호 예상 조과 분석 (2018~2026년 9~12월)
 물때·만조·간조·고저차·물세기(%)는 예약조회 앱과 같은 바다타임 남당항 물때표 기준.
 """
 import json
@@ -18,9 +18,11 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v29"
+APP_VERSION = "v31"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v31", "제목을 '라마르호 예상 조과 분석'으로 변경"),
+    ("v30", "2026 예상 갑오징어: 10월 배율을 ×2.7로 지정 (11·12월은 데이터 기준 전체 배율)"),
     ("v29", "2026 예상만 갑오징어 마릿수 가중치: 데이터 기준 월별 배율 자동 적용(9월 ×1.9, 10월 ×3.1 …), 직접 입력도 가능"),
     ("v28", "🔮 2026 예상 탭 추가: 2026-10-18 ~ 12-31 예상 달력(2027과 같은 방식, 같은 달 과거 기록 기준)"),
     ("v27", "2027 예상·추천: 9월은 9월 기록만, 10월은 10월 기록만… 같은 달 과거 기록으로만 분석"),
@@ -52,7 +54,7 @@ CHANGELOG = [
     ("v1", "블로그 본문 분석 586일, 날짜별 분위기 % 조회"),
 ]
 
-st.set_page_config(page_title=f"라마르호 조과 분위기 조회 : {APP_VERSION}", page_icon="🦑", layout="wide")
+st.set_page_config(page_title=f"라마르호 예상 조과 분석 : {APP_VERSION}", page_icon="🦑", layout="wide")
 
 
 MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9물",
@@ -257,13 +259,18 @@ def gg26_ratios(d_):
 
 
 GG26_AUTO, GG26_ALL, GG26_ROWS = gg26_ratios(df)
+GG26_FIXED = {10: 2.7}                                  # 사용자가 정한 배율 (10월은 2.7배)
+for _m, _v in GG26_FIXED.items():
+    GG26_ROWS = [(r[0], r[1], r[2], f"×{_v:.2f} (지정 · 데이터 ×{GG26_AUTO[_m]:.2f})") if r[0] == f"{_m}월" else r
+                 for r in GG26_ROWS]
+    GG26_AUTO[_m] = _v
 with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
     gg_mode = st.radio("적용 방식", ["📊 데이터 기준 (자동)", "✍️ 직접 입력"], index=0, key="gg26_mode")
     if gg_mode.startswith("📊"):
         GG26 = dict(GG26_AUTO)
         st.dataframe(pd.DataFrame(GG26_ROWS, columns=["월", "2026년", "다른 해", "배율"]), hide_index=True,
                      width="stretch")
-        st.caption("날마다 갑오징어 중앙값의 평균을 같은 달끼리 비교. 2026년 기록이 없는 달은 2026 전체 배율을 써요.")
+        st.caption("날마다 갑오징어 중앙값의 평균을 같은 달끼리 비교. 10월은 2.7배로 지정, 2026년 기록이 없는 달은 2026 전체 배율을 써요.")
     else:
         mval = st.slider("2026 예상 갑오징어 배율", 1.0, 4.0, round(GG26_ALL, 1), step=0.1, key="gg26_manual")
         GG26 = {m: mval for m in (9, 10, 11, 12)}
@@ -330,7 +337,7 @@ df["오전 물흐름"] = [x[2] for x in _ff]
 df["오후 물흐름"] = [x[3] for x in _ff]
 
 # ------------------------------------------------------------ 본문
-st.title(f"🦑 라마르호 조과 분위기 조회 : {APP_VERSION}")
+st.title(f"🦑 라마르호 예상 조과 분석 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
