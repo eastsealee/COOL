@@ -15,9 +15,20 @@ from korean_lunar_calendar import KoreanLunarCalendar
 BASE = Path(__file__).resolve().parent.parent  # 저장소 최상위
 sys.path.insert(0, str(BASE))
 import lamar_badatime as bt  # noqa: E402
+import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
 st.set_page_config(page_title="라마르호 조과 분위기 조회", page_icon="🦑", layout="wide")
+
+APP_VERSION = "v5"
+APP_DATE = "2026-10-17"
+CHANGELOG = [
+    ("v5", "월별 분위기 % 가중치 적용 (9월 조과 60% … 12월 본문 50%)"),
+    ("v4", "낚시 시간 = 남당항 일출 5분 전 ~ 일몰 20분 전, 주꾸미·갑오징어 중앙값 추가"),
+    ("v3", "오전·점심 전·점심 후·오후·라마르타임 시간대별 조황 평가, 데이터 캐시 자동 갱신"),
+    ("v2", "바다타임 남당항 물때표로 물때·만조·간조·고저차·물세기 %, 주꾸미·갑오징어 최고/최저"),
+    ("v1", "블로그 본문 분석 586일, 날짜별 분위기 % 조회"),
+]
 
 MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9물",
              "10물", "11물", "12물", "13물", "조금", "무시"]
@@ -37,7 +48,21 @@ def seg_label(v):
 
 # ------------------------------------------------------------ 데이터
 DATA_FILE = BASE / "data" / "lamar_days.json"
-NEED_COLS = ["am", "pre_lunch", "post_lunch", "pm", "lt", "seg_avg", "jj_min", "jj_max", "gg_min", "gg_max", "jj_med", "catch_pct", "stats", "key", "tags"]
+# 월별 분위기 % 가중치: (조과, 본문 분위기, 날씨)
+WEIGHTS = {9: (0.60, 0.30, 0.10), 10: (0.50, 0.25, 0.15), 11: (0.40, 0.40, 0.20), 12: (0.30, 0.50, 0.20)}
+
+
+def mood_score(r):
+    """월별 가중치로 분위기 % 계산. 본문 분위기 = 본문 표현 점수와 오전·오후 조황 점수의 평균"""
+    if r.get("basis") == "제목만" or pd.isna(r.get("sent")):
+        return r["score"]
+    wc, wb, ww = WEIGHTS.get(int(r["월"]), (0.5, 0.3, 0.2))
+    body = r["sent"] if pd.isna(r.get("seg_avg")) else (r["sent"] + r["seg_avg"]) / 2
+    if pd.isna(r.get("catch_pct")):          # 마릿수 기록이 없으면 조과 몫을 본문·날씨에 비율대로 나눔
+        wb, ww, wc = wb / (wb + ww), ww / (wb + ww), 0
+        return round(wb * body + ww * r["weather"])
+    return round(wc * r["catch_pct"] + wb * body + ww * r["weather"])
+NEED_COLS = ["gg_med", "am", "pre_lunch", "post_lunch", "pm", "lt", "seg_avg", "jj_min", "jj_max", "gg_min", "gg_max", "jj_med", "catch_pct", "stats", "key", "tags"]
 
 
 @st.cache_data
@@ -52,6 +77,7 @@ def load_days(stamp):
     df["연도"] = pd.to_datetime(df["date"]).dt.year
     df["월"] = pd.to_datetime(df["date"]).dt.month
     df["날씨"] = df["tags"].apply(lambda t: ", ".join(t))
+    df["score"] = df.apply(mood_score, axis=1)
     return df
 
 
@@ -105,23 +131,20 @@ def curve_from_events(d: dt.date, events):
 
 _st = DATA_FILE.stat()
 # ------------------------------------------------------------ 낚시 시간대 (남당항 출항 기준)
-START_RANGE = {9: ("05:30", "06:00"), 10: ("06:00", "06:30"), 11: ("07:00", "07:30"), 12: ("07:30", "07:30")}
-END_BY_MONTH = {9: "18:30", 10: "17:20", 11: "17:00", 12: "16:30"}
-
-
-def end_time(d: dt.date):
-    return _t(d, END_BY_MONTH.get(d.month, "16:30"))
-
-
 def _t(d, hhmm):
     h, m = map(int, hhmm.split(":"))
     return dt.datetime.combine(d, dt.time(h, m))
 
 
 def start_time(d: dt.date):
-    a, b = START_RANGE.get(d.month, ("06:00", "06:00"))
-    sa, sb = _t(d, a), _t(d, b)
-    return sa + (sb - sa) / 2, (a if a == b else f"{a}~{b}")
+    """낚시 시작 = 남당항 일출 5분 전"""
+    st_dt = sun.fishing_window(d)[0]
+    return st_dt, f"{st_dt:%H:%M}"
+
+
+def end_time(d: dt.date):
+    """낚시 종료 = 남당항 일몰 20분 전"""
+    return sun.fishing_window(d)[1]
 
 
 def _evt(d, events):
@@ -185,10 +208,10 @@ except Exception as ex:
     BT, BT_ERRS = {}, [str(ex)]
 BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
+st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
 st.sidebar.header("🌊 물때·조석")
-with st.sidebar.expander("⏰ 낚시 시간 (남당항 출항 기준)", expanded=False):
-    st.markdown("| 월 | 시작 | 종료 |\n|---|---|---|\n| 9월 | 05:30~06:00 | 18:30 |\n"
-                "| 10월 | 06:00~06:30 | 17:20 |\n| 11월 | 07:00~07:30 | 17:00 |\n| 12월 | 07:30 | 16:30 |")
+with st.sidebar.expander("⏰ 낚시 시간 (남당항 일출·일몰 기준)", expanded=False):
+    st.caption("시작 = 남당항 일출 5분 전 · 종료 = 일몰 20분 전 (날짜마다 자동 계산)")
     LUNCH_T = st.time_input("오전/오후 기준 (점심)", dt.time(12, 0), step=1800)
 st.sidebar.caption(f"바다타임 {bt.PORT_NAME} 물때표 · {len(BT)}일 확보")
 if BT_ERRS:
@@ -237,13 +260,13 @@ def fishing_flows(d):
 
 _ff = [fishing_flows(d) for d in df["날짜"]]
 df["시작"] = [x[0] for x in _ff]
-df["종료"] = [END_BY_MONTH.get(d.month, "") for d in df["날짜"]]
+df["종료"] = [f"{end_time(d):%H:%M}" for d in df["날짜"]]
 df["시작 물흐름"] = [x[1] for x in _ff]
 df["오전 물흐름"] = [x[2] for x in _ff]
 df["오후 물흐름"] = [x[3] for x in _ff]
 
 # ------------------------------------------------------------ 본문
-st.title("🦑 라마르호 조과 분위기 조회")
+st.title(f"🦑 라마르호 조과 분위기 조회 {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
@@ -280,7 +303,8 @@ def tide_block(d: dt.date):
                 domain=["오전 낚시", "오후 낚시"], range=["#f59f00", "#7048e8"]), legend=alt.Legend(title=None)))
         st.altair_chart((bands + line + dots).properties(height=230), width="stretch")
         evs = _evt(d, info["events"])
-        st.markdown(f"**낚시 {st_txt} ~ {end:%H:%M}** · 시작 때 **{flow_at(evs, st_dt)}**  \n"
+        _, _, rise, sett = sun.fishing_window(d)
+        st.markdown(f"**낚시 {st_txt} ~ {end:%H:%M}** (일출 {rise:%H:%M} · 일몰 {sett:%H:%M}) · 시작 때 **{flow_at(evs, st_dt)}**  \n"
                     f"오전: {window_flow(evs, st_dt, lunch)}  \n오후: {window_flow(evs, lunch, end)}")
     st.caption(f"출처: {info['src']} · 괄호 안은 조위(cm)")
 
@@ -336,8 +360,10 @@ with tab1:
             c1.metric("분위기", f"{r['score']}%")
             c2.metric("조과 백분위", f"{r['catch_pct']:.0f}%" if pd.notna(r["catch_pct"]) else "-",
                       help="같은 달 다른 출조일과 비교한 주꾸미 중앙값 순위")
-            c3.metric("주꾸미 (최저~최고)", rng_text(r["jj_min"], r["jj_max"]))
-            c4.metric("갑오징어 (최저~최고)", rng_text(r["gg_min"], r["gg_max"]))
+            c3.metric("주꾸미 (최저~최고)", rng_text(r["jj_min"], r["jj_max"]),
+                      f"중앙값 {r['jj_med']:g}마리" if pd.notna(r["jj_med"]) else None, delta_color="off")
+            c4.metric("갑오징어 (최저~최고)", rng_text(r["gg_min"], r["gg_max"]),
+                      f"중앙값 {r['gg_med']:g}마리" if pd.notna(r["gg_med"]) else None, delta_color="off")
             st.progress(int(r["score"]) / 100, text=f"분위기 {r['score']}%")
             st.markdown("**시간대별 조황**")
             sc = st.columns(len(SEGS))
@@ -353,7 +379,9 @@ with tab1:
                 st.markdown("**그날 분위기 (본문 발췌)**")
                 for s in r["key"]:
                     st.markdown(f"> {s}")
-            st.caption(f"산출 근거: {r['basis']} · 본문 분위기 {r['sent']}% · 날씨 점수 {r['weather']}%")
+            wc, wb, ww = WEIGHTS.get(int(r["월"]), (0.5, 0.3, 0.2))
+            st.caption(f"{int(r['월'])}월 가중치 조과 {wc:.0%} · 본문 {wb:.0%} · 날씨 {ww:.0%} · "
+                       f"본문 표현 {r['sent']}% · 날씨 점수 {r['weather']}%")
         else:
             history_hint(sel, mul)
         st.divider()
@@ -388,11 +416,11 @@ with tab2:
     cols = ["date", "wd", "mul", "물세기(%)", "시작", "종료", "시작 물흐름", "오전 물흐름", "오후 물흐름",
             "만조", "간조", "고저차(cm)", "score",
             "오전 평가", "am", "점심 전 평가", "점심 후 평가", "오후 평가", "pm", "라마르타임 평가",
-            "jj_max", "jj_min", "gg_max", "gg_min", "title", "날씨", "link"]
+            "jj_max", "jj_med", "jj_min", "gg_max", "gg_med", "gg_min", "title", "날씨", "link"]
     show = v[cols].rename(columns={
         "date": "날짜", "wd": "요일", "mul": "물때", "score": "분위기",
         "am": "오전%", "pm": "오후%",
-        "jj_max": "주꾸미 최고", "jj_min": "주꾸미 최저", "gg_max": "갑오징어 최고", "gg_min": "갑오징어 최저",
+        "jj_max": "주꾸미 최고", "jj_med": "주꾸미 중앙값", "jj_min": "주꾸미 최저", "gg_med": "갑오징어 중앙값", "gg_max": "갑오징어 최고", "gg_min": "갑오징어 최저",
         "title": "제목", "link": "링크"})
     st.caption(f"{len(show)}일 · 평균 분위기 {show['분위기'].mean():.0f}%" if len(show) else "해당 없음")
     st.dataframe(
@@ -407,13 +435,15 @@ with tab2:
             "간조": st.column_config.TextColumn("간조 시각(조위cm)"),
             "주꾸미 최고": st.column_config.NumberColumn("주꾸미 최고", format="%d"),
             "주꾸미 최저": st.column_config.NumberColumn("주꾸미 최저", format="%d"),
+            "주꾸미 중앙값": st.column_config.NumberColumn("주꾸미 중앙값", format="%g"),
+            "갑오징어 중앙값": st.column_config.NumberColumn("갑오징어 중앙값", format="%g"),
             "갑오징어 최고": st.column_config.NumberColumn("갑오징어 최고", format="%d"),
             "갑오징어 최저": st.column_config.NumberColumn("갑오징어 최저", format="%d"),
             "링크": st.column_config.LinkColumn("링크", display_text="원문"),
             "제목": st.column_config.TextColumn("제목", width="large")})
     st.download_button("CSV 다운로드", show.to_csv(index=False).encode("utf-8-sig"),
-                       "lamar_분위기_목록.csv", "text/csv")
-    st.caption("주꾸미·갑오징어 최고/최저는 본문에 마릿수가 적힌 손님 기준입니다(주꾸미는 3명 이상 기록된 날만).")
+                       f"lamar_분위기_목록_{APP_VERSION}.csv", "text/csv")
+    st.caption("주꾸미·갑오징어 최고/중앙값/최저는 본문에 마릿수가 적힌 손님 기준입니다(주꾸미는 3명 이상 기록된 날만).")
 
 # ---------------- 탭3: 분석
 with tab3:
@@ -496,17 +526,24 @@ with tab3:
 # ---------------- 탭4: 산출 방식
 with tab4:
     st.markdown(f"""
-**분위기 %** (0~100)
-- **조과 50%**: 본문의 손님별 마릿수("○○님은 주꾸미 127마리…")에서 그날 주꾸미 중앙값을 구하고,
-  **같은 달** 다른 해 출조일과 비교한 백분위. (손님 3명 이상 기록된 날만)
-- **본문 분위기 20%**: "잘 나와, 폭발, 손맛, 꾸준히" 같은 긍정 표현과 "안 나와, 고전, 뜸, 아쉬" 같은 부정 표현의 비율. 제목은 2배 가중.
-- **시간대 조황 15%**: 오전·오후 조황 %의 평균 (아래 참고)
-- **날씨 15%**: 강풍·파도·비·안개·물색 탁함 언급은 감점, 잔잔·화창은 가점.
-- 마릿수 기록이 없는 날은 본문 45% + 시간대 30% + 날씨 25%, 본문이 비어 있는 2018년 일부는 제목만으로 산출.
+**분위기 %** (0~100) — 월별 가중치
 
-**낚시 시간 (남당항 출항 기준)**
-- 시작: 9월 05:30~06:00 · 10월 06:00~06:30 · 11월 07:00~07:30 · 12월 07:30 (계산은 범위의 가운데 시각)
-- 종료: 9월 18:30 · 10월 17:20 · 11월 17:00 · 12월 16:30
+| 월 | 조과(마릿수) | 본문 분위기 | 날씨 |
+|---|---|---|---|
+| 9월 | 60% | 30% | 10% |
+| 10월 | 50% | 25% | 15% |
+| 11월 | 40% | 40% | 20% |
+| 12월 | 30% | 50% | 20% |
+
+- **조과**: 본문의 손님별 마릿수("○○님은 주꾸미 127마리…")에서 그날 주꾸미 중앙값을 구하고,
+  **같은 달** 다른 해 출조일과 비교한 백분위. (손님 3명 이상 기록된 날만)
+- **본문 분위기**: "잘 나와, 폭발, 손맛, 꾸준히" ↔ "안 나와, 고전, 뜸, 아쉬" 표현 비율(제목 2배 가중)과
+  오전·오후 시간대 조황 %의 평균
+- **날씨**: 강풍·파도·비·안개·물색 탁함 언급은 감점, 잔잔·화창은 가점
+- 마릿수 기록이 없는 날은 조과 몫을 본문·날씨에 비율대로 나눔. 본문이 비어 있는 2018년 일부는 제목만으로 산출.
+
+**낚시 시간 (남당항 일출·일몰 기준)**
+- 시작 = 남당항 일출 5분 전, 종료 = 일몰 20분 전 (날짜마다 계산, 오차 ±2분)
 - 오전 = 시작~점심(기본 12:00, 사이드바에서 변경), 오후 = 점심~종료
 - 물 흐름: 다음 물때가 만조면 들물, 간조면 날물, 만조·간조 전후 25분은 정조
 - 구간 안에 만조·간조가 끼면 "들물→만조 08:40→날물"처럼 표시
@@ -518,7 +555,7 @@ with tab4:
 - "오전엔 웃고 오후에 울었던"처럼 시간대를 직접 평가한 문장과 제목은 가중치를 크게
 - **60% 이상 🟢 잘 나옴 · 41~59% 🟡 보통 · 40% 이하 🔴 안 나옴**
 
-**주꾸미·갑오징어 최고/최저**: 본문에 마릿수가 적힌 손님들 중 가장 많이·적게 잡은 수.
+**주꾸미·갑오징어 최고/중앙값/최저**: 본문에 마릿수가 적힌 손님들 중 가장 많이 잡은 수, 가운데 값, 가장 적게 잡은 수.
 
 **물때·만조·간조·고저차·물세기**: 예약조회 앱과 같은 **바다타임 {bt.PORT_NAME} 월별 물때표** 기준.
 - 만조·간조: 물때표의 시각과 조위(cm)
@@ -527,3 +564,6 @@ with tab4:
   (사리→조금 201~732cm, 조금→사리 234~727cm = 0~100%)
 - 바다타임에서 못 읽은 날은 사이드바에 조화상수 CSV를 올리면 추산값으로 채웁니다(물세기 제외).
 """)
+    st.divider()
+    st.markdown(f"**버전 {APP_VERSION}** ({APP_DATE})")
+    st.markdown("\n".join(f"- **{v}** · {t}" for v, t in CHANGELOG))
