@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v22"
+APP_VERSION = "v23"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v23", "버튼 달력 테마 선택(기본: 눈 편한 어두운 달력 / 밝은 달력), 날짜 버튼이 칸 전체를 채우도록 수정"),
     ("v22", "'물세기 20% 미만인 날'을 '물세기 30% 이하인 날'로 변경 (목록·2027 달력 강조·예상표)"),
     ("v21", "버튼 달력: 물세기 0~20% 노란 실선, 21~30% 파란 실선이 칸 테두리를 따라 움직이는 애니메이션, 선택한 날짜를 검은 칸으로 표시"),
     ("v20", "물세기 분석: 주꾸미·갑오징어 중앙값을 한 곡선 그래프(양쪽 눈금)로, 점 그래프를 범위 띠+중앙값 선으로 대체"),
@@ -227,6 +228,8 @@ except Exception as ex:
 BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
+CAL_THEME = st.sidebar.radio("버튼 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
+                             key="cal_theme")
 st.sidebar.header("🌊 물때·조석")
 with st.sidebar.expander("⏰ 낚시 시간 (남당항 일출·일몰 기준)", expanded=False):
     st.caption("시작 = 남당항 일출 5분 전 · 종료 = 일몰 20분 전 (날짜마다 자동 계산)")
@@ -528,37 +531,46 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
             return ""
         return "yellow" if p <= 20 else ("blue" if p <= 30 else "")
 
+    dark = str(st.session_state.get("cal_theme", "🌙")).startswith("🌙")
+    T = (dict(bg="#1f2329", line="#343a40", head="#868e96", text="#e9ecef", sub="#adb5bd", red="#ff8787",
+              hover="#2b3038", sel_bg="#e9ecef", sel_txt="#1f2329", sel_red="#e03131", edge="#2b3038")
+         if dark else
+         dict(bg="#ffffff", line="#e9ecef", head="#343a40", text="#212529", sub="#868e96", red="#e03131",
+              hover="#f8f9fa", sel_bg="#212529", sel_txt="#ffffff", sel_red="#ff8787", edge="#f1f3f5"))
     css = ["""
     /* 테두리를 따라 실선이 도는 애니메이션 (회전하는 원뿔 그라데이션) */
     @property --lamarAng { syntax:'<angle>'; inherits:false; initial-value:0deg; }
     @keyframes lamarRun { to { --lamarAng: 360deg; } }
     .run-yellow, .run-blue { border:3px solid transparent !important; animation: lamarRun 2.2s linear infinite; }
-    .run-yellow { background: linear-gradient(#fff,#fff) padding-box,
+    .run-yellow { background: linear-gradient(BG,BG) padding-box,
         conic-gradient(from var(--lamarAng), #fcc419 0deg 110deg, #fff3bf 110deg 140deg, transparent 140deg 360deg) border-box !important; }
-    .run-blue { background: linear-gradient(#fff,#fff) padding-box,
+    .run-blue { background: linear-gradient(BG,BG) padding-box,
         conic-gradient(from var(--lamarAng), #1c7ed6 0deg 110deg, #d0ebff 110deg 140deg, transparent 140deg 360deg) border-box !important; }
     .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; display:inline-block; }
     .lg-bar { display:inline-block; width:46px; height:6px; border-radius:3px; vertical-align:middle;
               background:linear-gradient(90deg,#fa5252,#fab005,#37b24d); }
-    .cal-title { text-align:center; font-size:2.1rem; font-weight:800; color:#212529; margin:6px 0 2px 0; }
-    .cal-note { text-align:right; font-size:0.78rem; color:#868e96; margin-top:-30px; margin-bottom:8px; }
-    .cal-wd { text-align:center; font-size:0.95rem; font-weight:700; color:#868e96; padding:4px 0 8px 0; }
-    .cal-wd.red { color:#e03131; }
+    .cal-title { text-align:center; font-size:2.1rem; font-weight:800; color:TXT; margin:6px 0 10px 0; }
+    .cal-wd { text-align:center; font-size:0.95rem; font-weight:700; color:SUB; padding:4px 0 8px 0; }
+    .cal-wd.red { color:RED; }
     .cal-empty { height:72px; }
-    div[class*="st-key-PFX_m"] { background:#ffffff !important; border-radius:14px; padding:4px 10px 6px 10px;
-                                 border:1px solid #f1f3f5; color:#212529; }
+    div[class*="st-key-PFX_m"] { background:BG !important; border-radius:14px; padding:4px 10px 6px 10px;
+                                 border:1px solid EDGE; color:TXT; }
     div[class*="st-key-PFX_m"] [data-testid="stHorizontalBlock"] { gap:2px !important; }
     div[class*="st-key-PFX_m"] [data-testid="stColumn"] { min-width:0 !important; }
     div[class*="st-key-PFX_m"] [data-testid="stElementContainer"] { margin-bottom:0 !important; }
-    div[class*="st-key-PFX_hd"] { border-bottom:2px solid #343a40; margin-bottom:2px; }
-    div[class*="st-key-PFX_wk"] { border-bottom:1px solid #e9ecef; padding:2px 0; }
-    div[class*="st-key-PFX_2"] button { width:100%; height:72px; padding:4px 0 6px 0 !important; border-radius:8px;
-        background:transparent !important; border:none !important; box-shadow:none; color:#212529 !important;
-        line-height:1.15; }
-    div[class*="st-key-PFX_2"] button p { font-size:0.72rem; margin:0; color:#e03131; }
-    div[class*="st-key-PFX_2"] button p strong { font-size:1.55rem; font-weight:800; color:#212529; }
-    div[class*="st-key-PFX_2"] button:hover { background:#f8f9fa !important; }
-    """.replace("PFX", prefix)]
+    div[class*="st-key-PFX_2"], div[class*="st-key-PFX_2"] > div, div[class*="st-key-PFX_2"] [data-testid="stTooltipHoverTarget"]
+        { width:100% !important; }
+    div[class*="st-key-PFX_hd"] { border-bottom:2px solid HEAD; margin-bottom:2px; }
+    div[class*="st-key-PFX_wk"] { border-bottom:1px solid LINE; padding:2px 0; }
+    div[class*="st-key-PFX_2"] button { width:100% !important; height:72px; padding:4px 0 6px 0 !important; border-radius:8px;
+        background:transparent !important; border:none !important; box-shadow:none; color:TXT !important;
+        line-height:1.2; }
+    div[class*="st-key-PFX_2"] button p { font-size:0.72rem; margin:0; color:RED; }
+    div[class*="st-key-PFX_2"] button p strong { font-size:1.55rem; font-weight:800; color:TXT; }
+    div[class*="st-key-PFX_2"] button:hover { background:HOVER !important; }
+    """.replace("PFX", prefix).replace("TXT", T["text"]).replace("SUB", T["sub"]).replace("RED", T["red"])
+        .replace("BG", T["bg"]).replace("EDGE", T["edge"]).replace("HEAD", T["head"]).replace("LINE", T["line"])
+        .replace("HOVER", T["hover"])]
     sel_iso = st.session_state.pred_day.isoformat()
     for _, r in P.iterrows():
         kc = f"st-key-{prefix}_{r['date'].replace('-', '_')}"
@@ -567,7 +579,7 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         rule = [f"box-shadow:{bar} !important;"]
         band = _band(r["물세기"])
         selected = r["date"] == sel_iso
-        inner = "#212529" if selected else "#fff"                  # 선택한 날 = 검은 칸
+        inner = T["sel_bg"] if selected else T["bg"]               # 선택한 날 = 반전 색 칸
         if band in ("yellow", "blue"):
             line_c, glow_c = ("#fcc419", "#fff3bf") if band == "yellow" else ("#1c7ed6", "#d0ebff")
             rule.append("border:3px solid transparent !important; animation: lamarRun 2.2s linear infinite;")
@@ -581,9 +593,9 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         d_ = dt.date.fromisoformat(r["date"])
         red_day = d_.weekday() >= 5 or r["date"] in HOLIDAYS_2027      # 토·일·공휴일 빨강
         if selected:
-            css.append(k + " p, " + k + " p strong { color:" + ("#ff8787" if red_day else "#ffffff") + " !important; }")
+            css.append(k + " p, " + k + " p strong { color:" + (T["sel_red"] if red_day else T["sel_txt"]) + " !important; }")
         elif red_day:
-            css.append(k + " p strong { color:#e03131 !important; }")
+            css.append(k + " p strong { color:" + T["red"] + " !important; }")
     st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
 
     st.markdown(
@@ -624,7 +636,7 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
                             hol = HOLIDAYS_2027.get(iso)
                             label = f"**{day}**" + (f"  \n{hol}" if hol else "  \n\u00a0")
                             pct_txt = f"{r['물세기']:.0f}%" if pd.notna(r["물세기"]) else "-"
-                            rc.button(label, key=f"{prefix}_{iso.replace('-', '_')}", on_click=_pick, args=(iso,),
+                            rc.button(label, key=f"{prefix}_{iso.replace('-', '_')}", on_click=_pick, args=(iso,), width="stretch",
                                       help=f"{iso} ({WD[d_.weekday()]}){' · ' + hol if hol else ''} · {r['물때']} · "
                                            f"물세기 {pct_txt} · 예상 분위기 {r['예상 분위기']}% · "
                                            f"주꾸미 약 {r['주꾸미']:.0f}마리")
