@@ -38,7 +38,8 @@ def sentences(text):
 
 # ------------------------------------------------------------ 마릿수
 EXCL = re.compile(r"목표|넘게|넘기|정도|까지|거뜬|생각|했다면|였다면|어제|작년|지난|예상|기록을 세워|평균|이상|이하|전날|저번|라면|면 좋|만이라도|최고기록|역대")
-ANG = re.compile(r"님(?:은|이|께서는|께서|도)?\s*(?:(?:주꾸미|쭈꾸미|쭈)\s*)?(\d{1,3})\s*마리(?:[\s,]*(?:갑오징어|갑)\s*(\d{1,3})\s*마리)?")
+# "○○님은 주꾸미 123마리, 갑오징어 28마리"처럼 두 어종이 함께 적힌 문장만 마릿수로 사용
+PAIR = re.compile(r"님(?:은|이|께서는|께서|도)?\s*(?:주꾸미|쭈꾸미|쭈)\s*(\d{1,3})\s*마리[\s,]*(?:갑오징어|갑)\s*(\d{1,3})\s*마리")
 
 
 def catches(sents):
@@ -46,12 +47,11 @@ def catches(sents):
     for s in sents:
         if EXCL.search(s):
             continue
-        for m in ANG.finditer(s):
-            n = int(m.group(1))
-            if 1 <= n <= 600:
+        for m in PAIR.finditer(s):
+            n, g = int(m.group(1)), int(m.group(2))
+            if 1 <= n <= 600 and 0 <= g <= 300:
                 jj.append(n)
-                if m.group(2):
-                    gg.append(int(m.group(2)))
+                gg.append(g)
     return jj, gg
 
 
@@ -252,9 +252,9 @@ def analyze_post(date_iso, title, link, raw_body):
         jj_med=statistics.median(jj) if len(jj) >= 3 else None,
         jj_max=max(jj) if len(jj) >= 3 else None,
         jj_min=min(jj) if len(jj) >= 3 else None,
-        gg_med=statistics.median(gg) if gg else None,
-        gg_max=max(gg) if gg else None,
-        gg_min=min(gg) if gg else None,
+        gg_med=statistics.median(gg) if len(gg) >= 3 else None,
+        gg_max=max(gg) if len(gg) >= 3 else None,
+        gg_min=min(gg) if len(gg) >= 3 else None,
         am=seg.get("오전"), pre_lunch=seg.get("점심전"), post_lunch=seg.get("점심후"), pm=seg.get("오후"),
         lt=seg.get("라마르타임"),
         key=key_sentences(body),
@@ -264,8 +264,8 @@ def analyze_post(date_iso, title, link, raw_body):
     r["seg_avg"] = round(statistics.mean(segs)) if segs else None
     parts = []
     if r["jj_med"] is not None:
-        parts.append(f"손님 {len(jj)}명 기록 기준 주꾸미 중앙값 {r['jj_med']:g}마리(최고 {r['jj_max']}마리)"
-                     + (f", 갑오징어 최고 {r['gg_max']}마리" if r["gg_max"] else ""))
+        parts.append(f"손님 {len(jj)}명 기록 기준 주꾸미 중앙값 {r['jj_med']:g}마리(최고 {r['jj_max']}마리), "
+                     f"갑오징어 중앙값 {r['gg_med']:g}마리(최고 {r['gg_max']}마리)")
     r["stats"] = " / ".join(parts)
     return r
 

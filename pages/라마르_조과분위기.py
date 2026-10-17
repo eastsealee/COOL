@@ -18,9 +18,13 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v32"
+APP_VERSION = "v36"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v36", "24시간 그래프 입질 확률을 쭈갑물때 모델로 계산 + 블로그 오전·오후 조황 보정, 주꾸미·갑오징어 오늘 점수·추천·최적 시간대"),
+    ("v35", "2026·2027 예상: 물세기 아래에 24시간 물때·입질 확률 그래프(조위·주꾸미/갑오징어 확률·조류 세기·야간 표시)"),
+    ("v34", "2026 예상 갑오징어 배율: 11·12월 ×2.0으로 지정 (10월 ×2.7 유지)"),
+    ("v33", "마릿수는 '○○님은 주꾸미 N마리, 갑오징어 N마리'처럼 두 어종이 함께 적힌 문장만 사용"),
     ("v32", "블로그 새 조과 글을 매일 1번 자동으로 가져와 분석·반영 (GitHub Actions)"),
     ("v31", "제목을 '라마르호 예상 조과 분석'으로 변경"),
     ("v30", "2026 예상 갑오징어: 10월 배율을 ×2.7로 지정 (11·12월은 데이터 기준 전체 배율)"),
@@ -63,6 +67,7 @@ MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9�
 TIDE_CYCLE = ["7물", "8물", "9물", "10물", "11물", "12물", "13물", "조금", "무시",
               "1물", "2물", "3물", "4물", "5물", "6물"]
 WD = "월화수목금토일"
+KST_TZ = dt.timezone(dt.timedelta(hours=9))
 SEGS = [("am", "오전"), ("pre_lunch", "점심 전"), ("post_lunch", "점심 후"), ("pm", "오후"), ("lt", "라마르타임")]
 
 
@@ -261,9 +266,10 @@ def gg26_ratios(d_):
 
 
 GG26_AUTO, GG26_ALL, GG26_ROWS = gg26_ratios(df)
-GG26_FIXED = {10: 2.7}                                  # 사용자가 정한 배율 (10월은 2.7배)
+GG26_FIXED = {10: 2.7, 11: 2.0, 12: 2.0}               # 사용자가 정한 배율 (10월 2.7배, 11·12월 2배)
 for _m, _v in GG26_FIXED.items():
-    GG26_ROWS = [(r[0], r[1], r[2], f"×{_v:.2f} (지정 · 데이터 ×{GG26_AUTO[_m]:.2f})") if r[0] == f"{_m}월" else r
+    _data_txt = f"데이터 ×{GG26_AUTO[_m]:.2f}" if _m not in (11, 12) else f"전체 배율 ×{GG26_ALL:.2f}"
+    GG26_ROWS = [(r[0], r[1], r[2], f"×{_v:.2f} (지정 · {_data_txt})") if r[0] == f"{_m}월" else r
                  for r in GG26_ROWS]
     GG26_AUTO[_m] = _v
 with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
@@ -272,7 +278,7 @@ with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
         GG26 = dict(GG26_AUTO)
         st.dataframe(pd.DataFrame(GG26_ROWS, columns=["월", "2026년", "다른 해", "배율"]), hide_index=True,
                      width="stretch")
-        st.caption("날마다 갑오징어 중앙값의 평균을 같은 달끼리 비교. 10월은 2.7배로 지정, 2026년 기록이 없는 달은 2026 전체 배율을 써요.")
+        st.caption("날마다 갑오징어 중앙값의 평균을 같은 달끼리 비교. 10월은 2.7배, 11·12월은 2배로 지정했어요.")
     else:
         mval = st.slider("2026 예상 갑오징어 배율", 1.0, 4.0, round(GG26_ALL, 1), step=0.1, key="gg26_manual")
         GG26 = {m: mval for m in (9, 10, 11, 12)}
@@ -345,6 +351,224 @@ st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026
 
 tab1, tab8, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2026 예상", "🔮 2027 예상", "🗓️ 2027 달력",
                                                     "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+
+
+
+# ------------------------------------------------------------ 24시간 물때 · 입질 확률 그래프
+def _gauss(x, mu, sd):
+    return math.exp(-0.5 * ((x - mu) / sd) ** 2)
+
+
+def chart24(d: dt.date, am=None, pm=None):
+    """조위 곡선 + 주꾸미·갑오징어 입질 확률(추정) + 조류 세기 — 어두운 24시간 그래프"""
+    evs = []
+    for k in (-1, 0, 1):                                  # 0시·24시 끝까지 곡선을 이으려고 앞뒤 날 물때도 사용
+        dd = d + dt.timedelta(days=k)
+        inf = tide_info(dd)
+        if inf and inf.get("events"):
+            evs += [(kind, dt.datetime.combine(dd, dt.time.fromisoformat(t if len(t) == 5 else "0" + t)), h)
+                    for kind, t, h in inf["events"]]
+    evs.sort(key=lambda x: x[1])
+    if len(evs) < 3:
+        st.caption("물때표가 없어 24시간 그래프를 그릴 수 없어요.")
+        return
+    t0 = dt.datetime.combine(d, dt.time())
+    grid = [t0 + dt.timedelta(minutes=10 * i) for i in range(24 * 6 + 1)]
+
+    def h_at(t):
+        for (k1, a, h1), (k2, b, h2) in zip(evs, evs[1:]):
+            if a <= t <= b:
+                f = (t - a) / (b - a)
+                return h1 + (h2 - h1) * (1 - math.cos(math.pi * f)) / 2
+        return None
+
+    H = [h_at(t) for t in grid]
+    if any(v is None for v in H):
+        st.caption("물때표가 부족해 24시간 그래프를 그릴 수 없어요.")
+        return
+    # --- 입질 확률: 쭈갑물때 모델(커뮤니티 물때 기준 점수화)을 그대로 옮김, 남당항(보령 대비 높이비 1.028) 선상 기준
+    flow = [abs((H[min(i + 3, len(H) - 1)] - H[max(i - 3, 0)])) for i in range(len(H))]   # 1시간 조위 변화(막대용)
+    fmax = max(flow) or 1
+    _, _, rise, sett = sun.fishing_window(d)
+    sr = rise.hour + rise.minute / 60
+    ss = sett.hour + sett.minute / 60
+    day_evs = [e for e in evs if e[1].date() == d]
+    ext_h = [((e[1] - t0).total_seconds() / 3600, e[2], e[0] == "만조") for e in evs]
+    rs = [abs(ext_h[i][1] - ext_h[i - 1][1]) for i in range(1, len(ext_h)) if ext_h[i][0] > -3 and ext_h[i - 1][0] < 27]
+    day_range = sum(rs) / len(rs) if rs else 0
+    RR = 1.028                                             # 남당항 높이비 (쭈갑물때 지역표)
+    q = day_range / (700 * RR)
+    r_ref = 175 * RR
+    SEASON = {"jj": [0.4, 0.3, 0.75, 0.85, 0.6, 0, 0, 0, 1, 1, 0.8, 0.55],
+              "gg": [0.2, 0.2, 0.35, 0.6, 0.75, 0.7, 0.55, 0.7, 0.9, 1, 0.7, 0.35]}
+    sig = lambda v: 1 / (1 + math.exp(-v))
+    gs = lambda v, m_, s_: math.exp(-((v - m_) ** 2) / (2 * s_ * s_))
+    # 블로그 기록으로 예상한 오전·오후 조황으로 살짝 보정 (50% = 보정 없음, ±20%까지)
+    am_f = max(0.8, min(1.2, 1 + ((am if am is not None else 50) - 50) / 125))
+    pm_f = max(0.8, min(1.2, 1 + ((pm if pm is not None else 50) - 50) / 125))
+    jj, gg, hourly = [], [], {}
+    for i, t in enumerate(grid):
+        x = i / 6
+        rate = (h_at(t + dt.timedelta(minutes=1)) - h_at(t - dt.timedelta(minutes=1))) * 30 \
+            if 0 < i < len(grid) - 1 else (H[min(i + 1, len(H) - 1)] - H[max(i - 1, 0)]) * 3
+        c = abs(rate) / r_ref
+        w = max((math.exp(-(((x - et - 0.6) / 1.4) ** 2)) for et, _, _ in ext_h), default=0)
+        dl = sig((x - sr) / 0.35) * sig((ss - x) / 0.35)
+        tw = max(gs(x, sr, 0.7), gs(x, ss, 0.7))
+        eve = gs(x, ss + 2.2, 1.3)
+        seg = am_f if x < 12 else pm_f
+        out = {}
+        for sp in ("jj", "gg"):
+            if sp == "jj":
+                day_p = 0.35 + 0.65 * gs(q, 0.40, 0.25)
+                flow_p = 0.3 + 0.7 * gs(c, 0.28, 0.2)
+                light = 0.3 + 0.7 * dl + 0.18 * tw
+            else:
+                day_p = 0.4 + 0.6 * gs(q, 0.62, 0.3)
+                flow_p = 0.3 + 0.7 * gs(c, 0.45, 0.25)
+                light = 0.42 + 0.48 * dl + 0.2 * tw + 0.12 * eve * (1 - dl)
+            season = SEASON[sp][d.month - 1]
+            raw = season * day_p * flow_p * (0.7 + 0.4 * w) * light * seg
+            out[sp] = max(2 if season else 0, min(95, round(100 * raw / 1.12)))
+        jj.append(out["jj"])
+        gg.append(out["gg"])
+        if i < len(grid) - 1:
+            hourly.setdefault(int(x), []).append((out["jj"], out["gg"], dl))
+    hours = [{"H": hh, "jj": round(sum(v[0] for v in vals) / len(vals)), "gg": round(sum(v[1] for v in vals) / len(vals)),
+              "day": sum(v[2] for v in vals) / len(vals)} for hh, vals in sorted(hourly.items())]
+
+    def day_score(sp):
+        arr = sorted((o[sp] for o in hours if sp == "gg" or o["day"] > 0.5), reverse=True)[:3]
+        return round(sum(arr) / len(arr)) if arr else 0
+
+    def best_window(sp):
+        mx = max(o[sp] for o in hours)
+        if mx <= 2:
+            return None
+        thr = max(mx - 8, mx * 0.85)
+        best = cur = None
+        for o in hours:
+            if o[sp] >= thr:
+                cur = {"s": o["H"], "e": o["H"] + 1, "pk": max(o[sp], cur["pk"]) if cur else o[sp]} if not cur else \
+                    {"s": cur["s"], "e": o["H"] + 1, "pk": max(cur["pk"], o[sp])}
+            elif cur:
+                if not best or cur["pk"] > best["pk"]:
+                    best = cur
+                cur = None
+        if cur and (not best or cur["pk"] > best["pk"]):
+            best = cur
+        return best
+
+    def verdict(sc):
+        return ("추천", "#4FB97E") if sc >= 60 else (("조건부", "#E0A934") if sc >= 40 else ("비추천", "#E06464"))
+
+    cards = []
+    for sp, nm, col in (("jj", "주꾸미", "#EC7C5C"), ("gg", "갑오징어", "#9397EA")):
+        sc = day_score(sp)
+        vt, vc = verdict(sc)
+        bw = best_window(sp)
+        bw_txt = f"최적 <b>{bw['s']:02d}~{bw['e']:02d}시</b> · 최고 {bw['pk']}%" if bw else "-"
+        cards.append(f"<div style='flex:1;min-width:220px;border-top:3px solid {col};padding:8px 4px 4px 4px'>"
+                     f"<div style='display:flex;justify-content:space-between;align-items:center;font-weight:700'>{nm}"
+                     f"<span style='font-size:12px;padding:1px 9px;border-radius:999px;border:1.5px solid {vc};color:{vc}'>{vt}</span></div>"
+                     f"<div><span style='font-size:28px;font-weight:700;color:{col}'>{sc}</span>"
+                     f"<span style='color:#8DA0A9'> / 100 오늘 점수</span></div>"
+                     f"<div style='font-size:13.5px'>{bw_txt}</div></div>")
+    st.markdown("<div style='display:flex;gap:14px;flex-wrap:wrap;background:#14181d;color:#E2EBEE;padding:10px 14px;"
+                "border-radius:8px 8px 0 0'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+    df24 = pd.DataFrame({"시각": grid, "조위": H, "주꾸미": jj, "갑오징어": gg})
+    X = alt.X("시각:T", scale=alt.Scale(domain=[t0, t0 + dt.timedelta(hours=24)]),
+              axis=alt.Axis(format="%-H시", tickCount=8, title=None, labelColor="#adb5bd", grid=False))
+    night = pd.DataFrame([{"s": t0, "e": rise}, {"s": sett, "e": t0 + dt.timedelta(hours=24)}])
+    shade = alt.Chart(night).mark_rect(color="#000000", opacity=0.35).encode(x="s:T", x2="e:T")
+    now = dt.datetime.now(KST_TZ).replace(tzinfo=None)
+    now_df = pd.DataFrame({"t": [now], "l": ["지금"]})
+    now_layer = (alt.Chart(now_df).mark_rule(color="#ffffff", strokeDash=[5, 4]).encode(x="t:T")
+                 if now.date() == d else None)
+    now_txt = (alt.Chart(now_df).mark_text(y=-6, color="#ffffff", fontSize=12, fontWeight="bold").encode(x="t:T", text="l:N")
+               if now.date() == d else None)
+    XN = alt.X("시각:T", scale=alt.Scale(domain=[t0, t0 + dt.timedelta(hours=24)]),
+               axis=alt.Axis(labels=False, ticks=False, title=None, grid=False, domain=False))
+    W = 760
+
+    # ① 조위
+    ev_df = pd.DataFrame([{"시각": e[1], "조위": e[2], "라벨": ("▲" if e[0] == "만조" else "▼") + f"{e[1]:%H:%M} {e[2]:.0f}",
+                           "dy": -12 if e[0] == "만조" else 14} for e in day_evs])
+    tide = alt.Chart(df24).mark_area(line={"color": "#66b2d6", "strokeWidth": 3}, color="#66b2d6", opacity=0.18,
+                                     interpolate="monotone").encode(
+        x=XN, y=alt.Y("조위:Q", title="조위 cm", axis=alt.Axis(labelColor="#adb5bd", titleColor="#adb5bd",
+                                                              gridColor="#2b3038")))
+    tide_pts = alt.Chart(ev_df).mark_circle(size=70, color="#66b2d6").encode(x="시각:T", y="조위:Q")
+    tide_lbl_hi = alt.Chart(ev_df[ev_df["dy"] < 0]).mark_text(dy=-12, color="#e9ecef", fontSize=12,
+                                                            fontWeight="bold").encode(x="시각:T", y="조위:Q", text="라벨:N")
+    tide_lbl_lo = alt.Chart(ev_df[ev_df["dy"] > 0]).mark_text(dy=16, color="#e9ecef", fontSize=12,
+                                                            fontWeight="bold").encode(x="시각:T", y="조위:Q", text="라벨:N")
+    top_layers = [shade, tide, tide_pts, tide_lbl_hi, tide_lbl_lo] + ([now_layer, now_txt] if now_layer is not None else [])
+    top = alt.layer(*top_layers).properties(width=W, height=190)
+
+    # ② 입질 확률
+    long = df24.melt(id_vars=["시각"], value_vars=["주꾸미", "갑오징어"], var_name="어종", value_name="확률")
+    pk = []
+    for sp, key in (("주꾸미", "jj"), ("갑오징어", "gg")):
+        i = int(pd.Series(df24[sp]).idxmax())
+        bw = best_window(key)
+        s_, e_ = ((t0 + dt.timedelta(hours=bw["s"]), t0 + dt.timedelta(hours=bw["e"])) if bw
+                  else (grid[i] - dt.timedelta(minutes=60), grid[i] + dt.timedelta(minutes=60)))
+        pk.append({"시각": grid[i], "확률": df24[sp][i], "어종": sp, "라벨": f"{df24[sp][i]:.0f}%", "s": s_, "e": e_})
+    pk_df = pd.DataFrame(pk)
+    colors = alt.Scale(domain=["주꾸미", "갑오징어"], range=["#ff8a5b", "#9b8cff"])
+    peak_band = alt.Chart(pk_df).mark_rect(opacity=0.13).encode(x="s:T", x2="e:T",
+                                                                color=alt.Color("어종:N", scale=colors, legend=None))
+    lines = alt.Chart(long).mark_line(strokeWidth=3, interpolate="monotone").encode(
+        x=XN, y=alt.Y("확률:Q", scale=alt.Scale(domain=[0, 100]), title="입질 확률 %",
+                     axis=alt.Axis(values=[0, 25, 50, 75, 100], labelColor="#adb5bd", titleColor="#adb5bd",
+                                   gridColor="#2b3038")),
+        color=alt.Color("어종:N", scale=colors, legend=alt.Legend(orient="top-right", title=None, labelColor="#dee2e6",
+                                                                  fillColor="#171c22", padding=6,
+                                                                  labelExpr="datum.label + ' 확률'")),
+        tooltip=[alt.Tooltip("시각:T", format="%H:%M"), "어종", alt.Tooltip("확률:Q", format=".0f")])
+    pk_pts = alt.Chart(pk_df).mark_circle(size=90).encode(x="시각:T", y="확률:Q",
+                                                         color=alt.Color("어종:N", scale=colors, legend=None))
+    pk_lbl = alt.Chart(pk_df).mark_text(dy=-13, fontSize=13, fontWeight="bold").encode(
+        x="시각:T", y="확률:Q", text="라벨:N", color=alt.Color("어종:N", scale=colors, legend=None))
+    sun_df = pd.DataFrame([{"t": rise, "l": f"일출 {rise:%H:%M}"}, {"t": sett, "l": f"일몰 {sett:%H:%M}"}])
+    sun_lbl = alt.Chart(sun_df).mark_text(y=6, color="#adb5bd", fontSize=11).encode(x="t:T", text="l:N")
+    mid_layers = [shade, peak_band, lines, pk_pts, pk_lbl, sun_lbl] + ([now_layer] if now_layer is not None else [])
+    mid = alt.layer(*mid_layers).properties(width=W, height=210)
+
+    # ③ 조류 세기 (1시간 막대)
+    hours = [t0 + dt.timedelta(hours=h) for h in range(24)]
+    fl = pd.DataFrame({"s": hours, "e": [h + dt.timedelta(minutes=50) for h in hours],
+                       "조류": [min(1.0, sum(flow[h * 6:(h + 1) * 6]) / 6 / r_ref) * 100 for h in range(24)]})
+    bars = alt.Chart(fl).mark_rect(color="#56636e").encode(
+        x=alt.X("s:T", scale=alt.Scale(domain=[t0, t0 + dt.timedelta(hours=24)]),
+                axis=alt.Axis(format="%-H시", tickCount=8, title=None, labelColor="#adb5bd", grid=False)),
+        x2="e:T", y=alt.Y("조류:Q", title="조류", axis=alt.Axis(labels=False, ticks=False, titleColor="#adb5bd",
+                                                              grid=False)),
+        tooltip=[alt.Tooltip("s:T", format="%H시", title="시각"), alt.Tooltip("조류:Q", format=".0f", title="조류 세기 %")])
+    bot_layers = [shade, bars] + ([now_layer] if now_layer is not None else [])
+    bot = alt.layer(*bot_layers).properties(width=W, height=70)
+
+    chart = (alt.vconcat(top, mid, bot, spacing=6)
+             .resolve_scale(color="independent")
+             .properties(title=alt.TitleParams("24시간 물때 · 입질 확률 그래프", anchor="start", color="#f1f3f5",
+                                               fontSize=15))
+             .configure(background="#14181d")
+             .configure_view(stroke=None, fill="#171c22")
+             .configure_axis(domainColor="#495057", tickColor="#495057"))
+    st.altair_chart(chart, width="stretch")
+    sw = "display:inline-block;width:22px;height:4px;border-radius:2px;vertical-align:middle;margin:0 6px 0 14px;"
+    st.markdown(
+        "<div style='background:#14181d;color:#dee2e6;padding:6px 10px;border-radius:0 0 8px 8px;font-size:0.85rem;"
+        "margin-top:-14px'>"
+        f"<span style='{sw}background:#66b2d6'></span>조위(cm)"
+        f"<span style='{sw}background:#ff8a5b'></span>주꾸미 확률"
+        f"<span style='{sw}background:#9b8cff'></span>갑오징어 확률"
+        f"<span style='{sw}height:10px;width:14px;background:#56636e'></span>조류 세기"
+        "<span style='margin-left:14px;color:#868e96'>어두운 바탕 = 야간</span></div>", unsafe_allow_html=True)
+    st.caption("입질 확률·오늘 점수는 쭈갑물때 모델(커뮤니티 물때 기준을 점수화: 하루 조차, 시간별 조류 세기, 물돌이 직후, "
+               "일출·일몰, 시즌)을 남당항 선상 기준으로 계산하고, 블로그 기록으로 예상한 오전·오후 조황으로 ±20% 안에서 보정한 추정치예요.")
 
 
 def tide_block(d: dt.date):
@@ -781,6 +1005,7 @@ def forecast_tab(year, start, end, prefix, state_key):
     m4.metric("물세기", f"{c['pct']:.0f}%" if c["pct"] is not None else "-", c["pct_src"], delta_color="off")
     if p_["score"] is not None:
         st.progress(min(1.0, p_["score"] / 100), text=f"예상 분위기 {p_['score']:.0f}%")
+    chart24(dsel, p_.get("am"), p_.get("pm"))
 
     st.markdown("**시간대별 예상 조황**")
     s1, s2, s3 = st.columns(3)
@@ -940,7 +1165,7 @@ with tab2:
             "제목": st.column_config.TextColumn("제목", width="large")})
     st.download_button("CSV 다운로드", show.to_csv(index=False).encode("utf-8-sig"),
                        f"lamar_분위기_목록_{APP_VERSION}.csv", "text/csv")
-    st.caption("주꾸미·갑오징어 최고/중앙값/최저는 본문에 마릿수가 적힌 손님 기준입니다(주꾸미는 3명 이상 기록된 날만).")
+    st.caption("주꾸미·갑오징어 최고/중앙값/최저는 '주꾸미 N마리, 갑오징어 N마리'가 함께 적힌 손님 3명 이상인 날만 계산해요.")
 
 # ---------------- 탭3: 분석
 with tab3:
@@ -1104,7 +1329,7 @@ with tab4:
 | 11월 | 40% | 40% | 20% |
 | 12월 | 30% | 50% | 20% |
 
-- **조과**: 본문의 손님별 마릿수("○○님은 주꾸미 127마리…")에서 그날 주꾸미 중앙값을 구하고,
+- **조과**: "○○님은 주꾸미 123마리, 갑오징어 28마리"처럼 **두 어종이 함께 적힌 문장만** 마릿수로 쓰고, 그날 주꾸미 중앙값을 구해
   **같은 달** 다른 해 출조일과 비교한 백분위. (손님 3명 이상 기록된 날만)
 - **본문 분위기**: "잘 나와, 폭발, 손맛, 꾸준히" ↔ "안 나와, 고전, 뜸, 아쉬" 표현 비율(제목 2배 가중)과
   오전·오후 시간대 조황 %의 평균
