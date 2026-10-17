@@ -18,9 +18,11 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v25"
+APP_VERSION = "v27"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v27", "2027 예상·추천: 9월은 9월 기록만, 10월은 10월 기록만… 같은 달 과거 기록으로만 분석"),
+    ("v26", "추천일: 기본 9~12월 전체 10일, 물세기 30% 이하인 날 추천 점수 가중(+15%), 범위·일수·가중치 사이드바 조절"),
     ("v25", "2027 예상 달력: 추천일(달마다 예상 분위기 상위 N일) 날짜 숫자에 빨간 실선 원, 추천일 목록"),
     ("v24", "🔘 2027 버튼 달력 탭 삭제 (버튼 달력은 🔮 2027 예상 탭에 그대로)"),
     ("v23", "버튼 달력 테마 선택(기본: 눈 편한 어두운 달력 / 밝은 달력), 날짜 버튼이 칸 전체를 채우도록 수정"),
@@ -232,8 +234,11 @@ BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
 CAL_THEME = st.sidebar.radio("2027 예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
-REC_N = st.sidebar.slider("2027 추천일 (달마다 예상 분위기 상위)", 3, 10, 5, key="rec_n",
-                          help="달마다 예상 분위기가 가장 높은 날을 추천일로 골라 날짜 숫자에 빨간 원을 그려요.")
+with st.sidebar.expander("🔴 2027 추천일 기준", expanded=False):
+    st.radio("고르는 범위", ["9~12월 전체에서", "달마다"], index=0, key="rec_scope", horizontal=True)
+    st.slider("추천일 수", 3, 20, 10, key="rec_n")
+    st.slider("물세기 30% 이하 가중치 (+%)", 0, 40, 15, step=5, key="rec_bonus",
+              help="추천 점수 = 예상 분위기 × (1 + 가중치). 물세기 30% 이하인 날만 가중치를 받아요.")
 st.sidebar.header("🌊 물때·조석")
 with st.sidebar.expander("⏰ 낚시 시간 (남당항 일출·일몰 기준)", expanded=False):
     st.caption("시작 = 남당항 일출 5분 전 · 종료 = 일몰 20분 전 (날짜마다 자동 계산)")
@@ -453,26 +458,24 @@ def _wmean(sub, col):
 
 
 def predict(c):
-    """비슷한 과거 출조일(같은 달 ±20일, 물세기 ±12%p 또는 같은 물때)의 가중 평균"""
+    """같은 달의 과거 출조일 중 물세기가 비슷한 날(±12%p, 물세기를 모르면 같은 물때)의 가중 평균
+    — 9월은 9월 기록만, 10월은 10월 기록만 사용. 같은 달 안에서 날짜가 가까울수록 비중 큼"""
     d = c["date"]
-    h = df.copy()
-    doy = pd.to_datetime(h["date"]).dt.dayofyear
-    tdoy = d.timetuple().tm_yday
-    h["_dd"] = (doy - tdoy).abs()
-    h = h[h["_dd"] <= 20]
+    h = df[df["월"] == d.month].copy()                 # 같은 달 기록만
+    h["_dd"] = (pd.to_datetime(h["date"]).dt.day - d.day).abs()
     if c["pct"] is not None and h["물세기(%)"].notna().any():
         h["_dp"] = (h["물세기(%)"] - c["pct"]).abs()
         near = h[h["_dp"] <= 12].copy()
-        near["_w"] = (1 - near["_dd"] / 25) * (1 - near["_dp"] / 15)
-        basis = f"같은 시기(±20일) · 물세기 {c['pct']:.0f}%±12"
+        near["_w"] = (1 - near["_dd"] / 40) * (1 - near["_dp"] / 15)
+        basis = f"{d.month}월 기록만 · 물세기 {c['pct']:.0f}%±12"
     else:
         near = h[h["mul"] == c["mul"]].copy()
-        near["_w"] = 1 - near["_dd"] / 25
-        basis = f"같은 시기(±20일) · 같은 물때({c['mul']})"
+        near["_w"] = 1 - near["_dd"] / 40
+        basis = f"{d.month}월 기록만 · 같은 물때({c['mul']})"
     if len(near) < 5:                                  # 표본이 적으면 같은 달 전체로 넓힘
-        near = df[df["월"] == d.month].copy()
-        near["_w"] = 1.0
-        basis = f"{d.month}월 전체 (비슷한 조건 표본 부족)"
+        near = h.copy()
+        near["_w"] = 1 - near["_dd"] / 40
+        basis = f"{d.month}월 기록 전체 (비슷한 물세기 표본 부족)"
     out = {k: _wmean(near, col) for k, col in
            [("score", "score"), ("jj", "jj_med"), ("gg", "gg_med"), ("jj_max", "jj_max"), ("gg_max", "gg_max"),
             ("am", "am"), ("pm", "pm"), ("lt", "lt")]}
@@ -576,9 +579,14 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         .replace("BG", T["bg"]).replace("EDGE", T["edge"]).replace("HEAD", T["head"]).replace("LINE", T["line"])
         .replace("HOVER", T["hover"])]
     sel_iso = st.session_state.pred_day.isoformat()
-    rec_n = int(st.session_state.get("rec_n", 5))
-    REC = set(P.dropna(subset=["예상 분위기"]).sort_values(["예상 분위기", "주꾸미"], ascending=False)
-              .groupby("월").head(rec_n)["date"])
+    rec_n = int(st.session_state.get("rec_n", 10))
+    bonus = int(st.session_state.get("rec_bonus", 15)) / 100
+    per_month = st.session_state.get("rec_scope", "9~12월 전체에서") == "달마다"
+    R = P.dropna(subset=["예상 분위기"]).copy()
+    R["추천 점수"] = R["예상 분위기"] * R["물세기"].apply(lambda v: 1 + bonus if pd.notna(v) and v <= 30 else 1.0)
+    R = R.sort_values(["추천 점수", "주꾸미"], ascending=False)
+    REC = set((R.groupby("월").head(rec_n) if per_month else R.head(rec_n))["date"])
+    REC_SCORE = dict(zip(R["date"], R["추천 점수"]))
     for _, r in P.iterrows():
         kc = f"st-key-{prefix}_{r['date'].replace('-', '_')}"
         k = f"div.{kc}.{kc} button"          # 기본 버튼 스타일보다 우선 적용되도록 선택자를 강하게
@@ -656,8 +664,9 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
 
     rec_rows = P[P["date"].isin(REC)].sort_values("date")
     if len(rec_rows):
-        st.markdown(f"**🔴 추천하는 날** (달마다 예상 분위기 상위 {rec_n}일) · " + " ".join(
-            f"`{r['월']}/{r['일']}({r['요일']}) {r['예상 분위기']}%`" for _, r in rec_rows.iterrows()))
+        scope_txt = f"달마다 {rec_n}일" if per_month else f"9~12월 전체 {rec_n}일"
+        st.markdown(f"**🔴 추천하는 날** ({scope_txt} · 물세기 30% 이하 +{bonus:.0%} 가중) · " + " ".join(
+            f"`{r['월']}/{r['일']}({r['요일']}) 추천 {REC_SCORE[r['date']]:.0f}점`" for _, r in rec_rows.iterrows()))
     low_days = P[P["물세기"].notna() & (P["물세기"] <= 30)]
     if len(low_days):
         st.markdown("**물세기 30% 이하인 날** · " + " ".join(
@@ -732,7 +741,7 @@ with tab5:
                 "물때는 음력으로, 물세기는 과거 같은 물때 평균으로 추정했어요.")
 
     st.caption(f"예상 근거: {p_['basis']} · 비슷한 과거 출조일 {p_['n']}일의 가중 평균 "
-               "(날짜가 가깝고 물세기가 비슷할수록 비중 큼)")
+               "(같은 달 안에서 날짜가 가깝고 물세기가 비슷할수록 비중 큼)")
     sim = p_["similar"][["date", "mul", "물세기(%)", "score", "jj_med", "gg_med", "오전 평가", "오후 평가", "title", "link"]]
     st.markdown("**가장 비슷했던 과거 출조일**")
     st.dataframe(sim.rename(columns={"date": "날짜", "mul": "물때", "score": "분위기", "jj_med": "주꾸미 중앙값",
