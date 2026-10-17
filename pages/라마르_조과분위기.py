@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v19"
+APP_VERSION = "v20"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v20", "물세기 분석: 주꾸미·갑오징어 중앙값을 한 곡선 그래프(양쪽 눈금)로, 점 그래프를 범위 띠+중앙값 선으로 대체"),
     ("v19", "버튼 달력을 흰 달력 모양으로: 일요일 시작, 공휴일 표시, 토·일·공휴일 빨강, 칸 아래 분위기 막대"),
     ("v18", "버튼 달력 바탕을 검은색으로, 예상 주꾸미·갑오징어에 중앙값 / 최고 마릿수 나란히 표시"),
     ("v17", "버튼 달력을 실제 달력처럼: 월 제목 띠, 요일 머리줄(토 파랑·일 빨강), 고른 칸 크기, 좁은 간격, 빈 칸 표시"),
@@ -879,41 +880,41 @@ with tab3:
                 y=alt.Y("분위기:Q", scale=alt.Scale(domain=[0, 100]), title="평균 분위기 %"),
                 tooltip=["물세기 구간", alt.Tooltip("분위기:Q", format=".0f"), "일수"])
                 + base.mark_text(dy=-14).encode(y="분위기:Q", text=alt.Text("분위기:Q", format=".0f"))
-            ).properties(height=260), width="stretch")
+            ).properties(height=280), width="stretch")
         with k2:
-            st.markdown("**주꾸미 중앙값 평균 (마리)**")
-            jb = alt.Chart(g.dropna(subset=["주꾸미"])).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
-            st.altair_chart((jb.mark_line(color="#e8590c", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
-                y=alt.Y("주꾸미:Q", title="평균 마리"),
-                tooltip=["물세기 구간", alt.Tooltip("주꾸미:Q", format=".0f"), "일수"])
-                + jb.mark_text(dy=-14).encode(y="주꾸미:Q", text=alt.Text("주꾸미:Q", format=".0f"))
-            ).properties(height=260), width="stretch")
+            st.markdown("**주꾸미·갑오징어 중앙값 평균 (마리)**")
+            fb = alt.Chart(g).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
+            jj_line = fb.mark_line(color="#e8590c", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
+                y=alt.Y("주꾸미:Q", title="주꾸미 (마리)", axis=alt.Axis(titleColor="#e8590c")),
+                tooltip=["물세기 구간", alt.Tooltip("주꾸미:Q", format=".0f"), alt.Tooltip("갑오징어:Q", format=".1f"), "일수"])
+            jj_txt = fb.mark_text(dy=-14, color="#e8590c").encode(y="주꾸미:Q", text=alt.Text("주꾸미:Q", format=".0f"))
+            gg_line = fb.mark_line(color="#1971c2", strokeDash=[6, 3], interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
+                y=alt.Y("갑오징어:Q", title="갑오징어 (마리)", axis=alt.Axis(titleColor="#1971c2", orient="right")),
+                tooltip=["물세기 구간", alt.Tooltip("주꾸미:Q", format=".0f"), alt.Tooltip("갑오징어:Q", format=".1f"), "일수"])
+            gg_txt = fb.mark_text(dy=16, color="#1971c2").encode(y="갑오징어:Q", text=alt.Text("갑오징어:Q", format=".1f"))
+            st.altair_chart(alt.layer(jj_line + jj_txt, gg_line + gg_txt).resolve_scale(y="independent")
+                            .properties(height=280), width="stretch")
+            st.caption("주황 실선 = 주꾸미(왼쪽 눈금) · 파랑 점선 = 갑오징어(오른쪽 눈금)")
 
-        gcnt = t.dropna(subset=["gg_med"]).groupby("물세기 구간").agg(
-            갑오징어=("gg_med", "mean"), 갑오징어최고=("gg_max", "mean"), 기록일수=("gg_med", "size")
-        ).reindex(order).dropna(subset=["갑오징어"]).reset_index()
-        k5, k6 = st.columns(2)
-        with k5:
-            st.markdown("**갑오징어 중앙값 평균 (마리)**")
-            gb = alt.Chart(gcnt).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
-            st.altair_chart((gb.mark_line(color="#1971c2", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
-                y=alt.Y("갑오징어:Q", title="평균 마리"),
-                tooltip=["물세기 구간", alt.Tooltip("갑오징어:Q", format=".1f"),
-                         alt.Tooltip("갑오징어최고:Q", format=".1f", title="최고 평균"), "기록일수"])
-                + gb.mark_text(dy=-14).encode(y="갑오징어:Q", text=alt.Text("갑오징어:Q", format=".1f"))
-            ).properties(height=260), width="stretch")
-        with k6:
-            st.markdown("**날짜별 물세기와 갑오징어 (중앙값)**")
-            tg = t.dropna(subset=["gg_med"])
-            gp = alt.Chart(tg).mark_circle(opacity=0.45, size=40, color="#1971c2").encode(
-                x=alt.X("물세기(%):Q", scale=alt.Scale(domain=[0, 100]), title="물세기 %"),
-                y=alt.Y("gg_med:Q", title="갑오징어 중앙값(마리)"),
-                tooltip=["date", "mul", "물세기(%)", alt.Tooltip("gg_med:Q", title="중앙값"),
-                         alt.Tooltip("gg_max:Q", title="최고"), "title"])
-            gt = alt.Chart(tg).transform_loess("물세기(%)", "gg_med", bandwidth=0.6).mark_line(
-                color="#c92a2a", size=3).encode(x="물세기(%):Q", y="gg_med:Q")
-            st.altair_chart((gp + gt).properties(height=260), width="stretch")
-        st.caption("갑오징어는 본문에 갑오징어 마릿수가 적힌 날만 집계해요. 빨간 선 = 추세")
+        # 날짜별 값을 점으로 찍던 그래프 → 물세기 10% 단위 범위 띠(가운데 50%)와 중앙값 선으로 대체
+        t["물세기10"] = (t["물세기(%)"] // 10 * 10).clip(upper=90) + 5
+
+        def band_df(col):
+            q = t.dropna(subset=[col]).groupby("물세기10")[col].agg(
+                하위=lambda x: x.quantile(0.25), 중앙=lambda x: x.median(), 상위=lambda x: x.quantile(0.75),
+                일수="size").reset_index()
+            return q[q["일수"] >= 3]
+
+        def band_chart(q, color, ytitle, fmt=".0f"):
+            bb = alt.Chart(q).encode(x=alt.X("물세기10:Q", scale=alt.Scale(domain=[0, 100]), title="물세기 %"))
+            area = bb.mark_area(opacity=0.25, color=color, interpolate="monotone").encode(
+                y=alt.Y("하위:Q", title=ytitle), y2="상위:Q")
+            line = bb.mark_line(color=color, strokeWidth=3, interpolate="monotone").encode(
+                y="중앙:Q", tooltip=[alt.Tooltip("물세기10:Q", title="물세기 %(구간 가운데)"),
+                                    alt.Tooltip("하위:Q", format=fmt, title="하위 25%"),
+                                    alt.Tooltip("중앙:Q", format=fmt, title="중앙값"),
+                                    alt.Tooltip("상위:Q", format=fmt, title="상위 25%"), "일수"])
+            return area + line
 
         k3, k4 = st.columns(2)
         with k3:
@@ -925,18 +926,24 @@ with tab3:
                 y=alt.Y("조황:Q", scale=alt.Scale(domain=[0, 100]), title="평균 조황 %"),
                 color=alt.Color("시간대:N", scale=alt.Scale(domain=["오전", "오후"], range=["#f59f00", "#7048e8"]),
                                 legend=alt.Legend(orient="top", title=None)),
-                tooltip=["물세기 구간", "시간대", alt.Tooltip("조황:Q", format=".0f")]).properties(height=260),
+                tooltip=["물세기 구간", "시간대", alt.Tooltip("조황:Q", format=".0f")]).properties(height=280),
                 width="stretch")
         with k4:
-            st.markdown("**날짜별 물세기와 분위기**")
-            pts = alt.Chart(t).mark_circle(opacity=0.45, size=40, color="#0b7285").encode(
-                x=alt.X("물세기(%):Q", scale=alt.Scale(domain=[0, 100]), title="물세기 %"),
-                y=alt.Y("score:Q", scale=alt.Scale(domain=[0, 100]), title="분위기 %"),
-                tooltip=["date", "mul", "물세기(%)", alt.Tooltip("score:Q", title="분위기"), "title"])
-            trend = alt.Chart(t).transform_loess("물세기(%)", "score", bandwidth=0.5).mark_line(
-                color="#c92a2a", size=3).encode(x="물세기(%):Q", y="score:Q")
-            st.altair_chart((pts + trend).properties(height=260), width="stretch")
-            st.caption("빨간 선 = 추세")
+            st.markdown("**물세기별 분위기 범위**")
+            st.altair_chart(band_chart(band_df("score"), "#0b7285", "분위기 %").properties(height=280),
+                            width="stretch")
+            st.caption("띠 = 그 물세기에서 분위기가 나온 가운데 50% 범위 · 선 = 중앙값")
+
+        k5, k6 = st.columns(2)
+        with k5:
+            st.markdown("**물세기별 주꾸미 범위 (그날 중앙값 기준)**")
+            st.altair_chart(band_chart(band_df("jj_med"), "#e8590c", "주꾸미 (마리)").properties(height=280),
+                            width="stretch")
+        with k6:
+            st.markdown("**물세기별 갑오징어 범위 (그날 중앙값 기준)**")
+            st.altair_chart(band_chart(band_df("gg_med"), "#1971c2", "갑오징어 (마리)", ".1f").properties(height=280),
+                            width="stretch")
+        st.caption("물세기를 10% 단위로 묶어, 기록이 3일 이상인 구간만 표시해요.")
 
         st.dataframe(g.round(1), hide_index=True, width="stretch")
 
