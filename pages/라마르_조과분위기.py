@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v28"
+APP_VERSION = "v29"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v29", "2026 예상만 갑오징어 마릿수 가중치: 데이터 기준 월별 배율 자동 적용(9월 ×1.9, 10월 ×3.1 …), 직접 입력도 가능"),
     ("v28", "🔮 2026 예상 탭 추가: 2026-10-18 ~ 12-31 예상 달력(2027과 같은 방식, 같은 달 과거 기록 기준)"),
     ("v27", "2027 예상·추천: 9월은 9월 기록만, 10월은 10월 기록만… 같은 달 과거 기록으로만 분석"),
     ("v26", "추천일: 기본 9~12월 전체 10일, 물세기 30% 이하인 날 추천 점수 가중(+15%), 범위·일수·가중치 사이드바 조절"),
@@ -235,6 +236,38 @@ BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
 CAL_THEME = st.sidebar.radio("예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
+def gg26_ratios(d_):
+    """2026년 갑오징어(날마다 중앙값의 평균) ÷ 다른 해 같은 달 평균 — 월별 배율과 전체 배율"""
+    t = d_.dropna(subset=["gg_med"])
+    out, rows = {}, []
+    a_all = t[(t["연도"] == 2026)]
+    b_all = t[(t["연도"] < 2026) & t["월"].isin(a_all["월"].unique())]
+    overall = a_all["gg_med"].mean() / b_all["gg_med"].mean() if len(a_all) >= 5 and len(b_all) else 1.0
+    for m in (9, 10, 11, 12):
+        a = t[(t["연도"] == 2026) & (t["월"] == m)]["gg_med"]
+        b = t[(t["연도"] < 2026) & (t["월"] == m)]["gg_med"]
+        if len(a) >= 5 and len(b) >= 5:
+            out[m] = a.mean() / b.mean()
+            rows.append((f"{m}월", f"{a.mean():.1f} ({len(a)}일)", f"{b.mean():.1f} ({len(b)}일)", f"×{out[m]:.2f}"))
+        else:
+            out[m] = overall
+            rows.append((f"{m}월", "기록 없음", f"{b.mean():.1f} ({len(b)}일)" if len(b) else "-",
+                         f"×{overall:.2f} (전체 배율)"))
+    return out, overall, rows
+
+
+GG26_AUTO, GG26_ALL, GG26_ROWS = gg26_ratios(df)
+with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
+    gg_mode = st.radio("적용 방식", ["📊 데이터 기준 (자동)", "✍️ 직접 입력"], index=0, key="gg26_mode")
+    if gg_mode.startswith("📊"):
+        GG26 = dict(GG26_AUTO)
+        st.dataframe(pd.DataFrame(GG26_ROWS, columns=["월", "2026년", "다른 해", "배율"]), hide_index=True,
+                     width="stretch")
+        st.caption("날마다 갑오징어 중앙값의 평균을 같은 달끼리 비교. 2026년 기록이 없는 달은 2026 전체 배율을 써요.")
+    else:
+        mval = st.slider("2026 예상 갑오징어 배율", 1.0, 4.0, round(GG26_ALL, 1), step=0.1, key="gg26_manual")
+        GG26 = {m: mval for m in (9, 10, 11, 12)}
+    st.caption("2026 예상의 갑오징어 마릿수에만 적용되고, 2027 예상에는 적용되지 않아요.")
 with st.sidebar.expander("🔴 추천일 기준 (2026·2027 예상)", expanded=False):
     st.radio("고르는 범위", ["기간 전체에서", "달마다"], index=0, key="rec_scope", horizontal=True)
     st.slider("추천일 수", 3, 20, 10, key="rec_n")
@@ -487,6 +520,12 @@ def predict(c):
             same = near[near[col_flow].apply(flow_kind) == kind]
             if same[seg].notna().sum() >= 5:
                 out[seg] = _wmean(same, seg)
+    if d.year == 2026:                                 # 2026년만 갑오징어 가중치
+        f = GG26.get(d.month, 1.0)
+        for k in ("gg", "gg_max"):
+            if out.get(k) is not None:
+                out[k] = out[k] * f
+        out["gg_boost"] = f
     out["n"] = len(near)
     out["basis"] = basis
     out["similar"] = near.assign(_rank=near["_w"]).sort_values("_rank", ascending=False).head(6)
@@ -681,7 +720,7 @@ def day_range(start, end):
 
 
 @st.cache_data(show_spinner="예상 계산 중…")
-def all_predictions(stamp, bt_keys, lunch, start_iso, end_iso):
+def all_predictions(stamp, bt_keys, lunch, start_iso, end_iso, gg_boost=""):
     rows = []
     for d in day_range(dt.date.fromisoformat(start_iso), dt.date.fromisoformat(end_iso)):
         c = pred_conditions(d)
@@ -704,7 +743,8 @@ def forecast_tab(year, start, end, prefix, state_key):
     except Exception:
         pass
     P_ = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith(str(year))]), str(LUNCH_T),
-                         start.isoformat(), end.isoformat())
+                         start.isoformat(), end.isoformat(),
+                         str(sorted(GG26.items())) if year == 2026 else "")
     period = f"{start.month}월 {start.day}일 ~ {end.month}월 {end.day}일"
     st.subheader(f"{year}년 {period} 예상 달력")
     button_calendar(P_, prefix, year, months, state_key, start, end)
@@ -726,7 +766,9 @@ def forecast_tab(year, start, end, prefix, state_key):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 분위기", f"{p_['score']:.0f}%" if p_["score"] is not None else "-")
     m2.metric("예상 주꾸미 (중앙값 / 최고)", fish_txt(p_["jj"], p_["jj_max"], 0), help=MAX_HELP)
-    m3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p_["gg"], p_["gg_max"], 1), help=MAX_HELP)
+    m3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p_["gg"], p_["gg_max"], 1),
+              f"2026 가중치 ×{p_['gg_boost']:.2f} 적용" if p_.get("gg_boost") else None, delta_color="off",
+              help=MAX_HELP)
     m4.metric("물세기", f"{c['pct']:.0f}%" if c["pct"] is not None else "-", c["pct_src"], delta_color="off")
     if p_["score"] is not None:
         st.progress(min(1.0, p_["score"] / 100), text=f"예상 분위기 {p_['score']:.0f}%")
