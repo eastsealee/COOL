@@ -27,10 +27,18 @@ WD = "월화수목금토일"
 
 
 # ------------------------------------------------------------ 데이터
+DATA_FILE = BASE / "data" / "lamar_days.json"
+NEED_COLS = ["jj_min", "jj_max", "gg_min", "gg_max", "jj_med", "catch_pct", "stats", "key", "tags"]
+
+
 @st.cache_data
-def load_days():
-    rows = json.loads((BASE / "data" / "lamar_days.json").read_text(encoding="utf-8"))
+def load_days(stamp):
+    """stamp(파일 수정시각·크기)가 바뀌면 캐시를 버리고 새 데이터를 읽음"""
+    rows = json.loads(DATA_FILE.read_text(encoding="utf-8"))
     df = pd.DataFrame(rows)
+    for c in NEED_COLS:  # 예전 데이터 파일이어도 멈추지 않도록 빈 열 채움
+        if c not in df.columns:
+            df[c] = None
     df["날짜"] = pd.to_datetime(df["date"]).dt.date
     df["연도"] = pd.to_datetime(df["date"]).dt.year
     df["월"] = pd.to_datetime(df["date"]).dt.month
@@ -86,7 +94,8 @@ def curve_from_events(d: dt.date, events):
     return out
 
 
-df = load_days()
+_st = DATA_FILE.stat()
+df = load_days(f"{_st.st_mtime_ns}-{_st.st_size}")
 
 # ------------------------------------------------------------ 물때표 불러오기
 need = tuple(bt.months_for(sorted(set(df["날짜"]))))
