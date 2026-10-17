@@ -18,9 +18,11 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v36"
+APP_VERSION = "v38"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v38", "제목 아래 '2018~2026년 9~12월' 문구 삭제"),
+    ("v37", "예상 갑오징어 아래 '2026 가중치 ×… 적용' 표시 삭제 (가중치 계산은 그대로)"),
     ("v36", "24시간 그래프 입질 확률을 쭈갑물때 모델로 계산 + 블로그 오전·오후 조황 보정, 주꾸미·갑오징어 오늘 점수·추천·최적 시간대"),
     ("v35", "2026·2027 예상: 물세기 아래에 24시간 물때·입질 확률 그래프(조위·주꾸미/갑오징어 확률·조류 세기·야간 표시)"),
     ("v34", "2026 예상 갑오징어 배율: 11·12월 ×2.0으로 지정 (10월 ×2.7 유지)"),
@@ -346,7 +348,7 @@ df["오후 물흐름"] = [x[3] for x in _ff]
 
 # ------------------------------------------------------------ 본문
 st.title(f"🦑 라마르호 예상 조과 분석 : {APP_VERSION}")
-st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
+st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
 tab1, tab8, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2026 예상", "🔮 2027 예상", "🗓️ 2027 달력",
@@ -999,9 +1001,7 @@ def forecast_tab(year, start, end, prefix, state_key):
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 분위기", f"{p_['score']:.0f}%" if p_["score"] is not None else "-")
     m2.metric("예상 주꾸미 (중앙값 / 최고)", fish_txt(p_["jj"], p_["jj_max"], 0), help=MAX_HELP)
-    m3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p_["gg"], p_["gg_max"], 1),
-              f"2026 가중치 ×{p_['gg_boost']:.2f} 적용" if p_.get("gg_boost") else None, delta_color="off",
-              help=MAX_HELP)
+    m3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p_["gg"], p_["gg_max"], 1), help=MAX_HELP)
     m4.metric("물세기", f"{c['pct']:.0f}%" if c["pct"] is not None else "-", c["pct_src"], delta_color="off")
     if p_["score"] is not None:
         st.progress(min(1.0, p_["score"] / 100), text=f"예상 분위기 {p_['score']:.0f}%")
