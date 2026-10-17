@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v27"
+APP_VERSION = "v28"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v28", "🔮 2026 예상 탭 추가: 2026-10-18 ~ 12-31 예상 달력(2027과 같은 방식, 같은 달 과거 기록 기준)"),
     ("v27", "2027 예상·추천: 9월은 9월 기록만, 10월은 10월 기록만… 같은 달 과거 기록으로만 분석"),
     ("v26", "추천일: 기본 9~12월 전체 10일, 물세기 30% 이하인 날 추천 점수 가중(+15%), 범위·일수·가중치 사이드바 조절"),
     ("v25", "2027 예상 달력: 추천일(달마다 예상 분위기 상위 N일) 날짜 숫자에 빨간 실선 원, 추천일 목록"),
@@ -232,10 +233,10 @@ except Exception as ex:
 BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
-CAL_THEME = st.sidebar.radio("2027 예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
+CAL_THEME = st.sidebar.radio("예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
-with st.sidebar.expander("🔴 2027 추천일 기준", expanded=False):
-    st.radio("고르는 범위", ["9~12월 전체에서", "달마다"], index=0, key="rec_scope", horizontal=True)
+with st.sidebar.expander("🔴 추천일 기준 (2026·2027 예상)", expanded=False):
+    st.radio("고르는 범위", ["기간 전체에서", "달마다"], index=0, key="rec_scope", horizontal=True)
     st.slider("추천일 수", 3, 20, 10, key="rec_n")
     st.slider("물세기 30% 이하 가중치 (+%)", 0, 40, 15, step=5, key="rec_bonus",
               help="추천 점수 = 예상 분위기 × (1 + 가중치). 물세기 30% 이하인 날만 가중치를 받아요.")
@@ -300,8 +301,8 @@ st.title(f"🦑 라마르호 조과 분위기 조회 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
-tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "🗓️ 2027 달력", "📋 전체 목록",
-                                              "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+tab1, tab8, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2026 예상", "🔮 2027 예상", "🗓️ 2027 달력",
+                                                    "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 def tide_block(d: dt.date):
@@ -502,23 +503,21 @@ def fish_txt(med, mx, nd=0):
     return f"{m_txt} / {mx:.0f}마리" if mx is not None and not pd.isna(mx) else f"{m_txt}마리"
 
 
-HOLIDAYS_2027 = {
+HOLIDAYS = {
+    # 2026 (10/18 이후 예상 기간: 성탄절)
+    "2026-10-03": "개천절", "2026-10-05": "대체공휴일", "2026-10-09": "한글날", "2026-12-25": "성탄절",
+    # 2027
     "2027-09-14": "추석 연휴", "2027-09-15": "추석", "2027-09-16": "추석 연휴",
     "2027-10-03": "개천절", "2027-10-04": "대체공휴일",
     "2027-10-09": "한글날", "2027-10-11": "대체공휴일",
     "2027-12-25": "성탄절", "2027-12-27": "대체공휴일",
 }
+HOLIDAYS_2027 = {k: v for k, v in HOLIDAYS.items() if k.startswith("2027")}
 WD_SUN = ["일", "월", "화", "수", "목", "금", "토"]
 
 
-def lunar_dot(d: dt.date):
-    c = KoreanLunarCalendar()
-    c.setSolarDate(d.year, d.month, d.day)
-    return f"{c.lunarMonth}.{c.lunarDay}"
-
-
-def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나와요."):
-    """2027년 9~12월 날짜 버튼 달력 — 흰 달력, 일요일 시작, 음력·공휴일 표시, 토·일·공휴일 빨강
+def button_calendar(P, prefix, year, months, state_key, start, end, note="날짜를 누르면 아래에 상세가 나와요."):
+    """예상 기간 날짜 버튼 달력 — 흰 달력, 일요일 시작, 음력·공휴일 표시, 토·일·공휴일 빨강
     물세기 0~9% 깜빡임 · 10~19% 진하게 · 20~30% 약하게, 칸 아래 색 막대 = 예상 분위기"""
 
     def _score_color(v):
@@ -578,10 +577,10 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
     """.replace("PFX", prefix).replace("TXT", T["text"]).replace("SUB", T["sub"]).replace("RED", T["red"])
         .replace("BG", T["bg"]).replace("EDGE", T["edge"]).replace("HEAD", T["head"]).replace("LINE", T["line"])
         .replace("HOVER", T["hover"])]
-    sel_iso = st.session_state.pred_day.isoformat()
+    sel_iso = st.session_state[state_key].isoformat()
     rec_n = int(st.session_state.get("rec_n", 10))
     bonus = int(st.session_state.get("rec_bonus", 15)) / 100
-    per_month = st.session_state.get("rec_scope", "9~12월 전체에서") == "달마다"
+    per_month = st.session_state.get("rec_scope", "기간 전체에서") == "달마다"
     R = P.dropna(subset=["예상 분위기"]).copy()
     R["추천 점수"] = R["예상 분위기"] * R["물세기"].apply(lambda v: 1 + bonus if pd.notna(v) and v <= 30 else 1.0)
     R = R.sort_values(["추천 점수", "주꾸미"], ascending=False)
@@ -606,7 +605,7 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
             rule.append("transform:scale(1.04); z-index:3;")
         css.append(k + " {" + " ".join(rule) + "}")
         d_ = dt.date.fromisoformat(r["date"])
-        red_day = d_.weekday() >= 5 or r["date"] in HOLIDAYS_2027      # 토·일·공휴일 빨강
+        red_day = d_.weekday() >= 5 or r["date"] in HOLIDAYS      # 토·일·공휴일 빨강
         if selected:
             css.append(k + " p, " + k + " p strong { color:" + (T["sel_red"] if red_day else T["sel_txt"]) + " !important; }")
         elif red_day:
@@ -626,21 +625,21 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         unsafe_allow_html=True)
 
     def _pick(iso):
-        st.session_state.pred_day = dt.date.fromisoformat(iso)
-        st.session_state.pred_date_input = st.session_state.pred_day
+        st.session_state[state_key] = dt.date.fromisoformat(iso)
+        st.session_state[state_key + "_input"] = st.session_state[state_key]
 
-    for pair in ((9, 10), (11, 12)):
+    for pair in [months[i:i + 2] for i in range(0, len(months), 2)]:
         outer = st.columns(2, gap="medium")
         for oc, m in zip(outer, pair):
             with oc, st.container(key=f"{prefix}_m{m}"):
-                st.markdown(f"<div class='cal-title'>2027년 {m}월</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='cal-title'>{year}년 {m}월</div>", unsafe_allow_html=True)
                 with st.container(key=f"{prefix}_hd{m}"):
                     hdr = st.columns(7)
                     for i, (hc, w) in enumerate(zip(hdr, WD_SUN)):
                         cls = "red" if i in (0, 6) else ""
                         hc.markdown(f"<div class='cal-wd {cls}'>{w}</div>", unsafe_allow_html=True)
-                first = dt.date(2027, m, 1)
-                days_in = (dt.date(2027 + (m == 12), m % 12 + 1, 1) - first).days
+                first = dt.date(year, m, 1)
+                days_in = (dt.date(year + (m == 12), m % 12 + 1, 1) - first).days
                 lead = (first.weekday() + 1) % 7                   # 일요일 시작
                 cells = [None] * lead + list(range(1, days_in + 1))
                 cells += [None] * (-len(cells) % 7)
@@ -651,10 +650,14 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
                             if day is None:
                                 rc.markdown("<div class='cal-empty'></div>", unsafe_allow_html=True)
                                 continue
-                            d_ = dt.date(2027, m, day)
+                            d_ = dt.date(year, m, day)
                             iso = d_.isoformat()
+                            hol = HOLIDAYS.get(iso)
+                            if not (start <= d_ <= end):          # 예상 기간 밖(지난 날)은 흐리게만 표시
+                                rc.markdown(f"<div style='height:72px;text-align:center;padding-top:6px;opacity:0.3;"
+                                            f"font-size:1.55rem;font-weight:800'>{day}</div>", unsafe_allow_html=True)
+                                continue
                             r = P[P["date"] == iso].iloc[0]
-                            hol = HOLIDAYS_2027.get(iso)
                             label = f"**{day}**" + (f"  \n{hol}" if hol else "  \n\u00a0")
                             pct_txt = f"{r['물세기']:.0f}%" if pd.notna(r["물세기"]) else "-"
                             rc.button(label, key=f"{prefix}_{iso.replace('-', '_')}", on_click=_pick, args=(iso,), width="stretch",
@@ -664,7 +667,7 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
 
     rec_rows = P[P["date"].isin(REC)].sort_values("date")
     if len(rec_rows):
-        scope_txt = f"달마다 {rec_n}일" if per_month else f"9~12월 전체 {rec_n}일"
+        scope_txt = f"달마다 {rec_n}일" if per_month else f"{months[0]}~{months[-1]}월 전체 {rec_n}일"
         st.markdown(f"**🔴 추천하는 날** ({scope_txt} · 물세기 30% 이하 +{bonus:.0%} 가중) · " + " ".join(
             f"`{r['월']}/{r['일']}({r['요일']}) 추천 {REC_SCORE[r['date']]:.0f}점`" for _, r in rec_rows.iterrows()))
     low_days = P[P["물세기"].notna() & (P["물세기"] <= 30)]
@@ -672,45 +675,52 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         st.markdown("**물세기 30% 이하인 날** · " + " ".join(
             f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days.iterrows()))
 
-with tab5:
-    MUL_PCT = mul_pct_table(_st.st_mtime_ns, df)
-    if "pred_day" not in st.session_state:
-        st.session_state.pred_day = PRED_START
-    # 2027 물때표 받아두기 (없으면 과거 평균으로 추정)
-    need27 = tuple(bt.months_for(PRED_DAYS))
-    try:
-        BT.update(badatime_days(need27)[0])
+
+def day_range(start, end):
+    return [start + dt.timedelta(days=i) for i in range((end - start).days + 1)]
+
+
+@st.cache_data(show_spinner="예상 계산 중…")
+def all_predictions(stamp, bt_keys, lunch, start_iso, end_iso):
+    rows = []
+    for d in day_range(dt.date.fromisoformat(start_iso), dt.date.fromisoformat(end_iso)):
+        c = pred_conditions(d)
+        p_ = predict(c)
+        rows.append({"date": d.isoformat(), "월": d.month, "일": d.day, "요일": WD[d.weekday()],
+                     "주": (d.day + d.replace(day=1).weekday() - 1) // 7, "물때": c["mul"],
+                     "물세기": c["pct"], "예상 분위기": round(p_["score"]) if p_["score"] is not None else None,
+                     "주꾸미": p_["jj"], "갑오징어": p_["gg"]})
+    return pd.DataFrame(rows)
+
+
+def forecast_tab(year, start, end, prefix, state_key):
+    """예상 탭 한 개: 버튼 달력 + 선택한 날 상세 + 전체 예상표 (같은 달 과거 기록으로 분석)"""
+    days = day_range(start, end)
+    months = sorted({d.month for d in days})
+    if state_key not in st.session_state:
+        st.session_state[state_key] = start
+    try:                                               # 그 기간 물때표 받아두기 (없으면 과거 평균으로 추정)
+        BT.update(badatime_days(tuple(bt.months_for(days)))[0])
     except Exception:
         pass
+    P_ = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith(str(year))]), str(LUNCH_T),
+                         start.isoformat(), end.isoformat())
+    period = f"{start.month}월 {start.day}일 ~ {end.month}월 {end.day}일"
+    st.subheader(f"{year}년 {period} 예상 달력")
+    button_calendar(P_, prefix, year, months, state_key, start, end)
 
-    @st.cache_data(show_spinner="2027년 예상 계산 중…")
-    def all_predictions(stamp, bt_keys, lunch):
-        rows = []
-        for d in PRED_DAYS:
-            c = pred_conditions(d)
-            p_ = predict(c)
-            rows.append({"date": d.isoformat(), "월": d.month, "일": d.day, "요일": WD[d.weekday()],
-                         "주": (d.day + d.replace(day=1).weekday() - 1) // 7, "물때": c["mul"],
-                         "물세기": c["pct"], "예상 분위기": round(p_["score"]) if p_["score"] is not None else None,
-                         "주꾸미": p_["jj"], "갑오징어": p_["gg"]})
-        return pd.DataFrame(rows)
+    in_key = state_key + "_input"
+    if in_key not in st.session_state:
+        st.session_state[in_key] = st.session_state[state_key]
+    dsel = st.date_input(f"날짜 선택 ({year}년 {period})", min_value=start, max_value=end,
+                         format="YYYY-MM-DD", key=in_key)
+    st.session_state[state_key] = dsel
 
-    P = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith("2027")]), str(LUNCH_T))
-
-    st.subheader("2027년 9~12월 예상 달력")
-    button_calendar(P, "c27")
-
-    if "pred_date_input" not in st.session_state:
-        st.session_state.pred_date_input = st.session_state.pred_day
-    d27 = st.date_input("날짜 선택 (2027년 9월 1일 ~ 12월 31일)", min_value=PRED_START, max_value=PRED_END,
-                        format="YYYY-MM-DD", key="pred_date_input")
-    st.session_state.pred_day = d27
-
-    c = pred_conditions(d27)
+    c = pred_conditions(dsel)
     p_ = predict(c)
     st.divider()
     st.markdown(
-        f"<h3 style='margin-bottom:0.3rem'>{d27:%Y-%m-%d} ({WD[d27.weekday()]}) 예상 · 음력 {c['lunar']} · "
+        f"<h3 style='margin-bottom:0.3rem'>{dsel:%Y-%m-%d} ({WD[dsel.weekday()]}) 예상 · 음력 {c['lunar']} · "
         f"{c['mul']} : <span style='background:#ffe066;color:#000;padding:2px 10px;border-radius:6px;"
         f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
@@ -735,9 +745,9 @@ with tab5:
         t1.metric("만조", " / ".join(t for t, _ in c["info"]["hi"]) or "-")
         t2.metric("간조", " / ".join(t for t, _ in c["info"]["lo"]) or "-")
         t3.metric("고저차", f"{c['info']['range']} cm" if c["info"]["range"] else "-")
-        tide_block(d27)
+        tide_block(dsel)
     else:
-        st.info("2027년 바다타임 물때표를 아직 받지 못해 만조·간조 시각은 비어 있어요. "
+        st.info(f"{year}년 바다타임 물때표를 받지 못해 만조·간조 시각은 비어 있어요. "
                 "물때는 음력으로, 물세기는 과거 같은 물때 평균으로 추정했어요.")
 
     st.caption(f"예상 근거: {p_['basis']} · 비슷한 과거 출조일 {p_['n']}일의 가중 평균 "
@@ -750,18 +760,29 @@ with tab5:
                  column_config={"분위기": st.column_config.ProgressColumn("분위기", format="%d%%", min_value=0, max_value=100),
                                 "링크": st.column_config.LinkColumn("링크", display_text="원문")})
 
-    st.markdown("**2027년 9~12월 전체 예상표**")
-    P_show = P.drop(columns=["주", "일"]).rename(columns={"date": "날짜"})
-    P_show.insert(4, "물세기 30% 이하", P["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v <= 30 else ""))
+    st.markdown(f"**{year}년 {period} 전체 예상표**")
+    P_show = P_.drop(columns=["주", "일"]).rename(columns={"date": "날짜"})
+    P_show.insert(4, "물세기 30% 이하", P_["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v <= 30 else ""))
     st.dataframe(P_show, hide_index=True, width="stretch",
                  height=360, column_config={
                      "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
                      "물세기": st.column_config.NumberColumn("물세기 %", format="%d"),
                      "주꾸미": st.column_config.NumberColumn("예상 주꾸미", format="%d"),
                      "갑오징어": st.column_config.NumberColumn("예상 갑오징어", format="%.1f")})
-    st.download_button("2027 예상표 CSV", P.drop(columns=["주"]).to_csv(index=False).encode("utf-8-sig"),
-                       f"lamar_2027_예상_{APP_VERSION}.csv", "text/csv")
+    st.download_button(f"{year} 예상표 CSV", P_.drop(columns=["주"]).to_csv(index=False).encode("utf-8-sig"),
+                       f"lamar_{year}_예상_{APP_VERSION}.csv", "text/csv", key=f"dl_{prefix}")
     st.caption("예상치는 과거 블로그 기록의 평균이라 실제 조황·날씨와 다를 수 있어요. 날씨는 예측에 들어가지 않아요.")
+    return P_
+
+
+MUL_PCT = mul_pct_table(_st.st_mtime_ns, df)
+
+with tab5:
+    P = forecast_tab(2027, PRED_START, PRED_END, "c27", "pred_day")
+
+with tab8:
+    TODAY = dt.date(2026, 10, 18)
+    forecast_tab(2026, TODAY, dt.date(2026, 12, 31), "c26", "pred_day26")
 
 
 # ---------------- 탭6: 2027 달력 (깜빡임 없는 색칠 달력)
