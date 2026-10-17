@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v12"
+APP_VERSION = "v13"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v13", "2027 예상 제목 옆에 '가장 비슷했던 과거 출조일 평균' 노란 표시"),
     ("v12", "2027 예상 달력: 물세기 20% 미만인 날을 파란 굵은 테두리·●·굵은 글씨로 강조, 해당 날짜 목록 표시"),
     ("v11", "2027 예상 달력: 날짜 칸을 누르면 그 날짜 상세가 바로 표시되도록 수정"),
     ("v10", "🔮 2027 예상 탭: 2027년 9~12월 달력, 날짜별 예상 분위기·마릿수·오전/오후 조황·물때·조석"),
@@ -557,7 +558,10 @@ with tab5:
     c = pred_conditions(d27)
     p_ = predict(c)
     st.divider()
-    st.subheader(f"{d27:%Y-%m-%d} ({WD[d27.weekday()]}) 예상 · 음력 {c['lunar']} · {c['mul']}")
+    st.markdown(
+        f"<h3 style='margin-bottom:0.3rem'>{d27:%Y-%m-%d} ({WD[d27.weekday()]}) 예상 · 음력 {c['lunar']} · "
+        f"{c['mul']} : <span style='background:#ffe066;color:#000;padding:2px 10px;border-radius:6px;"
+        f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 분위기", f"{p_['score']:.0f}%" if p_["score"] is not None else "-")
     m2.metric("예상 주꾸미 (중앙값)", f"{p_['jj']:.0f}마리" if p_["jj"] is not None else "-",
