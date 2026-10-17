@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v23"
+APP_VERSION = "v24"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v24", "🔘 2027 버튼 달력 탭 삭제 (버튼 달력은 🔮 2027 예상 탭에 그대로)"),
     ("v23", "버튼 달력 테마 선택(기본: 눈 편한 어두운 달력 / 밝은 달력), 날짜 버튼이 칸 전체를 채우도록 수정"),
     ("v22", "'물세기 20% 미만인 날'을 '물세기 30% 이하인 날'로 변경 (목록·2027 달력 강조·예상표)"),
     ("v21", "버튼 달력: 물세기 0~20% 노란 실선, 21~30% 파란 실선이 칸 테두리를 따라 움직이는 애니메이션, 선택한 날짜를 검은 칸으로 표시"),
@@ -228,7 +229,7 @@ except Exception as ex:
 BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
-CAL_THEME = st.sidebar.radio("버튼 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
+CAL_THEME = st.sidebar.radio("2027 예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
 st.sidebar.header("🌊 물때·조석")
 with st.sidebar.expander("⏰ 낚시 시간 (남당항 일출·일몰 기준)", expanded=False):
@@ -291,8 +292,8 @@ st.title(f"🦑 라마르호 조과 분위기 조회 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
-tab1, tab5, tab7, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "🔘 2027 버튼 달력",
-                                                    "🗓️ 2027 달력", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+tab1, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "🗓️ 2027 달력", "📋 전체 목록",
+                                              "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 def tide_block(d: dt.date):
@@ -737,34 +738,6 @@ with tab5:
                        f"lamar_2027_예상_{APP_VERSION}.csv", "text/csv")
     st.caption("예상치는 과거 블로그 기록의 평균이라 실제 조황·날씨와 다를 수 있어요. 날씨는 예측에 들어가지 않아요.")
 
-
-# ---------------- 탭7: 2027 버튼 달력
-with tab7:
-    st.subheader("2027년 9~12월 버튼 달력")
-    button_calendar(P, "b27", "날짜를 누르면 바로 아래에 그날 예상이 나와요.")
-    d7 = st.session_state.pred_day
-    c7 = pred_conditions(d7)
-    p7 = predict(c7)
-    st.divider()
-    st.markdown(
-        f"<h3 style='margin-bottom:0.3rem'>{d7:%Y-%m-%d} ({WD[d7.weekday()]}) 예상 · 음력 {c7['lunar']} · "
-        f"{c7['mul']} : <span style='background:#ffe066;color:#000;padding:2px 10px;border-radius:6px;"
-        f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
-    q1, q2, q3, q4 = st.columns(4)
-    q1.metric("예상 분위기", f"{p7['score']:.0f}%" if p7["score"] is not None else "-")
-    q2.metric("예상 주꾸미 (중앙값 / 최고)", fish_txt(p7["jj"], p7["jj_max"], 0), help=MAX_HELP)
-    q3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p7["gg"], p7["gg_max"], 1), help=MAX_HELP)
-    q4.metric("물세기", f"{c7['pct']:.0f}%" if c7["pct"] is not None else "-", c7["pct_src"], delta_color="off")
-    w1, w2, w3 = st.columns(3)
-    for col, k, nm in ((w1, "am", "오전"), (w2, "pm", "오후"), (w3, "lt", "라마르타임")):
-        v = p7[k]
-        col.metric(nm, f"{v:.0f}%" if v is not None else "-", seg_label(v) if v is not None else None,
-                   delta_color="off")
-    hi7 = " / ".join(t for t, _ in c7["info"]["hi"]) if c7["info"] else "-"
-    lo7 = " / ".join(t for t, _ in c7["info"]["lo"]) if c7["info"] else "-"
-    st.markdown(f"**낚시 {c7['start']} ~ {c7['end']}** · 시작 때 **{c7['start_flow']}** · 만조 {hi7} · 간조 {lo7}  \n"
-                f"오전: {c7['am_flow']}  \n오후: {c7['pm_flow']}")
-    st.caption("조위 그래프·비슷했던 과거 출조일 목록은 🔮 2027 예상 탭에서 같은 날짜로 볼 수 있어요.")
 
 # ---------------- 탭6: 2027 달력 (깜빡임 없는 색칠 달력)
 with tab6:
