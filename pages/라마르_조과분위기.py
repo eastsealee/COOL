@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v24"
+APP_VERSION = "v25"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v25", "2027 예상 달력: 추천일(달마다 예상 분위기 상위 N일) 날짜 숫자에 빨간 실선 원, 추천일 목록"),
     ("v24", "🔘 2027 버튼 달력 탭 삭제 (버튼 달력은 🔮 2027 예상 탭에 그대로)"),
     ("v23", "버튼 달력 테마 선택(기본: 눈 편한 어두운 달력 / 밝은 달력), 날짜 버튼이 칸 전체를 채우도록 수정"),
     ("v22", "'물세기 20% 미만인 날'을 '물세기 30% 이하인 날'로 변경 (목록·2027 달력 강조·예상표)"),
@@ -231,6 +232,8 @@ BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
 CAL_THEME = st.sidebar.radio("2027 예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
+REC_N = st.sidebar.slider("2027 추천일 (달마다 예상 분위기 상위)", 3, 10, 5, key="rec_n",
+                          help="달마다 예상 분위기가 가장 높은 날을 추천일로 골라 날짜 숫자에 빨간 원을 그려요.")
 st.sidebar.header("🌊 물때·조석")
 with st.sidebar.expander("⏰ 낚시 시간 (남당항 일출·일몰 기준)", expanded=False):
     st.caption("시작 = 남당항 일출 5분 전 · 종료 = 일몰 20분 전 (날짜마다 자동 계산)")
@@ -573,6 +576,9 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         .replace("BG", T["bg"]).replace("EDGE", T["edge"]).replace("HEAD", T["head"]).replace("LINE", T["line"])
         .replace("HOVER", T["hover"])]
     sel_iso = st.session_state.pred_day.isoformat()
+    rec_n = int(st.session_state.get("rec_n", 5))
+    REC = set(P.dropna(subset=["예상 분위기"]).sort_values(["예상 분위기", "주꾸미"], ascending=False)
+              .groupby("월").head(rec_n)["date"])
     for _, r in P.iterrows():
         kc = f"st-key-{prefix}_{r['date'].replace('-', '_')}"
         k = f"div.{kc}.{kc} button"          # 기본 버튼 스타일보다 우선 적용되도록 선택자를 강하게
@@ -597,10 +603,16 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
             css.append(k + " p, " + k + " p strong { color:" + (T["sel_red"] if red_day else T["sel_txt"]) + " !important; }")
         elif red_day:
             css.append(k + " p strong { color:" + T["red"] + " !important; }")
+        if r["date"] in REC:                                       # 추천일 = 숫자에 빨간 실선 원
+            css.append(k + " p strong { display:inline-flex; align-items:center; justify-content:center; "
+                           "width:2.0em; height:2.0em; border:2.5px solid #f03e3e; border-radius:50%; "
+                           "line-height:1; margin-bottom:1px; }")
     st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
 
     st.markdown(
         "<div style='line-height:2.2'>칸 아래 막대 = 예상 분위기 <span class='lg-bar'></span> (빨강 낮음 → 초록 좋음)"
+        " · <span style='display:inline-flex;width:1.7em;height:1.7em;border:2.5px solid #f03e3e;border-radius:50%;"
+        "align-items:center;justify-content:center;font-weight:800'>7</span> 추천일"
         " · 물세기 <span class='lg run-yellow'>0~20% 노란 실선</span> "
         f"<span class='lg run-blue'>21~30% 파란 실선</span> (테두리를 따라 움직여요) · {note}</div>",
         unsafe_allow_html=True)
@@ -642,6 +654,10 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
                                            f"물세기 {pct_txt} · 예상 분위기 {r['예상 분위기']}% · "
                                            f"주꾸미 약 {r['주꾸미']:.0f}마리")
 
+    rec_rows = P[P["date"].isin(REC)].sort_values("date")
+    if len(rec_rows):
+        st.markdown(f"**🔴 추천하는 날** (달마다 예상 분위기 상위 {rec_n}일) · " + " ".join(
+            f"`{r['월']}/{r['일']}({r['요일']}) {r['예상 분위기']}%`" for _, r in rec_rows.iterrows()))
     low_days = P[P["물세기"].notna() & (P["물세기"] <= 30)]
     if len(low_days):
         st.markdown("**물세기 30% 이하인 날** · " + " ".join(
