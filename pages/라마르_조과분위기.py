@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v8"
+APP_VERSION = "v9"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v9", "전체 목록: 만조·간조는 시각만 표시하고 조위(cm)는 삭제, 고저차는 유지"),
     ("v8", "물때·시기 분석의 막대그래프를 곡선그래프로 변경 (물때별·물세기 구간별·월별)"),
     ("v7", "물세기 구간별 갑오징어 중앙값 그래프와 물세기-갑오징어 점 그래프 따로 추가"),
     ("v6", "물때·시기 분석: 물세기 구간별 분위기·마릿수·오전/오후 조황 그래프, 물세기-분위기 점 그래프와 추세선"),
@@ -116,7 +117,7 @@ def tide_info(d: dt.date):
 
 
 def fmt_ev(lst):
-    return " / ".join(f"{t}({h})" for t, h in lst) if lst else ""
+    return " / ".join(t for t, _ in lst) if lst else ""
 
 
 def curve_from_events(d: dt.date, events):
@@ -435,8 +436,8 @@ with tab2:
                                                       help="바다타임 남당항 물흐름 % 기준"),
             "오전%": st.column_config.ProgressColumn("오전%", format="%d%%", min_value=0, max_value=100),
             "오후%": st.column_config.ProgressColumn("오후%", format="%d%%", min_value=0, max_value=100),
-            "만조": st.column_config.TextColumn("만조 시각(조위cm)"),
-            "간조": st.column_config.TextColumn("간조 시각(조위cm)"),
+            "만조": st.column_config.TextColumn("만조 시각"),
+            "간조": st.column_config.TextColumn("간조 시각"),
             "주꾸미 최고": st.column_config.NumberColumn("주꾸미 최고", format="%d"),
             "주꾸미 최저": st.column_config.NumberColumn("주꾸미 최저", format="%d"),
             "주꾸미 중앙값": st.column_config.NumberColumn("주꾸미 중앙값", format="%g"),
@@ -628,7 +629,7 @@ with tab4:
 **주꾸미·갑오징어 최고/중앙값/최저**: 본문에 마릿수가 적힌 손님들 중 가장 많이 잡은 수, 가운데 값, 가장 적게 잡은 수.
 
 **물때·만조·간조·고저차·물세기**: 예약조회 앱과 같은 **바다타임 {bt.PORT_NAME} 월별 물때표** 기준.
-- 만조·간조: 물때표의 시각과 조위(cm)
+- 만조·간조: 물때표의 시각
 - 고저차: 그날 만조 높이 평균 − 간조 높이 평균
 - 물세기 %: 물때표 ▲/▼ 변화량의 하루 평균을 바다타임 '물흐름 %'에 맞춘 기준으로 환산
   (사리→조금 201~732cm, 조금→사리 234~727cm = 0~100%)
