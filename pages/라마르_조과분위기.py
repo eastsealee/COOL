@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v9"
+APP_VERSION = "v10"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v10", "🔮 2027 예상 탭: 2027년 9~12월 달력, 날짜별 예상 분위기·마릿수·오전/오후 조황·물때·조석"),
     ("v9", "전체 목록: 만조·간조는 시각만 표시하고 조위(cm)는 삭제, 고저차는 유지"),
     ("v8", "물때·시기 분석의 막대그래프를 곡선그래프로 변경 (물때별·물세기 구간별·월별)"),
     ("v7", "물세기 구간별 갑오징어 중앙값 그래프와 물세기-갑오징어 점 그래프 따로 추가"),
@@ -275,7 +276,7 @@ st.title(f"🦑 라마르호 조과 분위기 조회 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+tab1, tab5, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 def tide_block(d: dt.date):
@@ -391,6 +392,197 @@ with tab1:
             history_hint(sel, mul)
         st.divider()
         tide_block(sel)
+
+# ---------------- 탭5: 2027 예상
+PRED_START, PRED_END = dt.date(2027, 9, 1), dt.date(2027, 12, 31)
+PRED_DAYS = [PRED_START + dt.timedelta(days=i) for i in range((PRED_END - PRED_START).days + 1)]
+
+
+@st.cache_data(show_spinner=False)
+def mul_pct_table(stamp, _df):
+    """과거 기록에서 (월, 물때)별 물세기 % 중앙값 — 2027 물때표가 없을 때 물세기 추정용"""
+    t = _df.dropna(subset=["물세기(%)"])
+    return t.groupby(["월", "mul"])["물세기(%)"].median().to_dict(), t.groupby("mul")["물세기(%)"].median().to_dict()
+
+
+def pred_conditions(d: dt.date):
+    """2027 날짜의 조건: 물때, 물세기, 만조·간조, 낚시시간, 오전·오후 물흐름"""
+    info = tide_info(d)
+    lunar, lmul = lunar_mul(d)
+    mul = (info or {}).get("mul") or lmul
+    pct = (info or {}).get("pct")
+    pct_src = "바다타임"
+    if pct is None:
+        by_m, by_all = MUL_PCT
+        pct = by_m.get((d.month, mul), by_all.get(mul))
+        pct_src = "과거 같은 물때 평균(추정)"
+    st_dt, st_txt = start_time(d)
+    end = end_time(d)
+    lunch = dt.datetime.combine(d, LUNCH_T)
+    am_flow = pm_flow = start_flow = "-"
+    if info and info.get("events"):
+        evs = _evt(d, info["events"])
+        start_flow, am_flow, pm_flow = flow_at(evs, st_dt), window_flow(evs, st_dt, lunch), window_flow(evs, lunch, end)
+    return dict(date=d, lunar=lunar, mul=mul, pct=pct, pct_src=pct_src, info=info, start=st_txt, end=f"{end:%H:%M}",
+                start_flow=start_flow, am_flow=am_flow, pm_flow=pm_flow)
+
+
+def _wmean(sub, col):
+    v = sub[[col, "_w"]].dropna()
+    return (v[col] * v["_w"]).sum() / v["_w"].sum() if len(v) and v["_w"].sum() > 0 else None
+
+
+def predict(c):
+    """비슷한 과거 출조일(같은 달 ±20일, 물세기 ±12%p 또는 같은 물때)의 가중 평균"""
+    d = c["date"]
+    h = df.copy()
+    doy = pd.to_datetime(h["date"]).dt.dayofyear
+    tdoy = d.timetuple().tm_yday
+    h["_dd"] = (doy - tdoy).abs()
+    h = h[h["_dd"] <= 20]
+    if c["pct"] is not None and h["물세기(%)"].notna().any():
+        h["_dp"] = (h["물세기(%)"] - c["pct"]).abs()
+        near = h[h["_dp"] <= 12].copy()
+        near["_w"] = (1 - near["_dd"] / 25) * (1 - near["_dp"] / 15)
+        basis = f"같은 시기(±20일) · 물세기 {c['pct']:.0f}%±12"
+    else:
+        near = h[h["mul"] == c["mul"]].copy()
+        near["_w"] = 1 - near["_dd"] / 25
+        basis = f"같은 시기(±20일) · 같은 물때({c['mul']})"
+    if len(near) < 5:                                  # 표본이 적으면 같은 달 전체로 넓힘
+        near = df[df["월"] == d.month].copy()
+        near["_w"] = 1.0
+        basis = f"{d.month}월 전체 (비슷한 조건 표본 부족)"
+    out = {k: _wmean(near, col) for k, col in
+           [("score", "score"), ("jj", "jj_med"), ("gg", "gg_med"), ("jj_max", "jj_max"), ("gg_max", "gg_max"),
+            ("am", "am"), ("pm", "pm"), ("lt", "lt")]}
+    # 오전·오후 조황은 같은 물흐름 유형(만조 끼임 등)인 날이 충분하면 그 날들로 보정
+    for seg, col_flow, key in (("am", "오전 물흐름", "am_flow"), ("pm", "오후 물흐름", "pm_flow")):
+        kind = flow_kind(c[key])
+        if kind:
+            same = near[near[col_flow].apply(flow_kind) == kind]
+            if same[seg].notna().sum() >= 5:
+                out[seg] = _wmean(same, seg)
+    out["n"] = len(near)
+    out["basis"] = basis
+    out["similar"] = near.assign(_rank=near["_w"]).sort_values("_rank", ascending=False).head(6)
+    return out
+
+
+with tab5:
+    MUL_PCT = mul_pct_table(_st.st_mtime_ns, df)
+    if "pred_day" not in st.session_state:
+        st.session_state.pred_day = PRED_START
+    # 2027 물때표 받아두기 (없으면 과거 평균으로 추정)
+    need27 = tuple(bt.months_for(PRED_DAYS))
+    try:
+        BT.update(badatime_days(need27)[0])
+    except Exception:
+        pass
+
+    @st.cache_data(show_spinner="2027년 예상 계산 중…")
+    def all_predictions(stamp, bt_keys, lunch):
+        rows = []
+        for d in PRED_DAYS:
+            c = pred_conditions(d)
+            p_ = predict(c)
+            rows.append({"date": d.isoformat(), "월": d.month, "일": d.day, "요일": WD[d.weekday()],
+                         "주": (d.day + d.replace(day=1).weekday() - 1) // 7, "물때": c["mul"],
+                         "물세기": c["pct"], "예상 분위기": round(p_["score"]) if p_["score"] is not None else None,
+                         "주꾸미": p_["jj"], "갑오징어": p_["gg"]})
+        return pd.DataFrame(rows)
+
+    P = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith("2027")]), str(LUNCH_T))
+
+    st.subheader("2027년 9~12월 예상 달력")
+    st.caption("칸 색 = 예상 분위기 % (초록일수록 좋음). 날짜 칸을 누르거나 아래에서 날짜를 고르세요.")
+    pick = alt.selection_point(fields=["date"], name="pick", on="click")
+    cols = st.columns(4)
+    for col, m in zip(cols, [9, 10, 11, 12]):
+        sub = P[P["월"] == m]
+        base = alt.Chart(sub).encode(
+            x=alt.X("요일:N", sort=list(WD), title=None, axis=alt.Axis(orient="top", labelAngle=0)),
+            y=alt.Y("주:O", title=None, axis=None))
+        rect = base.mark_rect(stroke="white", strokeWidth=2, cornerRadius=4).encode(
+            color=alt.Color("예상 분위기:Q", scale=alt.Scale(scheme="redyellowgreen", domain=[35, 70]), legend=None),
+            opacity=alt.condition(pick, alt.value(1), alt.value(0.75)),
+            tooltip=[alt.Tooltip("date:N", title="날짜"), "요일", "물때", alt.Tooltip("물세기:Q", format=".0f"),
+                     alt.Tooltip("예상 분위기:Q", title="예상 분위기 %"),
+                     alt.Tooltip("주꾸미:Q", format=".0f", title="예상 주꾸미"),
+                     alt.Tooltip("갑오징어:Q", format=".1f", title="예상 갑오징어")]).add_params(pick)
+        txt = base.mark_text(fontSize=11, dy=-4).encode(text="일:Q")
+        txt2 = base.mark_text(fontSize=8, dy=8, opacity=0.8).encode(text="물때:N")
+        with col:
+            st.markdown(f"**2027년 {m}월**")
+            ev = st.altair_chart((rect + txt + txt2).properties(height=230), width="stretch",
+                                 on_select="rerun", selection_mode="pick", key=f"cal27_{m}")
+            try:
+                sel = ev.selection.get("pick") if hasattr(ev, "selection") else None
+                if sel:
+                    st.session_state.pred_day = dt.date.fromisoformat(sel[0]["date"])
+            except Exception:
+                pass
+
+    d27 = st.date_input("날짜 선택 (2027년 9월 1일 ~ 12월 31일)", value=st.session_state.pred_day,
+                        min_value=PRED_START, max_value=PRED_END, format="YYYY-MM-DD", key="pred_date_input")
+    if d27 != st.session_state.pred_day:
+        st.session_state.pred_day = d27
+    d27 = st.session_state.pred_day
+
+    c = pred_conditions(d27)
+    p_ = predict(c)
+    st.divider()
+    st.subheader(f"{d27:%Y-%m-%d} ({WD[d27.weekday()]}) 예상 · 음력 {c['lunar']} · {c['mul']}")
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("예상 분위기", f"{p_['score']:.0f}%" if p_["score"] is not None else "-")
+    m2.metric("예상 주꾸미 (중앙값)", f"{p_['jj']:.0f}마리" if p_["jj"] is not None else "-",
+              f"최고 약 {p_['jj_max']:.0f}마리" if p_["jj_max"] is not None else None, delta_color="off")
+    m3.metric("예상 갑오징어 (중앙값)", f"{p_['gg']:.1f}마리" if p_["gg"] is not None else "-",
+              f"최고 약 {p_['gg_max']:.0f}마리" if p_["gg_max"] is not None else None, delta_color="off")
+    m4.metric("물세기", f"{c['pct']:.0f}%" if c["pct"] is not None else "-", c["pct_src"], delta_color="off")
+    if p_["score"] is not None:
+        st.progress(min(1.0, p_["score"] / 100), text=f"예상 분위기 {p_['score']:.0f}%")
+
+    st.markdown("**시간대별 예상 조황**")
+    s1, s2, s3 = st.columns(3)
+    for col, k, nm in ((s1, "am", "오전"), (s2, "pm", "오후"), (s3, "lt", "라마르타임")):
+        v = p_[k]
+        col.metric(nm, f"{v:.0f}%" if v is not None else "-", seg_label(v) if v is not None else None,
+                   delta_color="off")
+
+    st.markdown(f"**낚시 {c['start']} ~ {c['end']}** · 시작 때 **{c['start_flow']}**  \n"
+                f"오전: {c['am_flow']}  \n오후: {c['pm_flow']}")
+    if c["info"]:
+        t1, t2, t3 = st.columns(3)
+        t1.metric("만조", " / ".join(t for t, _ in c["info"]["hi"]) or "-")
+        t2.metric("간조", " / ".join(t for t, _ in c["info"]["lo"]) or "-")
+        t3.metric("고저차", f"{c['info']['range']} cm" if c["info"]["range"] else "-")
+        tide_block(d27)
+    else:
+        st.info("2027년 바다타임 물때표를 아직 받지 못해 만조·간조 시각은 비어 있어요. "
+                "물때는 음력으로, 물세기는 과거 같은 물때 평균으로 추정했어요.")
+
+    st.caption(f"예상 근거: {p_['basis']} · 비슷한 과거 출조일 {p_['n']}일의 가중 평균 "
+               "(날짜가 가깝고 물세기가 비슷할수록 비중 큼)")
+    sim = p_["similar"][["date", "mul", "물세기(%)", "score", "jj_med", "gg_med", "오전 평가", "오후 평가", "title", "link"]]
+    st.markdown("**가장 비슷했던 과거 출조일**")
+    st.dataframe(sim.rename(columns={"date": "날짜", "mul": "물때", "score": "분위기", "jj_med": "주꾸미 중앙값",
+                                     "gg_med": "갑오징어 중앙값", "title": "제목", "link": "링크"}),
+                 hide_index=True, width="stretch",
+                 column_config={"분위기": st.column_config.ProgressColumn("분위기", format="%d%%", min_value=0, max_value=100),
+                                "링크": st.column_config.LinkColumn("링크", display_text="원문")})
+
+    st.markdown("**2027년 9~12월 전체 예상표**")
+    st.dataframe(P.drop(columns=["주", "일"]).rename(columns={"date": "날짜"}), hide_index=True, width="stretch",
+                 height=360, column_config={
+                     "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
+                     "물세기": st.column_config.NumberColumn("물세기 %", format="%d"),
+                     "주꾸미": st.column_config.NumberColumn("예상 주꾸미", format="%d"),
+                     "갑오징어": st.column_config.NumberColumn("예상 갑오징어", format="%.1f")})
+    st.download_button("2027 예상표 CSV", P.drop(columns=["주"]).to_csv(index=False).encode("utf-8-sig"),
+                       f"lamar_2027_예상_{APP_VERSION}.csv", "text/csv")
+    st.caption("예상치는 과거 블로그 기록의 평균이라 실제 조황·날씨와 다를 수 있어요. 날씨는 예측에 들어가지 않아요.")
+
 
 # ---------------- 탭2: 전체 목록
 with tab2:
