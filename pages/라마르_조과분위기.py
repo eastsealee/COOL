@@ -18,9 +18,11 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v20"
+APP_VERSION = "v22"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v22", "'물세기 20% 미만인 날'을 '물세기 30% 이하인 날'로 변경 (목록·2027 달력 강조·예상표)"),
+    ("v21", "버튼 달력: 물세기 0~20% 노란 실선, 21~30% 파란 실선이 칸 테두리를 따라 움직이는 애니메이션, 선택한 날짜를 검은 칸으로 표시"),
     ("v20", "물세기 분석: 주꾸미·갑오징어 중앙값을 한 곡선 그래프(양쪽 눈금)로, 점 그래프를 범위 띠+중앙값 선으로 대체"),
     ("v19", "버튼 달력을 흰 달력 모양으로: 일요일 시작, 공휴일 표시, 토·일·공휴일 빨강, 칸 아래 분위기 막대"),
     ("v18", "버튼 달력 바탕을 검은색으로, 예상 주꾸미·갑오징어에 중앙값 / 최고 마릿수 나란히 표시"),
@@ -524,14 +526,18 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
     def _band(p):
         if p is None or pd.isna(p):
             return ""
-        return "blink" if p < 10 else ("strong" if p < 20 else ("weak" if p <= 30 else ""))
+        return "yellow" if p <= 20 else ("blue" if p <= 30 else "")
 
     css = ["""
-    @keyframes lamarBlink { 0%,100% { background:#a5d8ff; } 50% { background:#ffffff; } }
-    .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; }
-    .lg-blink { background:#a5d8ff; animation: lamarBlink 1s infinite; font-weight:800; color:#1864ab; }
-    .lg-strong { background:#a5d8ff; font-weight:800; color:#1864ab; }
-    .lg-weak { background:#e7f5ff; color:#339af0; }
+    /* 테두리를 따라 실선이 도는 애니메이션 (회전하는 원뿔 그라데이션) */
+    @property --lamarAng { syntax:'<angle>'; inherits:false; initial-value:0deg; }
+    @keyframes lamarRun { to { --lamarAng: 360deg; } }
+    .run-yellow, .run-blue { border:3px solid transparent !important; animation: lamarRun 2.2s linear infinite; }
+    .run-yellow { background: linear-gradient(#fff,#fff) padding-box,
+        conic-gradient(from var(--lamarAng), #fcc419 0deg 110deg, #fff3bf 110deg 140deg, transparent 140deg 360deg) border-box !important; }
+    .run-blue { background: linear-gradient(#fff,#fff) padding-box,
+        conic-gradient(from var(--lamarAng), #1c7ed6 0deg 110deg, #d0ebff 110deg 140deg, transparent 140deg 360deg) border-box !important; }
+    .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; display:inline-block; }
     .lg-bar { display:inline-block; width:46px; height:6px; border-radius:3px; vertical-align:middle;
               background:linear-gradient(90deg,#fa5252,#fab005,#37b24d); }
     .cal-title { text-align:center; font-size:2.1rem; font-weight:800; color:#212529; margin:6px 0 2px 0; }
@@ -555,28 +561,36 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
     """.replace("PFX", prefix)]
     sel_iso = st.session_state.pred_day.isoformat()
     for _, r in P.iterrows():
-        k = f".st-key-{prefix}_{r['date'].replace('-', '_')} button"
-        rule = [f"border-bottom:5px solid {_score_color(r['예상 분위기'])} !important;"]
+        kc = f"st-key-{prefix}_{r['date'].replace('-', '_')}"
+        k = f"div.{kc}.{kc} button"          # 기본 버튼 스타일보다 우선 적용되도록 선택자를 강하게
+        bar = f"inset 0 -5px 0 {_score_color(r['예상 분위기'])}"       # 칸 아래 분위기 막대
+        rule = [f"box-shadow:{bar} !important;"]
         band = _band(r["물세기"])
-        if band == "blink":
-            rule.append("background:#a5d8ff !important; animation: lamarBlink 1s infinite;")
-        elif band == "strong":
-            rule.append("background:#a5d8ff !important;")
-        elif band == "weak":
-            rule.append("background:#e7f5ff !important;")
-        if r["date"] == sel_iso:
-            rule.append("outline:2px solid #212529; outline-offset:-2px;")
+        selected = r["date"] == sel_iso
+        inner = "#212529" if selected else "#fff"                  # 선택한 날 = 검은 칸
+        if band in ("yellow", "blue"):
+            line_c, glow_c = ("#fcc419", "#fff3bf") if band == "yellow" else ("#1c7ed6", "#d0ebff")
+            rule.append("border:3px solid transparent !important; animation: lamarRun 2.2s linear infinite;")
+            rule.append(f"background: linear-gradient({inner},{inner}) padding-box, conic-gradient(from var(--lamarAng), "
+                        f"{line_c} 0deg 110deg, {glow_c} 110deg 140deg, transparent 140deg 360deg) border-box !important;")
+        elif selected:
+            rule.append(f"background:{inner} !important;")
+        if selected:
+            rule.append("transform:scale(1.04); z-index:3;")
         css.append(k + " {" + " ".join(rule) + "}")
         d_ = dt.date.fromisoformat(r["date"])
-        if d_.weekday() >= 5 or r["date"] in HOLIDAYS_2027:      # 토·일·공휴일 빨강
+        red_day = d_.weekday() >= 5 or r["date"] in HOLIDAYS_2027      # 토·일·공휴일 빨강
+        if selected:
+            css.append(k + " p, " + k + " p strong { color:" + ("#ff8787" if red_day else "#ffffff") + " !important; }")
+        elif red_day:
             css.append(k + " p strong { color:#e03131 !important; }")
     st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
 
     st.markdown(
         "<div style='line-height:2.2'>칸 아래 막대 = 예상 분위기 <span class='lg-bar'></span> (빨강 낮음 → 초록 좋음)"
-        " · 물세기 <span class='lg lg-blink'>0~9% 깜빡임</span> "
-        "<span class='lg lg-strong'>10~19% 진하게</span> "
-        f"<span class='lg lg-weak'>20~30% 약하게</span> · {note}</div>", unsafe_allow_html=True)
+        " · 물세기 <span class='lg run-yellow'>0~20% 노란 실선</span> "
+        f"<span class='lg run-blue'>21~30% 파란 실선</span> (테두리를 따라 움직여요) · {note}</div>",
+        unsafe_allow_html=True)
 
     def _pick(iso):
         st.session_state.pred_day = dt.date.fromisoformat(iso)
@@ -615,9 +629,9 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
                                            f"물세기 {pct_txt} · 예상 분위기 {r['예상 분위기']}% · "
                                            f"주꾸미 약 {r['주꾸미']:.0f}마리")
 
-    low_days = P[P["물세기"].notna() & (P["물세기"] < 20)]
+    low_days = P[P["물세기"].notna() & (P["물세기"] <= 30)]
     if len(low_days):
-        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
+        st.markdown("**물세기 30% 이하인 날** · " + " ".join(
             f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days.iterrows()))
 
 with tab5:
@@ -700,7 +714,7 @@ with tab5:
 
     st.markdown("**2027년 9~12월 전체 예상표**")
     P_show = P.drop(columns=["주", "일"]).rename(columns={"date": "날짜"})
-    P_show.insert(4, "물세기 20% 미만", P["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v < 20 else ""))
+    P_show.insert(4, "물세기 30% 이하", P["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v <= 30 else ""))
     st.dataframe(P_show, hide_index=True, width="stretch",
                  height=360, column_config={
                      "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
@@ -746,7 +760,7 @@ with tab6:
     st.markdown(
         "칸 색 = 예상 분위기 % (초록일수록 좋음) · "
         "<span style='border:3px solid #1864ab;padding:0 6px;border-radius:4px;font-weight:700;color:#1864ab'>"
-        "파란 굵은 테두리·● = 물세기 20% 미만</span> · 칸에 마우스를 올리면 상세가 보여요. "
+        "파란 굵은 테두리·● = 물세기 30% 이하</span> · 칸에 마우스를 올리면 상세가 보여요. "
         "날짜별 상세는 🔮 2027 예상 탭에서 확인하세요.", unsafe_allow_html=True)
     cal_cols = st.columns(4)
     for col, m in zip(cal_cols, [9, 10, 11, 12]):
@@ -754,7 +768,7 @@ with tab6:
         base = alt.Chart(sub).encode(
             x=alt.X("요일:N", sort=list(WD), title=None, axis=alt.Axis(orient="top", labelAngle=0)),
             y=alt.Y("주:O", title=None, axis=None))
-        low = "datum['물세기'] != null && datum['물세기'] < 20"
+        low = "datum['물세기'] != null && datum['물세기'] <= 30"
         norm = f"!({low})"
         rect = base.mark_rect(cornerRadius=4).encode(
             color=alt.Color("예상 분위기:Q", scale=alt.Scale(scheme="redyellowgreen", domain=[35, 70]), legend=None),
@@ -774,9 +788,9 @@ with tab6:
         with col:
             st.markdown(f"**2027년 {m}월**")
             st.altair_chart((rect + txt + txt2 + dot).properties(height=230), width="stretch")
-    low_days6 = P[P["물세기"].notna() & (P["물세기"] < 20)]
+    low_days6 = P[P["물세기"].notna() & (P["물세기"] <= 30)]
     if len(low_days6):
-        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
+        st.markdown("**물세기 30% 이하인 날** · " + " ".join(
             f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days6.iterrows()))
     best = P.dropna(subset=["예상 분위기"]).sort_values("예상 분위기", ascending=False).head(10)
     st.markdown("**예상 분위기 상위 10일**")
