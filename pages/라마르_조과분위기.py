@@ -18,9 +18,11 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v10"
+APP_VERSION = "v12"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v12", "2027 예상 달력: 물세기 20% 미만인 날을 파란 굵은 테두리·●·굵은 글씨로 강조, 해당 날짜 목록 표시"),
+    ("v11", "2027 예상 달력: 날짜 칸을 누르면 그 날짜 상세가 바로 표시되도록 수정"),
     ("v10", "🔮 2027 예상 탭: 2027년 9~12월 달력, 날짜별 예상 분위기·마릿수·오전/오후 조황·물때·조석"),
     ("v9", "전체 목록: 만조·간조는 시각만 표시하고 조위(cm)는 삭제, 고저차는 유지"),
     ("v8", "물때·시기 분석의 막대그래프를 곡선그래프로 변경 (물때별·물세기 구간별·월별)"),
@@ -495,39 +497,62 @@ with tab5:
     P = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith("2027")]), str(LUNCH_T))
 
     st.subheader("2027년 9~12월 예상 달력")
-    st.caption("칸 색 = 예상 분위기 % (초록일수록 좋음). 날짜 칸을 누르거나 아래에서 날짜를 고르세요.")
-    pick = alt.selection_point(fields=["date"], name="pick", on="click")
+    st.caption("칸 색 = 예상 분위기 % (초록일수록 좋음) · "
+               ":blue[**파란 테두리·● = 물세기 20% 미만**] (물살 약한 날) · 날짜 칸을 누르거나 아래에서 날짜를 고르세요.")
+    low_days = P[P["물세기"].notna() & (P["물세기"] < 20)]
+    if len(low_days):
+        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
+            f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days.iterrows()))
+    # nearest=True: 칸 안의 숫자·글자를 눌러도 그 칸이 선택되도록
+    pick = alt.selection_point(fields=["date"], name="pick", on="click", nearest=True, clear=False)
+    if "cal_last" not in st.session_state:
+        st.session_state.cal_last = {}
     cols = st.columns(4)
     for col, m in zip(cols, [9, 10, 11, 12]):
         sub = P[P["월"] == m]
         base = alt.Chart(sub).encode(
             x=alt.X("요일:N", sort=list(WD), title=None, axis=alt.Axis(orient="top", labelAngle=0)),
             y=alt.Y("주:O", title=None, axis=None))
-        rect = base.mark_rect(stroke="white", strokeWidth=2, cornerRadius=4).encode(
+        low = "datum['물세기'] != null && datum['물세기'] < 20"     # 물세기 20% 미만 강조
+        rect = base.mark_rect(cornerRadius=4).encode(
             color=alt.Color("예상 분위기:Q", scale=alt.Scale(scheme="redyellowgreen", domain=[35, 70]), legend=None),
+            stroke=alt.condition(low, alt.value("#1864ab"), alt.value("white")),
+            strokeWidth=alt.condition(low, alt.value(4), alt.value(2)),
             opacity=alt.condition(pick, alt.value(1), alt.value(0.75)),
             tooltip=[alt.Tooltip("date:N", title="날짜"), "요일", "물때", alt.Tooltip("물세기:Q", format=".0f"),
                      alt.Tooltip("예상 분위기:Q", title="예상 분위기 %"),
                      alt.Tooltip("주꾸미:Q", format=".0f", title="예상 주꾸미"),
                      alt.Tooltip("갑오징어:Q", format=".1f", title="예상 갑오징어")]).add_params(pick)
-        txt = base.mark_text(fontSize=11, dy=-4).encode(text="일:Q")
-        txt2 = base.mark_text(fontSize=8, dy=8, opacity=0.8).encode(text="물때:N")
+        norm = f"!({low})"
+        txt = (base.transform_filter(norm).mark_text(fontSize=11, dy=-4).encode(text="일:Q")
+               + base.transform_filter(low).mark_text(fontSize=12, dy=-4, fontWeight="bold").encode(text="일:Q"))
+        txt2 = (base.transform_filter(norm).mark_text(fontSize=8, dy=8, opacity=0.85).encode(text="물때:N")
+                + base.transform_filter(low).mark_text(fontSize=8, dy=8, fontWeight="bold", color="#1864ab"
+                                                       ).encode(text="물때:N"))
+        star = base.transform_filter(low).mark_text(fontSize=10, dx=13, dy=-12, color="#1864ab").encode(
+            text=alt.value("●"))
         with col:
             st.markdown(f"**2027년 {m}월**")
-            ev = st.altair_chart((rect + txt + txt2).properties(height=230), width="stretch",
+            ev = st.altair_chart((rect + txt + txt2 + star).properties(height=230), width="stretch",
                                  on_select="rerun", selection_mode="pick", key=f"cal27_{m}")
+            sel_date = None
             try:
-                sel = ev.selection.get("pick") if hasattr(ev, "selection") else None
+                sel = (ev.get("selection") or {}).get("pick") if isinstance(ev, dict) else ev.selection.pick
                 if sel:
-                    st.session_state.pred_day = dt.date.fromisoformat(sel[0]["date"])
+                    sel_date = sel[0].get("date") if isinstance(sel, list) else None
             except Exception:
-                pass
+                sel_date = None
+            # 새로 누른 칸만 반영 (이전 클릭이 남아 날짜 선택 칸을 덮어쓰지 않도록)
+            if sel_date and st.session_state.cal_last.get(m) != sel_date:
+                st.session_state.cal_last[m] = sel_date
+                st.session_state.pred_day = dt.date.fromisoformat(sel_date)
+                st.session_state.pred_date_input = st.session_state.pred_day
 
-    d27 = st.date_input("날짜 선택 (2027년 9월 1일 ~ 12월 31일)", value=st.session_state.pred_day,
-                        min_value=PRED_START, max_value=PRED_END, format="YYYY-MM-DD", key="pred_date_input")
-    if d27 != st.session_state.pred_day:
-        st.session_state.pred_day = d27
-    d27 = st.session_state.pred_day
+    if "pred_date_input" not in st.session_state:
+        st.session_state.pred_date_input = st.session_state.pred_day
+    d27 = st.date_input("날짜 선택 (2027년 9월 1일 ~ 12월 31일)", min_value=PRED_START, max_value=PRED_END,
+                        format="YYYY-MM-DD", key="pred_date_input")
+    st.session_state.pred_day = d27
 
     c = pred_conditions(d27)
     p_ = predict(c)
@@ -573,7 +598,9 @@ with tab5:
                                 "링크": st.column_config.LinkColumn("링크", display_text="원문")})
 
     st.markdown("**2027년 9~12월 전체 예상표**")
-    st.dataframe(P.drop(columns=["주", "일"]).rename(columns={"date": "날짜"}), hide_index=True, width="stretch",
+    P_show = P.drop(columns=["주", "일"]).rename(columns={"date": "날짜"})
+    P_show.insert(4, "물세기 20% 미만", P["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v < 20 else ""))
+    st.dataframe(P_show, hide_index=True, width="stretch",
                  height=360, column_config={
                      "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
                      "물세기": st.column_config.NumberColumn("물세기 %", format="%d"),
