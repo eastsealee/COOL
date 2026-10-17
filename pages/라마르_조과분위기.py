@@ -1,7 +1,9 @@
 """라마르호 조과 분위기 조회 (2018~2026년 9~12월)
-실행: streamlit run app.py
+물때·만조·간조·고저차·물세기(%)는 예약조회 앱과 같은 바다타임 남당항 물때표 기준.
 """
 import json
+import math
+import sys
 import datetime as dt
 from pathlib import Path
 
@@ -10,14 +12,13 @@ import pandas as pd
 import streamlit as st
 from korean_lunar_calendar import KoreanLunarCalendar
 
-import sys
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import lamar_tide as tidemod
+BASE = Path(__file__).resolve().parent.parent  # 저장소 최상위
+sys.path.insert(0, str(BASE))
+import lamar_badatime as bt  # noqa: E402
+import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
 st.set_page_config(page_title="라마르호 조과 분위기 조회", page_icon="🦑", layout="wide")
 
-BASE = Path(__file__).resolve().parent.parent  # 저장소 최상위
 MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9물",
              "10물", "11물", "12물", "13물", "조금", "무시"]
 TIDE_CYCLE = ["7물", "8물", "9물", "10물", "11물", "12물", "13물", "조금", "무시",
@@ -43,85 +44,122 @@ def lunar_mul(d: dt.date):
     return f"{c.lunarMonth}/{c.lunarDay}", TIDE_CYCLE[(c.lunarDay - 1) % 15]
 
 
-def score_color(v):
-    if v is None:
-        return "gray"
-    return "green" if v >= 70 else ("orange" if v >= 45 else "red")
+@st.cache_data(ttl=None, show_spinner="바다타임 남당항 물때표 불러오는 중… (처음 한 번만 걸려요)")
+def badatime_days(ym_list: tuple, _ver=1):
+    days, errs = bt.fetch_many(list(ym_list))
+    return {d.isoformat(): v for d, v in days.items()}, errs
 
 
-@st.cache_data(show_spinner="조석 계산 중…")
-def tide_table(dates: tuple, st_key: str, _station):
-    out = {}
-    for d in dates:
-        rng, ev = tidemod.day_range(d, _station)
-        hi = " / ".join(t.strftime("%H:%M") for k, t, h in ev if k == "만조")
-        lo = " / ".join(t.strftime("%H:%M") for k, t, h in ev if k == "간조")
-        out[d] = (round(rng) if rng is not None else None, hi, lo)
+def tide_info(d: dt.date):
+    """그날 물때·물세기·만조·간조·고저차 dict (바다타임 우선, 없으면 조화상수 추산)"""
+    v = BT.get(d.isoformat())
+    if v:
+        return {"src": "바다타임", "mul": v["mul"], "pct": v.get("pct"), "range": v["range"],
+                "hi": [(t, h) for k, t, h in v["events"] if k == "만조"],
+                "lo": [(t, h) for k, t, h in v["events"] if k == "간조"],
+                "events": [(k, t, h) for k, t, h in v["events"]]}
+    if HM_STATION:
+        rng, ev = hm.day_range(d, HM_STATION)
+        return {"src": f"조화상수 추산({HM_STATION['name']})", "mul": lunar_mul(d)[1], "pct": None,
+                "range": round(rng) if rng else None,
+                "hi": [(t.strftime("%H:%M"), round(h)) for k, t, h in ev if k == "만조"],
+                "lo": [(t.strftime("%H:%M"), round(h)) for k, t, h in ev if k == "간조"],
+                "events": [(k, t.strftime("%H:%M"), round(h)) for k, t, h in ev]}
+    return None
+
+
+def fmt_ev(lst):
+    return " / ".join(f"{t}({h})" for t, h in lst) if lst else ""
+
+
+def curve_from_events(d: dt.date, events):
+    """만조·간조 점을 코사인 곡선으로 이어 24시간 조위 그래프용 점 생성"""
+    pts = sorted((dt.datetime.combine(d, dt.time.fromisoformat(t if len(t) == 5 else "0" + t)), h)
+                 for _, t, h in events)
+    out = []
+    for (t1, h1), (t2, h2) in zip(pts, pts[1:]):
+        for i in range(20):
+            f = i / 20
+            out.append((t1 + (t2 - t1) * f, h1 + (h2 - h1) * (1 - math.cos(math.pi * f)) / 2))
+    if pts:
+        out.append(pts[-1])
     return out
 
 
 df = load_days()
 
-# ------------------------------------------------------------ 사이드바: 조화상수
-st.sidebar.header("🌊 조석 설정")
-station = None
-up = st.sidebar.file_uploader("조화상수 CSV (국립해양조사원)", type=["csv"],
-                              help="공공데이터포털 '기준항 조화상수' CSV를 올리면 만조·간조·고저차가 계산됩니다.")
-raw = up.getvalue() if up else None
-bundled = BASE / "data" / "lamar_tide_constants.csv"
-if raw is None and bundled.exists():
-    raw = bundled.read_bytes()
-if raw:
-    try:
-        stations = tidemod.load_constants(raw)
-        near, km = tidemod.nearest(stations)
-        names = [s["name"] for s in stations]
-        default = names.index(near["name"]) if near else 0
-        pick = st.sidebar.selectbox("관측소", names, index=default,
-                                    help="기본값은 남당항에서 가장 가까운 관측소입니다.")
-        station = stations[names.index(pick)]
-        if near and pick == near["name"]:
-            st.sidebar.caption(f"남당항에서 약 {km:.0f} km")
-    except Exception as e:
-        st.sidebar.error(f"CSV를 읽지 못했어요: {e}")
-else:
-    st.sidebar.info("조화상수 CSV를 올리면 만조·간조 시각과 고저차가 함께 표시됩니다.")
-    st.sidebar.markdown("[CSV 받기 (공공데이터포털)](https://www.data.go.kr/data/15145395/fileData.do)")
+# ------------------------------------------------------------ 물때표 불러오기
+need = tuple(bt.months_for(sorted(set(df["날짜"]))))
+try:
+    BT, BT_ERRS = badatime_days(need)
+except Exception as ex:
+    BT, BT_ERRS = {}, [str(ex)]
+BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
-st_key = f"{station['name']}{station['C']}" if station else ""
-tides = tide_table(tuple(df["날짜"]), st_key, station) if station else {}
-if station:
-    df["고저차(cm)"] = df["날짜"].map(lambda d: tides[d][0])
-    df["만조"] = df["날짜"].map(lambda d: tides[d][1])
-    df["간조"] = df["날짜"].map(lambda d: tides[d][2])
+st.sidebar.header("🌊 물때·조석")
+st.sidebar.caption(f"바다타임 {bt.PORT_NAME} 물때표 · {len(BT)}일 확보")
+if BT_ERRS:
+    with st.sidebar.expander(f"못 읽은 달 {len(BT_ERRS)}개"):
+        st.write("\n".join(f"- {e}" for e in BT_ERRS[:40]))
+if st.sidebar.button("물때표 다시 불러오기"):
+    badatime_days.clear()
+    st.rerun()
+
+HM_STATION = None
+with st.sidebar.expander("바다타임 조회가 안 될 때 (조화상수 CSV)"):
+    up = st.file_uploader("국립해양조사원 기준항 조화상수 CSV", type=["csv"])
+    raw = up.getvalue() if up else None
+    bundled = BASE / "data" / "lamar_tide_constants.csv"
+    if raw is None and bundled.exists():
+        raw = bundled.read_bytes()
+    if raw:
+        try:
+            stations = hm.load_constants(raw)
+            HM_STATION, km = hm.nearest(stations)
+            st.caption(f"{HM_STATION['name']} (남당항에서 약 {km:.0f} km) 기준으로 빈 날을 채웁니다.")
+        except Exception as e:
+            st.error(f"CSV를 읽지 못했어요: {e}")
+
+# 날짜별 물때 정보를 목록에 붙이기 (바다타임 물때가 있으면 그것을 씀)
+infos = {d: tide_info(d) for d in df["날짜"]}
+df["mul"] = [(infos[d] or {}).get("mul") or m for d, m in zip(df["날짜"], df["mul"])]
+df["물세기(%)"] = [(infos[d] or {}).get("pct") for d in df["날짜"]]
+df["만조"] = [fmt_ev((infos[d] or {}).get("hi")) for d in df["날짜"]]
+df["간조"] = [fmt_ev((infos[d] or {}).get("lo")) for d in df["날짜"]]
+df["고저차(cm)"] = [(infos[d] or {}).get("range") for d in df["날짜"]]
 
 # ------------------------------------------------------------ 본문
 st.title("🦑 라마르호 조과 분위기 조회")
-st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석")
+st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
+           f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
 tab1, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 def tide_block(d: dt.date):
-    if not station:
-        st.caption("조석: 왼쪽에서 조화상수 CSV를 올리면 표시됩니다.")
+    info = tide_info(d)
+    if not info:
+        st.caption("이 날짜의 물때표를 불러오지 못했어요.")
         return
-    rng, ev = tidemod.day_range(d, station)
-    c1, c2, c3 = st.columns(3)
-    c1.metric("고저차", f"{rng:.0f} cm" if rng else "-")
-    c2.metric("만조", " / ".join(t.strftime("%H:%M") for k, t, h in ev if k == "만조") or "-")
-    c3.metric("간조", " / ".join(t.strftime("%H:%M") for k, t, h in ev if k == "간조") or "-")
-    curve = pd.DataFrame(tidemod.day_curve(d, station), columns=["시각", "조위(cm)"])
-    pts = pd.DataFrame([(t, h, k) for k, t, h in ev], columns=["시각", "조위(cm)", "구분"])
-    line = alt.Chart(curve).mark_line(color="#2b7bb9").encode(
-        x=alt.X("시각:T", axis=alt.Axis(format="%H:%M", title=None)),
-        y=alt.Y("조위(cm):Q"))
-    dots = alt.Chart(pts).mark_point(filled=True, size=70).encode(
-        x="시각:T", y="조위(cm):Q", color=alt.Color("구분:N", scale=alt.Scale(
-            domain=["만조", "간조"], range=["#d9480f", "#1c7ed6"])),
-        tooltip=[alt.Tooltip("시각:T", format="%H:%M"), "구분", alt.Tooltip("조위(cm):Q", format=".0f")])
-    st.altair_chart((line + dots).properties(height=220), width="stretch")
-    st.caption(f"관측소: {station['name']} · 4대 분조 추산(시각 ±30분 오차 가능)")
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("물세기", f"{info['pct']}%" if info["pct"] is not None else "-")
+    c2.metric("고저차", f"{info['range']} cm" if info["range"] else "-")
+    c3.metric("만조", " / ".join(t for t, _ in info["hi"]) or "-")
+    c4.metric("간조", " / ".join(t for t, _ in info["lo"]) or "-")
+    if info["pct"] is not None:
+        st.progress(info["pct"] / 100, text=f"물세기 {info['pct']}%")
+    curve = pd.DataFrame(curve_from_events(d, info["events"]), columns=["시각", "조위(cm)"])
+    pts = pd.DataFrame([(dt.datetime.combine(d, dt.time.fromisoformat(t if len(t) == 5 else "0" + t)), h, k)
+                        for k, t, h in info["events"]], columns=["시각", "조위(cm)", "구분"])
+    if len(curve) > 1:
+        line = alt.Chart(curve).mark_line(color="#2b7bb9").encode(
+            x=alt.X("시각:T", axis=alt.Axis(format="%H:%M", title=None)), y=alt.Y("조위(cm):Q"))
+        dots = alt.Chart(pts).mark_point(filled=True, size=70).encode(
+            x="시각:T", y="조위(cm):Q",
+            color=alt.Color("구분:N", scale=alt.Scale(domain=["만조", "간조"], range=["#d9480f", "#1c7ed6"])),
+            tooltip=[alt.Tooltip("시각:T", format="%H:%M"), "구분", "조위(cm)"])
+        st.altair_chart((line + dots).properties(height=220), width="stretch")
+    st.caption(f"출처: {info['src']} · 괄호 안은 조위(cm)")
 
 
 def history_hint(d: dt.date, mul: str):
@@ -130,10 +168,17 @@ def history_hint(d: dt.date, mul: str):
     c1, c2, c3 = st.columns(3)
     c1.metric(f"{d.month}월 · {mul} 과거 평균 분위기",
               f"{same['score'].mean():.0f}%" if len(same) else "-", help=f"표본 {len(same)}일")
-    c2.metric(f"{mul} 전체 평균 분위기", f"{allm['score'].mean():.0f}%", help=f"표본 {len(allm)}일")
+    c2.metric(f"{mul} 전체 평균 분위기", f"{allm['score'].mean():.0f}%" if len(allm) else "-",
+              help=f"표본 {len(allm)}일")
     jj = same["jj_med"].dropna()
     c3.metric(f"{d.month}월 · {mul} 주꾸미 중앙값 평균", f"{jj.mean():.0f}마리" if len(jj) else "-",
               help=f"마릿수 기록 있는 {len(jj)}일")
+
+
+def rng_text(lo, hi, unit="마리"):
+    if pd.isna(hi):
+        return "-"
+    return f"{int(lo)}~{int(hi)}{unit}" if not pd.isna(lo) and lo != hi else f"{int(hi)}{unit}"
 
 
 # ---------------- 탭1: 날짜별 조회
@@ -143,7 +188,14 @@ with tab1:
     with left:
         sel = st.date_input("날짜 선택", value=dates[-1], min_value=dt.date(2018, 1, 1),
                             max_value=dt.date(2030, 12, 31), format="YYYY-MM-DD")
-        lunar, mul = lunar_mul(sel)
+        if sel.isoformat() not in BT:  # 저장된 달 밖의 날짜(내년 등)는 그 달 물때표를 따로 받음
+            try:
+                BT.update(badatime_days(tuple(bt.months_for([sel])))[0])
+            except Exception:
+                pass
+        info = tide_info(sel)
+        lunar, lmul = lunar_mul(sel)
+        mul = (info or {}).get("mul") or lmul
         st.markdown(f"**{sel:%Y-%m-%d} ({WD[sel.weekday()]})** · 음력 {lunar} · **{mul}**")
         hit = df[df["날짜"] == sel]
         if hit.empty:
@@ -161,9 +213,9 @@ with tab1:
             c1.metric("분위기", f"{r['score']}%")
             c2.metric("조과 백분위", f"{r['catch_pct']:.0f}%" if pd.notna(r["catch_pct"]) else "-",
                       help="같은 달 다른 출조일과 비교한 주꾸미 중앙값 순위")
-            c3.metric("본문 분위기", f"{r['sent']}%")
-            c4.metric("날씨 점수", f"{r['weather']}%")
-            st.progress(int(r["score"]) / 100)
+            c3.metric("주꾸미 (최저~최고)", rng_text(r["jj_min"], r["jj_max"]))
+            c4.metric("갑오징어 (최저~최고)", rng_text(r["gg_min"], r["gg_max"]))
+            st.progress(int(r["score"]) / 100, text=f"분위기 {r['score']}%")
             if r["stats"]:
                 st.markdown(f"**조과** · {r['stats']}")
             if r["tags"]:
@@ -172,7 +224,7 @@ with tab1:
                 st.markdown("**그날 분위기 (본문 발췌)**")
                 for s in r["key"]:
                     st.markdown(f"> {s}")
-            st.caption(f"산출 근거: {r['basis']}")
+            st.caption(f"산출 근거: {r['basis']} · 본문 분위기 {r['sent']}% · 날씨 점수 {r['weather']}%")
         else:
             history_hint(sel, mul)
         st.divider()
@@ -185,30 +237,43 @@ with tab2:
     months = f2.multiselect("월", [9, 10, 11, 12], default=[9, 10, 11, 12])
     muls = f3.multiselect("물때", MUL_ORDER, default=MUL_ORDER)
     lo, hi = f4.slider("분위기 %", 0, 100, (0, 100))
+    g1, g2 = st.columns([3, 1])
     alltags = sorted({t for ts in df["tags"] for t in ts})
-    tagsel = st.multiselect("날씨·바다 조건 포함 (선택 시 해당 조건이 있는 날만)", alltags)
+    tagsel = g1.multiselect("날씨·바다 조건 포함 (선택 시 해당 조건이 있는 날만)", alltags)
+    plo, phi = g2.slider("물세기 %", 0, 100, (0, 100))
     q = st.text_input("제목 검색", "")
     v = df[df["연도"].isin(years) & df["월"].isin(months) & df["mul"].isin(muls)
            & df["score"].between(lo, hi)]
+    if (plo, phi) != (0, 100):
+        v = v[v["물세기(%)"].between(plo, phi)]
     if tagsel:
         v = v[v["tags"].apply(lambda ts: all(t in ts for t in tagsel))]
     if q:
         v = v[v["title"].str.contains(q, case=False, na=False)]
-    cols = ["date", "wd", "mul", "lunar", "score", "title", "jj_med", "jj_max", "gg_max", "날씨"]
-    if station:
-        cols[4:4] = ["고저차(cm)", "만조", "간조"]
-    cols.append("link")
-    show = v[cols].rename(columns={"date": "날짜", "wd": "요일", "mul": "물때", "lunar": "음력",
-                                   "score": "분위기", "title": "제목", "jj_med": "주꾸미 중앙값",
-                                   "jj_max": "주꾸미 최고", "gg_max": "갑오징어 최고", "link": "링크"})
+    cols = ["date", "wd", "mul", "물세기(%)", "만조", "간조", "고저차(cm)", "score",
+            "jj_max", "jj_min", "gg_max", "gg_min", "title", "날씨", "link"]
+    show = v[cols].rename(columns={
+        "date": "날짜", "wd": "요일", "mul": "물때", "score": "분위기",
+        "jj_max": "주꾸미 최고", "jj_min": "주꾸미 최저", "gg_max": "갑오징어 최고", "gg_min": "갑오징어 최저",
+        "title": "제목", "link": "링크"})
     st.caption(f"{len(show)}일 · 평균 분위기 {show['분위기'].mean():.0f}%" if len(show) else "해당 없음")
-    st.dataframe(show.sort_values("날짜", ascending=False), hide_index=True, width="stretch",
-                 height=560, column_config={
-                     "분위기": st.column_config.ProgressColumn("분위기", format="%d%%", min_value=0, max_value=100),
-                     "링크": st.column_config.LinkColumn("링크", display_text="원문"),
-                     "제목": st.column_config.TextColumn("제목", width="large")})
+    st.dataframe(
+        show.sort_values("날짜", ascending=False), hide_index=True, width="stretch", height=600,
+        column_config={
+            "분위기": st.column_config.ProgressColumn("분위기", format="%d%%", min_value=0, max_value=100),
+            "물세기(%)": st.column_config.ProgressColumn("물세기", format="%d%%", min_value=0, max_value=100,
+                                                      help="바다타임 남당항 물흐름 % 기준"),
+            "만조": st.column_config.TextColumn("만조 시각(조위cm)"),
+            "간조": st.column_config.TextColumn("간조 시각(조위cm)"),
+            "주꾸미 최고": st.column_config.NumberColumn("주꾸미 최고", format="%d"),
+            "주꾸미 최저": st.column_config.NumberColumn("주꾸미 최저", format="%d"),
+            "갑오징어 최고": st.column_config.NumberColumn("갑오징어 최고", format="%d"),
+            "갑오징어 최저": st.column_config.NumberColumn("갑오징어 최저", format="%d"),
+            "링크": st.column_config.LinkColumn("링크", display_text="원문"),
+            "제목": st.column_config.TextColumn("제목", width="large")})
     st.download_button("CSV 다운로드", show.to_csv(index=False).encode("utf-8-sig"),
                        "lamar_분위기_목록.csv", "text/csv")
+    st.caption("주꾸미·갑오징어 최고/최저는 본문에 마릿수가 적힌 손님 기준입니다(주꾸미는 3명 이상 기록된 날만).")
 
 # ---------------- 탭3: 분석
 with tab3:
@@ -221,8 +286,23 @@ with tab3:
         y=alt.Y("분위기:Q", title="평균 분위기 %", scale=alt.Scale(domain=[0, 100])),
         tooltip=["mul", "분위기", "일수", alt.Tooltip("주꾸미:Q", format=".0f")]
     ).properties(height=280), width="stretch")
-    best = m.sort_values("분위기", ascending=False).head(3)["mul"].tolist()
+    best = m.dropna().sort_values("분위기", ascending=False).head(3)["mul"].tolist()
     st.caption(f"분위기가 가장 좋았던 물때: {', '.join(best)}")
+
+    t = df.dropna(subset=["물세기(%)"]).copy()
+    if len(t):
+        st.subheader("물세기와 분위기")
+        t["물세기 구간"] = pd.cut(t["물세기(%)"], bins=[-1, 20, 40, 60, 80, 100],
+                              labels=["0~20%", "21~40%", "41~60%", "61~80%", "81~100%"])
+        g = t.groupby("물세기 구간", observed=False).agg(
+            분위기=("score", "mean"), 주꾸미=("jj_med", "mean"), 일수=("score", "size")).reset_index()
+        cc1, cc2 = st.columns([2, 1])
+        cc1.altair_chart(alt.Chart(g).mark_bar(color="#0b7285").encode(
+            x=alt.X("물세기 구간:N", sort=None), y=alt.Y("분위기:Q", scale=alt.Scale(domain=[0, 100]),
+                                                    title="평균 분위기 %"),
+            tooltip=["물세기 구간", alt.Tooltip("분위기:Q", format=".0f"),
+                     alt.Tooltip("주꾸미:Q", format=".0f"), "일수"]).properties(height=260), width="stretch")
+        cc2.dataframe(g.round(1), hide_index=True, width="stretch")
 
     c1, c2 = st.columns(2)
     with c1:
@@ -241,23 +321,9 @@ with tab3:
             tooltip=["연도", alt.Tooltip("분위기:Q", format=".0f"), "일수"]
         ).properties(height=240), width="stretch")
 
-    if station:
-        st.subheader("고저차와 분위기")
-        t = df.dropna(subset=["고저차(cm)"]).copy()
-        t["고저차 구간"] = pd.cut(t["고저차(cm)"], bins=6).astype(str)
-        g = t.groupby("고저차 구간", sort=False).agg(분위기=("score", "mean"), 일수=("score", "size")).reset_index()
-        cc1, cc2 = st.columns(2)
-        cc1.altair_chart(alt.Chart(t).mark_circle(opacity=0.5).encode(
-            x=alt.X("고저차(cm):Q"), y=alt.Y("score:Q", title="분위기 %"),
-            tooltip=["date", "mul", "고저차(cm)", "score", "title"]).properties(height=260),
-            width="stretch")
-        cc2.dataframe(g.round(1), hide_index=True, width="stretch")
-    else:
-        st.info("조화상수 CSV를 올리면 고저차와 분위기의 관계도 분석됩니다.")
-
 # ---------------- 탭4: 산출 방식
 with tab4:
-    st.markdown("""
+    st.markdown(f"""
 **분위기 %** (0~100)
 - **조과 50%**: 본문의 손님별 마릿수("○○님은 주꾸미 127마리…")에서 그날 주꾸미 중앙값을 구하고,
   **같은 달** 다른 해 출조일과 비교한 백분위. (손님 3명 이상 기록된 날만)
@@ -265,10 +331,12 @@ with tab4:
 - **날씨 15%**: 강풍·파도·비·안개·물색 탁함 언급은 감점, 잔잔·화창은 가점.
 - 마릿수 기록이 없는 날은 본문 75% + 날씨 25%, 본문이 비어 있는 2018년 일부는 제목만으로 산출.
 
-**물때**: 음력 날짜 기준 서해 7물때식(음력 1일=7물, 8일=조금, 9일=무시, 10일=1물).
+**주꾸미·갑오징어 최고/최저**: 본문에 마릿수가 적힌 손님들 중 가장 많이·적게 잡은 수.
 
-**조석·고저차**: 국립해양조사원 기준항 조화상수의 4대 분조(M2·S2·K1·O1) 추산.
-시각 ±30분, 높이 수십 cm 오차가 있을 수 있어 실제 출조 판단은 바다타임·국립해양조사원 예보를 함께 보세요.
-
-**본문 발췌**: 날씨·물때·활성도 관련 문장을 자동으로 골랐습니다. 전체 내용은 원문 링크에서 확인하세요.
+**물때·만조·간조·고저차·물세기**: 예약조회 앱과 같은 **바다타임 {bt.PORT_NAME} 월별 물때표** 기준.
+- 만조·간조: 물때표의 시각과 조위(cm)
+- 고저차: 그날 만조 높이 평균 − 간조 높이 평균
+- 물세기 %: 물때표 ▲/▼ 변화량의 하루 평균을 바다타임 '물흐름 %'에 맞춘 기준으로 환산
+  (사리→조금 201~732cm, 조금→사리 234~727cm = 0~100%)
+- 바다타임에서 못 읽은 날은 사이드바에 조화상수 CSV를 올리면 추산값으로 채웁니다(물세기 제외).
 """)
