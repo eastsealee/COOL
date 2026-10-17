@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v7"
+APP_VERSION = "v8"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v8", "물때·시기 분석의 막대그래프를 곡선그래프로 변경 (물때별·물세기 구간별·월별)"),
     ("v7", "물세기 구간별 갑오징어 중앙값 그래프와 물세기-갑오징어 점 그래프 따로 추가"),
     ("v6", "물때·시기 분석: 물세기 구간별 분위기·마릿수·오전/오후 조황 그래프, 물세기-분위기 점 그래프와 추세선"),
     ("v5", "월별 분위기 % 가중치 적용 (9월 조과 60% … 12월 본문 50%)"),
@@ -454,7 +455,7 @@ with tab3:
                               주꾸미=("jj_med", "mean")).reindex(MUL_ORDER).reset_index()
     m["분위기"] = m["분위기"].round(1)
     st.subheader("물때별 평균 분위기")
-    st.altair_chart(alt.Chart(m).mark_bar(color="#2b7bb9").encode(
+    st.altair_chart(alt.Chart(m).mark_line(color="#2b7bb9", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
         x=alt.X("mul:N", sort=MUL_ORDER, title="물때"),
         y=alt.Y("분위기:Q", title="평균 분위기 %", scale=alt.Scale(domain=[0, 100])),
         tooltip=["mul", "분위기", "일수", alt.Tooltip("주꾸미:Q", format=".0f")]
@@ -478,18 +479,18 @@ with tab3:
         with k1:
             st.markdown("**평균 분위기 %**")
             base = alt.Chart(g).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
-            st.altair_chart((base.mark_bar(color="#0b7285").encode(
+            st.altair_chart((base.mark_line(color="#0b7285", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
                 y=alt.Y("분위기:Q", scale=alt.Scale(domain=[0, 100]), title="평균 분위기 %"),
                 tooltip=["물세기 구간", alt.Tooltip("분위기:Q", format=".0f"), "일수"])
-                + base.mark_text(dy=-8).encode(y="분위기:Q", text=alt.Text("분위기:Q", format=".0f"))
+                + base.mark_text(dy=-14).encode(y="분위기:Q", text=alt.Text("분위기:Q", format=".0f"))
             ).properties(height=260), width="stretch")
         with k2:
             st.markdown("**주꾸미 중앙값 평균 (마리)**")
             jb = alt.Chart(g.dropna(subset=["주꾸미"])).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
-            st.altair_chart((jb.mark_bar(color="#e8590c").encode(
+            st.altair_chart((jb.mark_line(color="#e8590c", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
                 y=alt.Y("주꾸미:Q", title="평균 마리"),
                 tooltip=["물세기 구간", alt.Tooltip("주꾸미:Q", format=".0f"), "일수"])
-                + jb.mark_text(dy=-8).encode(y="주꾸미:Q", text=alt.Text("주꾸미:Q", format=".0f"))
+                + jb.mark_text(dy=-14).encode(y="주꾸미:Q", text=alt.Text("주꾸미:Q", format=".0f"))
             ).properties(height=260), width="stretch")
 
         gcnt = t.dropna(subset=["gg_med"]).groupby("물세기 구간").agg(
@@ -499,11 +500,11 @@ with tab3:
         with k5:
             st.markdown("**갑오징어 중앙값 평균 (마리)**")
             gb = alt.Chart(gcnt).encode(x=alt.X("물세기 구간:N", sort=order, title=None))
-            st.altair_chart((gb.mark_bar(color="#1971c2").encode(
+            st.altair_chart((gb.mark_line(color="#1971c2", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
                 y=alt.Y("갑오징어:Q", title="평균 마리"),
                 tooltip=["물세기 구간", alt.Tooltip("갑오징어:Q", format=".1f"),
                          alt.Tooltip("갑오징어최고:Q", format=".1f", title="최고 평균"), "기록일수"])
-                + gb.mark_text(dy=-8).encode(y="갑오징어:Q", text=alt.Text("갑오징어:Q", format=".1f"))
+                + gb.mark_text(dy=-14).encode(y="갑오징어:Q", text=alt.Text("갑오징어:Q", format=".1f"))
             ).properties(height=260), width="stretch")
         with k6:
             st.markdown("**날짜별 물세기와 갑오징어 (중앙값)**")
@@ -523,8 +524,8 @@ with tab3:
             st.markdown("**오전·오후 조황 %**")
             seg = g.melt(id_vars=["물세기 구간"], value_vars=["오전", "오후"], var_name="시간대",
                          value_name="조황").dropna()
-            st.altair_chart(alt.Chart(seg).mark_bar().encode(
-                x=alt.X("물세기 구간:N", sort=order, title=None), xOffset="시간대:N",
+            st.altair_chart(alt.Chart(seg).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
+                x=alt.X("물세기 구간:N", sort=order, title=None),
                 y=alt.Y("조황:Q", scale=alt.Scale(domain=[0, 100]), title="평균 조황 %"),
                 color=alt.Color("시간대:N", scale=alt.Scale(domain=["오전", "오후"], range=["#f59f00", "#7048e8"]),
                                 legend=alt.Legend(orient="top", title=None)),
@@ -580,14 +581,14 @@ with tab3:
         st.subheader("월별")
         mm = df.groupby("월").agg(분위기=("score", "mean"), 주꾸미=("jj_med", "mean"),
                                  일수=("score", "size")).reset_index()
-        st.altair_chart(alt.Chart(mm).mark_bar(color="#5c940d").encode(
+        st.altair_chart(alt.Chart(mm).mark_line(color="#5c940d", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
             x="월:O", y=alt.Y("주꾸미:Q", title="주꾸미 중앙값 평균(마리)"),
             tooltip=["월", alt.Tooltip("분위기:Q", format=".0f"), alt.Tooltip("주꾸미:Q", format=".0f"), "일수"]
         ).properties(height=240), width="stretch")
     with c2:
         st.subheader("연도별")
         yy = df.groupby("연도").agg(분위기=("score", "mean"), 일수=("score", "size")).reset_index()
-        st.altair_chart(alt.Chart(yy).mark_line(point=True, color="#e8590c").encode(
+        st.altair_chart(alt.Chart(yy).mark_line(color="#e8590c", interpolate="monotone", point=alt.OverlayMarkDef(size=70, filled=True), strokeWidth=3).encode(
             x="연도:O", y=alt.Y("분위기:Q", scale=alt.Scale(domain=[0, 100])),
             tooltip=["연도", alt.Tooltip("분위기:Q", format=".0f"), "일수"]
         ).properties(height=240), width="stretch")
