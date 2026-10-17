@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v17"
+APP_VERSION = "v18"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v18", "버튼 달력 바탕을 검은색으로, 예상 주꾸미·갑오징어에 중앙값 / 최고 마릿수 나란히 표시"),
     ("v17", "버튼 달력을 실제 달력처럼: 월 제목 띠, 요일 머리줄(토 파랑·일 빨강), 고른 칸 크기, 좁은 간격, 빈 칸 표시"),
     ("v16", "🔘 2027 버튼 달력 탭 추가: 깜빡임·진하게·약하게 버튼 달력과 선택한 날 예상 요약"),
     ("v15", "🗓️ 2027 달력 탭 추가: 깜빡임 없는 색칠 달력(물세기 20% 미만 파란 테두리), 예상 상위 10일"),
@@ -477,6 +478,16 @@ def predict(c):
     return out
 
 
+MAX_HELP = "최고 = 비슷했던 과거 출조일들의 '그날 1등 마릿수' 평균"
+
+
+def fish_txt(med, mx, nd=0):
+    if med is None or pd.isna(med):
+        return "-"
+    m_txt = f"{med:.{nd}f}"
+    return f"{m_txt} / {mx:.0f}마리" if mx is not None and not pd.isna(mx) else f"{m_txt}마리"
+
+
 def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나와요."):
     """2027년 9~12월 날짜 버튼 달력 (물세기 0~9% 깜빡임 · 10~19% 진하게 · 20~30% 약하게)"""
 
@@ -499,20 +510,20 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         return "blink" if p < 10 else ("strong" if p < 20 else ("weak" if p <= 30 else ""))
 
     css = ["""
-    @keyframes lamarBlink { 0%,100% { box-shadow:0 0 0 3px #1864ab inset; filter:brightness(1); }
-                            50% { box-shadow:0 0 0 3px rgba(24,100,171,0.15) inset; filter:brightness(1.25); } }
+    @keyframes lamarBlink { 0%,100% { box-shadow:0 0 0 3px #4dabf7 inset; filter:brightness(1); }
+                            50% { box-shadow:0 0 0 3px rgba(77,171,247,0.1) inset; filter:brightness(0.55); } }
     .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; background:#fff; }
     .lg-blink { border:3px solid #1864ab; animation: lamarBlink 1s infinite; font-weight:800; color:#1864ab; }
     .lg-strong { border:3px solid #1864ab; font-weight:800; color:#1864ab; }
     .lg-weak { border:2px dashed #74c0fc; color:#339af0; }
     .lg-good { background:#8ce99a; } .lg-mid { background:#ffec99; } .lg-bad { background:#ffa8a8; }
-    .cal-month { background:#1c3d5a; color:#fff; font-weight:800; font-size:1.05rem; text-align:center;
-                 padding:6px 0; border-radius:10px 10px 0 0; margin-bottom:2px; }
-    .cal-wd { text-align:center; font-size:0.8rem; font-weight:700; padding:3px 0; background:#e9ecef;
-              border-radius:4px; }
-    .cal-wd.sun { color:#e03131; } .cal-wd.sat { color:#1971c2; }
-    .cal-empty { height:58px; border-radius:6px; background:repeating-linear-gradient(45deg,#f8f9fa,#f8f9fa 6px,#f1f3f5 6px,#f1f3f5 12px); }
-    div[class*="st-key-PFX_m"] { border:1px solid #dee2e6; border-radius:12px; padding:0 6px 8px 6px; background:#ffffff; }
+    .cal-month { background:#000; color:#fff; font-weight:800; font-size:1.1rem; text-align:center;
+                 padding:8px 0 6px 0; border-bottom:1px solid #343a40; margin-bottom:4px; letter-spacing:1px; }
+    .cal-wd { text-align:center; font-size:0.8rem; font-weight:700; padding:3px 0; background:#212529;
+              color:#dee2e6; border-radius:4px; }
+    .cal-wd.sun { color:#ff6b6b; } .cal-wd.sat { color:#74c0fc; }
+    .cal-empty { height:58px; border-radius:6px; background:#141414; }
+    div[class*="st-key-PFX_m"] { border:1px solid #000; border-radius:12px; padding:0 6px 8px 6px; background:#000 !important; }
     div[class*="st-key-PFX_m"] [data-testid="stHorizontalBlock"] { gap:4px !important; }
     div[class*="st-key-PFX_m"] [data-testid="stColumn"] { min-width:0 !important; }
     div[class*="st-key-PFX_m"] [data-testid="stElementContainer"] { margin-bottom:0 !important; }
@@ -528,15 +539,15 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         rule = [f"background:{_score_color(r['예상 분위기'])} !important;"]
         band = _band(r["물세기"])
         if band == "blink":
-            rule.append("border:3px solid #1864ab !important; animation: lamarBlink 1s infinite;")
+            rule.append("border:3px solid #4dabf7 !important; animation: lamarBlink 1s infinite;")
         elif band == "strong":
-            rule.append("border:3px solid #1864ab !important;")
+            rule.append("border:3px solid #4dabf7 !important;")
         elif band == "weak":
-            rule.append("border:2px dashed #74c0fc !important;")
+            rule.append("border:2px dashed #a5d8ff !important;")
         else:
-            rule.append("border:1px solid #dee2e6 !important;")
+            rule.append("border:1px solid #000 !important;")
         if r["date"] == sel_iso:
-            rule.append("outline:3px solid #212529; outline-offset:1px; z-index:2;")
+            rule.append("outline:3px solid #ffffff; outline-offset:1px; z-index:2;")
         css.append(k + " {" + " ".join(rule) + "}")
     st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
 
@@ -631,10 +642,8 @@ with tab5:
         f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
     m1, m2, m3, m4 = st.columns(4)
     m1.metric("예상 분위기", f"{p_['score']:.0f}%" if p_["score"] is not None else "-")
-    m2.metric("예상 주꾸미 (중앙값)", f"{p_['jj']:.0f}마리" if p_["jj"] is not None else "-",
-              f"최고 약 {p_['jj_max']:.0f}마리" if p_["jj_max"] is not None else None, delta_color="off")
-    m3.metric("예상 갑오징어 (중앙값)", f"{p_['gg']:.1f}마리" if p_["gg"] is not None else "-",
-              f"최고 약 {p_['gg_max']:.0f}마리" if p_["gg_max"] is not None else None, delta_color="off")
+    m2.metric("예상 주꾸미 (중앙값 / 최고)", fish_txt(p_["jj"], p_["jj_max"], 0), help=MAX_HELP)
+    m3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p_["gg"], p_["gg_max"], 1), help=MAX_HELP)
     m4.metric("물세기", f"{c['pct']:.0f}%" if c["pct"] is not None else "-", c["pct_src"], delta_color="off")
     if p_["score"] is not None:
         st.progress(min(1.0, p_["score"] / 100), text=f"예상 분위기 {p_['score']:.0f}%")
@@ -696,8 +705,8 @@ with tab7:
         f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
     q1, q2, q3, q4 = st.columns(4)
     q1.metric("예상 분위기", f"{p7['score']:.0f}%" if p7["score"] is not None else "-")
-    q2.metric("예상 주꾸미 (중앙값)", f"{p7['jj']:.0f}마리" if p7["jj"] is not None else "-")
-    q3.metric("예상 갑오징어 (중앙값)", f"{p7['gg']:.1f}마리" if p7["gg"] is not None else "-")
+    q2.metric("예상 주꾸미 (중앙값 / 최고)", fish_txt(p7["jj"], p7["jj_max"], 0), help=MAX_HELP)
+    q3.metric("예상 갑오징어 (중앙값 / 최고)", fish_txt(p7["gg"], p7["gg_max"], 1), help=MAX_HELP)
     q4.metric("물세기", f"{c7['pct']:.0f}%" if c7["pct"] is not None else "-", c7["pct_src"], delta_color="off")
     w1, w2, w3 = st.columns(3)
     for col, k, nm in ((w1, "am", "오전"), (w2, "pm", "오후"), (w3, "lt", "라마르타임")):
