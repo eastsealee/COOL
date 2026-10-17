@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v18"
+APP_VERSION = "v19"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v19", "버튼 달력을 흰 달력 모양으로: 일요일 시작, 공휴일 표시, 토·일·공휴일 빨강, 칸 아래 분위기 막대"),
     ("v18", "버튼 달력 바탕을 검은색으로, 예상 주꾸미·갑오징어에 중앙값 / 최고 마릿수 나란히 표시"),
     ("v17", "버튼 달력을 실제 달력처럼: 월 제목 띠, 요일 머리줄(토 파랑·일 빨강), 고른 칸 크기, 좁은 간격, 빈 칸 표시"),
     ("v16", "🔘 2027 버튼 달력 탭 추가: 깜빡임·진하게·약하게 버튼 달력과 선택한 날 예상 요약"),
@@ -488,21 +489,36 @@ def fish_txt(med, mx, nd=0):
     return f"{m_txt} / {mx:.0f}마리" if mx is not None and not pd.isna(mx) else f"{m_txt}마리"
 
 
+HOLIDAYS_2027 = {
+    "2027-09-14": "추석 연휴", "2027-09-15": "추석", "2027-09-16": "추석 연휴",
+    "2027-10-03": "개천절", "2027-10-04": "대체공휴일",
+    "2027-10-09": "한글날", "2027-10-11": "대체공휴일",
+    "2027-12-25": "성탄절", "2027-12-27": "대체공휴일",
+}
+WD_SUN = ["일", "월", "화", "수", "목", "금", "토"]
+
+
+def lunar_dot(d: dt.date):
+    c = KoreanLunarCalendar()
+    c.setSolarDate(d.year, d.month, d.day)
+    return f"{c.lunarMonth}.{c.lunarDay}"
+
+
 def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나와요."):
-    """2027년 9~12월 날짜 버튼 달력 (물세기 0~9% 깜빡임 · 10~19% 진하게 · 20~30% 약하게)"""
+    """2027년 9~12월 날짜 버튼 달력 — 흰 달력, 일요일 시작, 음력·공휴일 표시, 토·일·공휴일 빨강
+    물세기 0~9% 깜빡임 · 10~19% 진하게 · 20~30% 약하게, 칸 아래 색 막대 = 예상 분위기"""
 
     def _score_color(v):
-        """예상 분위기 % → 빨강~노랑~초록 배경색 (연하게)"""
         if v is None or pd.isna(v):
-            return "#f1f3f5"
+            return "#dee2e6"
         x = max(0.0, min(1.0, (v - 35) / 35))
-        stops = [(0.0, (255, 168, 168)), (0.5, (255, 236, 153)), (1.0, (140, 233, 154))]
+        stops = [(0.0, (250, 82, 82)), (0.5, (250, 176, 5)), (1.0, (55, 178, 77))]
         for (x0, c0), (x1, c1) in zip(stops, stops[1:]):
             if x <= x1:
                 f = (x - x0) / (x1 - x0)
                 r, g, b = (round(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
                 return f"#{r:02x}{g:02x}{b:02x}"
-        return "#8ce99a"
+        return "#37b24d"
 
     def _band(p):
         if p is None or pd.isna(p):
@@ -510,50 +526,53 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         return "blink" if p < 10 else ("strong" if p < 20 else ("weak" if p <= 30 else ""))
 
     css = ["""
-    @keyframes lamarBlink { 0%,100% { box-shadow:0 0 0 3px #4dabf7 inset; filter:brightness(1); }
-                            50% { box-shadow:0 0 0 3px rgba(77,171,247,0.1) inset; filter:brightness(0.55); } }
-    .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; background:#fff; }
-    .lg-blink { border:3px solid #1864ab; animation: lamarBlink 1s infinite; font-weight:800; color:#1864ab; }
-    .lg-strong { border:3px solid #1864ab; font-weight:800; color:#1864ab; }
-    .lg-weak { border:2px dashed #74c0fc; color:#339af0; }
-    .lg-good { background:#8ce99a; } .lg-mid { background:#ffec99; } .lg-bad { background:#ffa8a8; }
-    .cal-month { background:#000; color:#fff; font-weight:800; font-size:1.1rem; text-align:center;
-                 padding:8px 0 6px 0; border-bottom:1px solid #343a40; margin-bottom:4px; letter-spacing:1px; }
-    .cal-wd { text-align:center; font-size:0.8rem; font-weight:700; padding:3px 0; background:#212529;
-              color:#dee2e6; border-radius:4px; }
-    .cal-wd.sun { color:#ff6b6b; } .cal-wd.sat { color:#74c0fc; }
-    .cal-empty { height:58px; border-radius:6px; background:#141414; }
-    div[class*="st-key-PFX_m"] { border:1px solid #000; border-radius:12px; padding:0 6px 8px 6px; background:#000 !important; }
-    div[class*="st-key-PFX_m"] [data-testid="stHorizontalBlock"] { gap:4px !important; }
+    @keyframes lamarBlink { 0%,100% { background:#a5d8ff; } 50% { background:#ffffff; } }
+    .lg { padding:2px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; }
+    .lg-blink { background:#a5d8ff; animation: lamarBlink 1s infinite; font-weight:800; color:#1864ab; }
+    .lg-strong { background:#a5d8ff; font-weight:800; color:#1864ab; }
+    .lg-weak { background:#e7f5ff; color:#339af0; }
+    .lg-bar { display:inline-block; width:46px; height:6px; border-radius:3px; vertical-align:middle;
+              background:linear-gradient(90deg,#fa5252,#fab005,#37b24d); }
+    .cal-title { text-align:center; font-size:2.1rem; font-weight:800; color:#212529; margin:6px 0 2px 0; }
+    .cal-note { text-align:right; font-size:0.78rem; color:#868e96; margin-top:-30px; margin-bottom:8px; }
+    .cal-wd { text-align:center; font-size:0.95rem; font-weight:700; color:#868e96; padding:4px 0 8px 0; }
+    .cal-wd.red { color:#e03131; }
+    .cal-empty { height:72px; }
+    div[class*="st-key-PFX_m"] { background:#ffffff !important; border-radius:14px; padding:4px 10px 6px 10px;
+                                 border:1px solid #f1f3f5; color:#212529; }
+    div[class*="st-key-PFX_m"] [data-testid="stHorizontalBlock"] { gap:2px !important; }
     div[class*="st-key-PFX_m"] [data-testid="stColumn"] { min-width:0 !important; }
     div[class*="st-key-PFX_m"] [data-testid="stElementContainer"] { margin-bottom:0 !important; }
-    div[class*="st-key-PFX_2"] button { width:100%; height:58px; padding:2px 0 !important; border-radius:6px;
-                                        color:#212529; line-height:1.05; display:flex; flex-direction:column; }
-    div[class*="st-key-PFX_2"] button p { font-size:0.72rem; margin:0; }
-    div[class*="st-key-PFX_2"] button p strong { font-size:1.05rem; }
-    div[class*="st-key-PFX_2"] button:hover { filter:brightness(0.95); transform:translateY(-1px); }
+    div[class*="st-key-PFX_hd"] { border-bottom:2px solid #343a40; margin-bottom:2px; }
+    div[class*="st-key-PFX_wk"] { border-bottom:1px solid #e9ecef; padding:2px 0; }
+    div[class*="st-key-PFX_2"] button { width:100%; height:72px; padding:4px 0 6px 0 !important; border-radius:8px;
+        background:transparent !important; border:none !important; box-shadow:none; color:#212529 !important;
+        line-height:1.15; }
+    div[class*="st-key-PFX_2"] button p { font-size:0.72rem; margin:0; color:#e03131; }
+    div[class*="st-key-PFX_2"] button p strong { font-size:1.55rem; font-weight:800; color:#212529; }
+    div[class*="st-key-PFX_2"] button:hover { background:#f8f9fa !important; }
     """.replace("PFX", prefix)]
     sel_iso = st.session_state.pred_day.isoformat()
     for _, r in P.iterrows():
         k = f".st-key-{prefix}_{r['date'].replace('-', '_')} button"
-        rule = [f"background:{_score_color(r['예상 분위기'])} !important;"]
+        rule = [f"border-bottom:5px solid {_score_color(r['예상 분위기'])} !important;"]
         band = _band(r["물세기"])
         if band == "blink":
-            rule.append("border:3px solid #4dabf7 !important; animation: lamarBlink 1s infinite;")
+            rule.append("background:#a5d8ff !important; animation: lamarBlink 1s infinite;")
         elif band == "strong":
-            rule.append("border:3px solid #4dabf7 !important;")
+            rule.append("background:#a5d8ff !important;")
         elif band == "weak":
-            rule.append("border:2px dashed #a5d8ff !important;")
-        else:
-            rule.append("border:1px solid #000 !important;")
+            rule.append("background:#e7f5ff !important;")
         if r["date"] == sel_iso:
-            rule.append("outline:3px solid #ffffff; outline-offset:1px; z-index:2;")
+            rule.append("outline:2px solid #212529; outline-offset:-2px;")
         css.append(k + " {" + " ".join(rule) + "}")
+        d_ = dt.date.fromisoformat(r["date"])
+        if d_.weekday() >= 5 or r["date"] in HOLIDAYS_2027:      # 토·일·공휴일 빨강
+            css.append(k + " p strong { color:#e03131 !important; }")
     st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
 
     st.markdown(
-        "<div style='line-height:2.1'>칸 색 = 예상 분위기 "
-        "<span class='lg lg-good'>좋음</span> <span class='lg lg-mid'>보통</span> <span class='lg lg-bad'>낮음</span>"
+        "<div style='line-height:2.2'>칸 아래 막대 = 예상 분위기 <span class='lg-bar'></span> (빨강 낮음 → 초록 좋음)"
         " · 물세기 <span class='lg lg-blink'>0~9% 깜빡임</span> "
         "<span class='lg lg-strong'>10~19% 진하게</span> "
         f"<span class='lg lg-weak'>20~30% 약하게</span> · {note}</div>", unsafe_allow_html=True)
@@ -566,33 +585,34 @@ def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나
         outer = st.columns(2, gap="medium")
         for oc, m in zip(outer, pair):
             with oc, st.container(key=f"{prefix}_m{m}"):
-                st.markdown(f"<div class='cal-month'>2027년 {m}월</div>", unsafe_allow_html=True)
-                hdr = st.columns(7)
-                for i, (hc, w) in enumerate(zip(hdr, WD)):
-                    cls = "sun" if i == 6 else ("sat" if i == 5 else "")
-                    hc.markdown(f"<div class='cal-wd {cls}'>{w}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='cal-title'>2027년 {m}월</div>", unsafe_allow_html=True)
+                with st.container(key=f"{prefix}_hd{m}"):
+                    hdr = st.columns(7)
+                    for i, (hc, w) in enumerate(zip(hdr, WD_SUN)):
+                        cls = "red" if i in (0, 6) else ""
+                        hc.markdown(f"<div class='cal-wd {cls}'>{w}</div>", unsafe_allow_html=True)
                 first = dt.date(2027, m, 1)
                 days_in = (dt.date(2027 + (m == 12), m % 12 + 1, 1) - first).days
-                cells = [None] * first.weekday() + list(range(1, days_in + 1))
+                lead = (first.weekday() + 1) % 7                   # 일요일 시작
+                cells = [None] * lead + list(range(1, days_in + 1))
                 cells += [None] * (-len(cells) % 7)
                 for wk in range(0, len(cells), 7):
-                    row = st.columns(7)
-                    for i, (rc, day) in enumerate(zip(row, cells[wk:wk + 7])):
-                        if day is None:
-                            rc.markdown("<div class='cal-empty'></div>", unsafe_allow_html=True)
-                            continue
-                        iso = f"2027-{m:02d}-{day:02d}"
-                        r = P[P["date"] == iso].iloc[0]
-                        num = f"**{day}**"
-                        if i == 6:
-                            num = f":red[**{day}**]"
-                        elif i == 5:
-                            num = f":blue[**{day}**]"
-                        pct_txt = f"{r['물세기']:.0f}%" if pd.notna(r["물세기"]) else "-"
-                        rc.button(f"{num}  \n{r['물때']}", key=f"{prefix}_{iso.replace('-', '_')}",
-                                  on_click=_pick, args=(iso,),
-                                  help=f"{iso} ({r['요일']}) · {r['물때']} · 물세기 {pct_txt} · "
-                                       f"예상 분위기 {r['예상 분위기']}% · 주꾸미 약 {r['주꾸미']:.0f}마리")
+                    with st.container(key=f"{prefix}_wk{m}_{wk // 7}"):
+                        row = st.columns(7)
+                        for rc, day in zip(row, cells[wk:wk + 7]):
+                            if day is None:
+                                rc.markdown("<div class='cal-empty'></div>", unsafe_allow_html=True)
+                                continue
+                            d_ = dt.date(2027, m, day)
+                            iso = d_.isoformat()
+                            r = P[P["date"] == iso].iloc[0]
+                            hol = HOLIDAYS_2027.get(iso)
+                            label = f"**{day}**" + (f"  \n{hol}" if hol else "  \n\u00a0")
+                            pct_txt = f"{r['물세기']:.0f}%" if pd.notna(r["물세기"]) else "-"
+                            rc.button(label, key=f"{prefix}_{iso.replace('-', '_')}", on_click=_pick, args=(iso,),
+                                      help=f"{iso} ({WD[d_.weekday()]}){' · ' + hol if hol else ''} · {r['물때']} · "
+                                           f"물세기 {pct_txt} · 예상 분위기 {r['예상 분위기']}% · "
+                                           f"주꾸미 약 {r['주꾸미']:.0f}마리")
 
     low_days = P[P["물세기"].notna() & (P["물세기"] < 20)]
     if len(low_days):
