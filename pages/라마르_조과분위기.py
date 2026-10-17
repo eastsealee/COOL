@@ -18,9 +18,12 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v13"
+APP_VERSION = "v16"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v16", "🔘 2027 버튼 달력 탭 추가: 깜빡임·진하게·약하게 버튼 달력과 선택한 날 예상 요약"),
+    ("v15", "🗓️ 2027 달력 탭 추가: 깜빡임 없는 색칠 달력(물세기 20% 미만 파란 테두리), 예상 상위 10일"),
+    ("v14", "2027 예상 달력을 날짜 버튼으로 변경: 물세기 0~9% 깜빡임, 10~19% 진하게, 20~30% 약하게 표시, 누르면 바로 선택"),
     ("v13", "2027 예상 제목 옆에 '가장 비슷했던 과거 출조일 평균' 노란 표시"),
     ("v12", "2027 예상 달력: 물세기 20% 미만인 날을 파란 굵은 테두리·●·굵은 글씨로 강조, 해당 날짜 목록 표시"),
     ("v11", "2027 예상 달력: 날짜 칸을 누르면 그 날짜 상세가 바로 표시되도록 수정"),
@@ -279,7 +282,8 @@ st.title(f"🦑 라마르호 조과 분위기 조회 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 2018~2026년 9~12월 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
-tab1, tab5, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+tab1, tab5, tab7, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2027 예상", "🔘 2027 버튼 달력",
+                                                    "🗓️ 2027 달력", "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 def tide_block(d: dt.date):
@@ -472,6 +476,99 @@ def predict(c):
     return out
 
 
+def button_calendar(P, prefix, note="날짜를 누르면 아래에 상세가 나와요."):
+    """2027년 9~12월 날짜 버튼 달력 (물세기 0~9% 깜빡임 · 10~19% 진하게 · 20~30% 약하게)"""
+    st.markdown(
+        "칸 색 = 예상 분위기 % (초록일수록 좋음) · 물세기: "
+        "<span class='lg lg-blink'>0~9% 깜빡임</span> "
+        "<span class='lg lg-strong'>10~19% 진하게</span> "
+        "<span class='lg lg-weak'>20~30% 약하게</span> · " + note,
+        unsafe_allow_html=True)
+
+    def _score_color(v):
+        """예상 분위기 % → 빨강~노랑~초록 배경색"""
+        if v is None or pd.isna(v):
+            return "#e9ecef"
+        x = max(0.0, min(1.0, (v - 35) / 35))
+        stops = [(0.0, (250, 82, 82)), (0.5, (255, 224, 102)), (1.0, (64, 192, 87))]
+        for (x0, c0), (x1, c1) in zip(stops, stops[1:]):
+            if x <= x1:
+                f = (x - x0) / (x1 - x0)
+                r, g, b = (round(c0[i] + (c1[i] - c0[i]) * f) for i in range(3))
+                return f"#{r:02x}{g:02x}{b:02x}"
+        return "#40c057"
+
+    def _band(p):
+        if p is None or pd.isna(p):
+            return ""
+        return "blink" if p < 10 else ("strong" if p < 20 else ("weak" if p <= 30 else ""))
+
+    css = ["""
+    @keyframes lamarBlink { 0%,100% { box-shadow:0 0 0 3px #1864ab; filter:brightness(1); }
+                            50% { box-shadow:0 0 0 3px transparent; filter:brightness(1.35); } }
+    .lg { padding:1px 8px; border-radius:6px; font-size:0.85em; white-space:nowrap; }
+    .lg-blink { border:3px solid #1864ab; animation: lamarBlink 1s infinite; font-weight:800; }
+    .lg-strong { border:3px solid #1864ab; font-weight:800; color:#1864ab; }
+    .lg-weak { border:2px dashed #74c0fc; color:#4dabf7; }
+    div[class*="st-key-PFX_"] button { width:100%; min-height:44px; padding:2px 0; border-radius:8px;
+                                       color:#212529; line-height:1.1; }
+    div[class*="st-key-PFX_"] button p { font-size:0.82rem; }
+    """.replace("PFX", prefix)]
+    for _, r in P.iterrows():
+        k = f".st-key-{prefix}_{r['date'].replace('-', '_')} button"
+        rule = [f"background:{_score_color(r['예상 분위기'])} !important;"]
+        band = _band(r["물세기"])
+        if band == "blink":
+            rule.append("border:3px solid #1864ab !important; font-weight:800; animation: lamarBlink 1s infinite;")
+        elif band == "strong":
+            rule.append("border:3px solid #1864ab !important; font-weight:800;")
+        elif band == "weak":
+            rule.append("border:2px dashed #74c0fc !important; opacity:0.95;")
+        else:
+            rule.append("border:1px solid rgba(0,0,0,0.08) !important;")
+        if r["date"] == st.session_state.pred_day.isoformat():
+            rule.append("outline:3px solid #212529; outline-offset:2px;")
+        css.append(k + " {" + " ".join(rule) + "}")
+    st.markdown("<style>" + "\n".join(css) + "</style>", unsafe_allow_html=True)
+
+    def _pick(iso):
+        st.session_state.pred_day = dt.date.fromisoformat(iso)
+        st.session_state.pred_date_input = st.session_state.pred_day
+
+    for pair in ((9, 10), (11, 12)):
+        outer = st.columns(2, gap="large")
+        for oc, m in zip(outer, pair):
+            with oc:
+                st.markdown(f"**2027년 {m}월**")
+                hdr = st.columns(7, gap="small")
+                for hc, w in zip(hdr, WD):
+                    hc.markdown(f"<div style='text-align:center;font-size:0.8rem;opacity:0.7'>{w}</div>",
+                                unsafe_allow_html=True)
+                first = dt.date(2027, m, 1)
+                days_in = (dt.date(2027 + (m == 12), m % 12 + 1, 1) - first).days
+                cells = [None] * first.weekday() + list(range(1, days_in + 1))
+                cells += [None] * (-len(cells) % 7)
+                for wk in range(0, len(cells), 7):
+                    row = st.columns(7, gap="small")
+                    for rc, day in zip(row, cells[wk:wk + 7]):
+                        if day is None:
+                            rc.markdown("&nbsp;", unsafe_allow_html=True)
+                            continue
+                        iso = f"2027-{m:02d}-{day:02d}"
+                        r = P[P["date"] == iso].iloc[0]
+                        pct_txt = f"{r['물세기']:.0f}%" if pd.notna(r["물세기"]) else "-"
+                        rc.button(f"{day}  \n{r['물때']}", key=f"{prefix}_{iso.replace('-', '_')}",
+                                  on_click=_pick, args=(iso,),
+                                  help=f"{iso} ({r['요일']}) · {r['물때']} · 물세기 {pct_txt} · "
+                                       f"예상 분위기 {r['예상 분위기']}% · 주꾸미 약 {r['주꾸미']:.0f}마리")
+
+    low_days = P[P["물세기"].notna() & (P["물세기"] < 20)]
+    if len(low_days):
+        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
+            f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days.iterrows()))
+
+
+
 with tab5:
     MUL_PCT = mul_pct_table(_st.st_mtime_ns, df)
     if "pred_day" not in st.session_state:
@@ -498,56 +595,7 @@ with tab5:
     P = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith("2027")]), str(LUNCH_T))
 
     st.subheader("2027년 9~12월 예상 달력")
-    st.caption("칸 색 = 예상 분위기 % (초록일수록 좋음) · "
-               ":blue[**파란 테두리·● = 물세기 20% 미만**] (물살 약한 날) · 날짜 칸을 누르거나 아래에서 날짜를 고르세요.")
-    low_days = P[P["물세기"].notna() & (P["물세기"] < 20)]
-    if len(low_days):
-        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
-            f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days.iterrows()))
-    # nearest=True: 칸 안의 숫자·글자를 눌러도 그 칸이 선택되도록
-    pick = alt.selection_point(fields=["date"], name="pick", on="click", nearest=True, clear=False)
-    if "cal_last" not in st.session_state:
-        st.session_state.cal_last = {}
-    cols = st.columns(4)
-    for col, m in zip(cols, [9, 10, 11, 12]):
-        sub = P[P["월"] == m]
-        base = alt.Chart(sub).encode(
-            x=alt.X("요일:N", sort=list(WD), title=None, axis=alt.Axis(orient="top", labelAngle=0)),
-            y=alt.Y("주:O", title=None, axis=None))
-        low = "datum['물세기'] != null && datum['물세기'] < 20"     # 물세기 20% 미만 강조
-        rect = base.mark_rect(cornerRadius=4).encode(
-            color=alt.Color("예상 분위기:Q", scale=alt.Scale(scheme="redyellowgreen", domain=[35, 70]), legend=None),
-            stroke=alt.condition(low, alt.value("#1864ab"), alt.value("white")),
-            strokeWidth=alt.condition(low, alt.value(4), alt.value(2)),
-            opacity=alt.condition(pick, alt.value(1), alt.value(0.75)),
-            tooltip=[alt.Tooltip("date:N", title="날짜"), "요일", "물때", alt.Tooltip("물세기:Q", format=".0f"),
-                     alt.Tooltip("예상 분위기:Q", title="예상 분위기 %"),
-                     alt.Tooltip("주꾸미:Q", format=".0f", title="예상 주꾸미"),
-                     alt.Tooltip("갑오징어:Q", format=".1f", title="예상 갑오징어")]).add_params(pick)
-        norm = f"!({low})"
-        txt = (base.transform_filter(norm).mark_text(fontSize=11, dy=-4).encode(text="일:Q")
-               + base.transform_filter(low).mark_text(fontSize=12, dy=-4, fontWeight="bold").encode(text="일:Q"))
-        txt2 = (base.transform_filter(norm).mark_text(fontSize=8, dy=8, opacity=0.85).encode(text="물때:N")
-                + base.transform_filter(low).mark_text(fontSize=8, dy=8, fontWeight="bold", color="#1864ab"
-                                                       ).encode(text="물때:N"))
-        star = base.transform_filter(low).mark_text(fontSize=10, dx=13, dy=-12, color="#1864ab").encode(
-            text=alt.value("●"))
-        with col:
-            st.markdown(f"**2027년 {m}월**")
-            ev = st.altair_chart((rect + txt + txt2 + star).properties(height=230), width="stretch",
-                                 on_select="rerun", selection_mode="pick", key=f"cal27_{m}")
-            sel_date = None
-            try:
-                sel = (ev.get("selection") or {}).get("pick") if isinstance(ev, dict) else ev.selection.pick
-                if sel:
-                    sel_date = sel[0].get("date") if isinstance(sel, list) else None
-            except Exception:
-                sel_date = None
-            # 새로 누른 칸만 반영 (이전 클릭이 남아 날짜 선택 칸을 덮어쓰지 않도록)
-            if sel_date and st.session_state.cal_last.get(m) != sel_date:
-                st.session_state.cal_last[m] = sel_date
-                st.session_state.pred_day = dt.date.fromisoformat(sel_date)
-                st.session_state.pred_date_input = st.session_state.pred_day
+    button_calendar(P, "c27")
 
     if "pred_date_input" not in st.session_state:
         st.session_state.pred_date_input = st.session_state.pred_day
@@ -613,6 +661,82 @@ with tab5:
     st.download_button("2027 예상표 CSV", P.drop(columns=["주"]).to_csv(index=False).encode("utf-8-sig"),
                        f"lamar_2027_예상_{APP_VERSION}.csv", "text/csv")
     st.caption("예상치는 과거 블로그 기록의 평균이라 실제 조황·날씨와 다를 수 있어요. 날씨는 예측에 들어가지 않아요.")
+
+
+# ---------------- 탭7: 2027 버튼 달력
+with tab7:
+    st.subheader("2027년 9~12월 버튼 달력")
+    button_calendar(P, "b27", "날짜를 누르면 바로 아래에 그날 예상이 나와요.")
+    d7 = st.session_state.pred_day
+    c7 = pred_conditions(d7)
+    p7 = predict(c7)
+    st.divider()
+    st.markdown(
+        f"<h3 style='margin-bottom:0.3rem'>{d7:%Y-%m-%d} ({WD[d7.weekday()]}) 예상 · 음력 {c7['lunar']} · "
+        f"{c7['mul']} : <span style='background:#ffe066;color:#000;padding:2px 10px;border-radius:6px;"
+        f"font-size:0.8em'>가장 비슷했던 과거 출조일 평균</span></h3>", unsafe_allow_html=True)
+    q1, q2, q3, q4 = st.columns(4)
+    q1.metric("예상 분위기", f"{p7['score']:.0f}%" if p7["score"] is not None else "-")
+    q2.metric("예상 주꾸미 (중앙값)", f"{p7['jj']:.0f}마리" if p7["jj"] is not None else "-")
+    q3.metric("예상 갑오징어 (중앙값)", f"{p7['gg']:.1f}마리" if p7["gg"] is not None else "-")
+    q4.metric("물세기", f"{c7['pct']:.0f}%" if c7["pct"] is not None else "-", c7["pct_src"], delta_color="off")
+    w1, w2, w3 = st.columns(3)
+    for col, k, nm in ((w1, "am", "오전"), (w2, "pm", "오후"), (w3, "lt", "라마르타임")):
+        v = p7[k]
+        col.metric(nm, f"{v:.0f}%" if v is not None else "-", seg_label(v) if v is not None else None,
+                   delta_color="off")
+    hi7 = " / ".join(t for t, _ in c7["info"]["hi"]) if c7["info"] else "-"
+    lo7 = " / ".join(t for t, _ in c7["info"]["lo"]) if c7["info"] else "-"
+    st.markdown(f"**낚시 {c7['start']} ~ {c7['end']}** · 시작 때 **{c7['start_flow']}** · 만조 {hi7} · 간조 {lo7}  \n"
+                f"오전: {c7['am_flow']}  \n오후: {c7['pm_flow']}")
+    st.caption("조위 그래프·비슷했던 과거 출조일 목록은 🔮 2027 예상 탭에서 같은 날짜로 볼 수 있어요.")
+
+# ---------------- 탭6: 2027 달력 (깜빡임 없는 색칠 달력)
+with tab6:
+    st.subheader("2027년 9~12월 달력")
+    st.markdown(
+        "칸 색 = 예상 분위기 % (초록일수록 좋음) · "
+        "<span style='border:3px solid #1864ab;padding:0 6px;border-radius:4px;font-weight:700;color:#1864ab'>"
+        "파란 굵은 테두리·● = 물세기 20% 미만</span> · 칸에 마우스를 올리면 상세가 보여요. "
+        "날짜별 상세는 🔮 2027 예상 탭에서 확인하세요.", unsafe_allow_html=True)
+    cal_cols = st.columns(4)
+    for col, m in zip(cal_cols, [9, 10, 11, 12]):
+        sub = P[P["월"] == m]
+        base = alt.Chart(sub).encode(
+            x=alt.X("요일:N", sort=list(WD), title=None, axis=alt.Axis(orient="top", labelAngle=0)),
+            y=alt.Y("주:O", title=None, axis=None))
+        low = "datum['물세기'] != null && datum['물세기'] < 20"
+        norm = f"!({low})"
+        rect = base.mark_rect(cornerRadius=4).encode(
+            color=alt.Color("예상 분위기:Q", scale=alt.Scale(scheme="redyellowgreen", domain=[35, 70]), legend=None),
+            stroke=alt.condition(low, alt.value("#1864ab"), alt.value("white")),
+            strokeWidth=alt.condition(low, alt.value(4), alt.value(2)),
+            tooltip=[alt.Tooltip("date:N", title="날짜"), "요일", "물때", alt.Tooltip("물세기:Q", format=".0f"),
+                     alt.Tooltip("예상 분위기:Q", title="예상 분위기 %"),
+                     alt.Tooltip("주꾸미:Q", format=".0f", title="예상 주꾸미"),
+                     alt.Tooltip("갑오징어:Q", format=".1f", title="예상 갑오징어")])
+        txt = (base.transform_filter(norm).mark_text(fontSize=11, dy=-4).encode(text="일:Q")
+               + base.transform_filter(low).mark_text(fontSize=12, dy=-4, fontWeight="bold").encode(text="일:Q"))
+        txt2 = (base.transform_filter(norm).mark_text(fontSize=8, dy=8, opacity=0.85).encode(text="물때:N")
+                + base.transform_filter(low).mark_text(fontSize=8, dy=8, fontWeight="bold", color="#1864ab"
+                                                       ).encode(text="물때:N"))
+        dot = base.transform_filter(low).mark_text(fontSize=10, dx=13, dy=-12, color="#1864ab").encode(
+            text=alt.value("●"))
+        with col:
+            st.markdown(f"**2027년 {m}월**")
+            st.altair_chart((rect + txt + txt2 + dot).properties(height=230), width="stretch")
+    low_days6 = P[P["물세기"].notna() & (P["물세기"] < 20)]
+    if len(low_days6):
+        st.markdown("**물세기 20% 미만인 날** · " + " ".join(
+            f"`{r['월']}/{r['일']}({r['요일']}) {r['물세기']:.0f}%`" for _, r in low_days6.iterrows()))
+    best = P.dropna(subset=["예상 분위기"]).sort_values("예상 분위기", ascending=False).head(10)
+    st.markdown("**예상 분위기 상위 10일**")
+    st.dataframe(best.drop(columns=["주", "일"]).rename(columns={"date": "날짜"}), hide_index=True, width="stretch",
+                 column_config={
+                     "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
+                     "물세기": st.column_config.NumberColumn("물세기 %", format="%d"),
+                     "주꾸미": st.column_config.NumberColumn("예상 주꾸미", format="%d"),
+                     "갑오징어": st.column_config.NumberColumn("예상 갑오징어", format="%.1f")})
 
 
 # ---------------- 탭2: 전체 목록
