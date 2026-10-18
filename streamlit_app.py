@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.19-2 (링크 동시 조회·사이트별 시간)"
+APP_VERSION = "v10.20 (달력 조류세기 표시)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1996,7 +1996,16 @@ st.markdown(f"""
   width: 100% !important; min-height: 2.75rem; padding: 0 !important; border-radius: 12px !important;
   border: 1px solid transparent !important; background: transparent !important;
   font-size: 1.02rem; font-weight: 600; transition: all .12s ease;
+  flex-direction: column !important; gap: 0 !important; line-height: 1.05;
 }}
+.st-key-cal .stButton button::after {{font-size: .62rem; font-weight: 700; opacity: .75; letter-spacing: -.02em;}}
+@keyframes lowflow {{
+  0%, 100% {{ box-shadow: inset 0 0 0 2px #1C7ED6, 0 0 0 0 rgba(28,126,214,.55); }}
+  50% {{ box-shadow: inset 0 0 0 2px #1C7ED6, 0 0 0 5px rgba(28,126,214,0); }}
+}}
+@media (prefers-reduced-motion: reduce) {{ .st-key-cal .stButton button {{ animation: none !important; }} }}
+.cal-legend {{font-size: .78rem; opacity: .8; margin: .35rem 0 .2rem;}}
+.cal-legend .lf {{border: 2px solid #1C7ED6; border-radius: 6px; padding: 0 5px;}}
 .st-key-cal .stButton button:hover:not(:disabled) {{
   background: rgba(255,212,59,.18) !important; border-color: rgba(255,212,59,.7) !important;
 }}
@@ -2194,10 +2203,32 @@ def region_text(rg):
     return " › ".join(parts)
 
 
+LOW_FLOW_PCT = 20                                         # 조류세기 이 값 이하면 달력에 파란 테두리(물살 약한 날)
+
+
+def cal_tide_map(y, m):
+    """항구를 고른 경우: 그 항구의 바다타임 물때표로 날짜별 조류세기(%) → ({날짜: %}, 지점 이름)"""
+    rg = ss.get("region") or {}
+    if not rg.get("port") or rg.get("port") == "전체":
+        return {}, ""
+    code, name = bt_station_of({"port": rg["port"], "sigungu": rg.get("sgg"), "sido": rg.get("sido")})
+    days_, py, pm = {}, (y - 1, 12) if m == 1 else (y, m - 1), None
+    for yy, mm in (py, (y, m)):                           # 전달은 1일 계산(전날 비교)용
+        try:
+            days_.update(tide_month(f"{yy}{mm:02d}", code))
+        except Exception:
+            pass
+    if not days_:
+        return {}, name
+    td = tide_with_strength(days_, code)
+    return {d: v["pct"] for d, v in td.items() if d.year == y and d.month == m and v.get("pct") is not None}, name
+
+
 def render_calendar(scope="app"):
     """달력 + 빠른 선택. scope='fragment'면 팝업 안에서 팝업을 닫지 않고 다시 그림"""
     y, m = ss.cal_ym
     month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
+    tide_pct, tide_name = cal_tide_map(y, m)
     rules = []                                           # 일=빨강, 토=파랑, 오늘=테두리, 선택=노랑
     for d in month_days:
         k = f".st-key-cal div.st-key-d{d.isoformat()} button"
@@ -2210,6 +2241,12 @@ def render_calendar(scope="app"):
             rules.append(f"{k}{{color:#4DABF7 !important;}}")
         if d == today:
             rules.append(f"{k}{{outline:2px solid {ACCENT};outline-offset:-2px;}}")
+        if d in tide_pct:                                # 날짜 아래에 그 항구의 조류세기 %
+            pv = tide_pct[d]
+            rules.append(f"{k}::after{{content:'{pv}%';}}")
+            if pv <= LOW_FLOW_PCT and d >= today:        # 물살 약한 날: 파란 실선 + 깜빡이는 효과(지난 날짜 제외)
+                rules.append(f"{k}{{box-shadow:inset 0 0 0 2px #1C7ED6 !important;"
+                             f"animation:lowflow 1.6s ease-in-out infinite;}}")
     st.markdown(f"<style>{''.join(rules)}</style>", unsafe_allow_html=True)
     with st.container(key="cal"):
         n1, n2, n3 = st.columns([1, 4, 1], vertical_alignment="center")
@@ -2236,6 +2273,10 @@ def render_calendar(scope="app"):
                               help=f"{d.month}월 {d.day}일 ({WEEK[d.weekday()]})"):
                     ss.sel_days.symmetric_difference_update({d})
                     st.rerun(scope=scope)
+    if tide_pct:
+        st.markdown(f"<div class='cal-legend'>날짜 아래 % = <b>{htmlmod.escape(ss.region.get('port', ''))}</b> 조류세기"
+                    f"(바다타임 {htmlmod.escape(tide_name)} 물때표) · <span class='lf'>파란 테두리</span> = "
+                    f"{LOW_FLOW_PCT}% 이하(물살 약한 날)</div>", unsafe_allow_html=True)
     with st.container(key="quick"):
         b1, b2, b3, b4 = st.columns(4)
         if b1.button("이번 주말", width="stretch"):
