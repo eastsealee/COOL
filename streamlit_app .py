@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.20 (달력 조류세기 표시)"
+APP_VERSION = "v10.20-1 (시·군 선택 시 첫 항구 조류세기)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -2207,11 +2207,17 @@ LOW_FLOW_PCT = 20                                         # 조류세기 이 값
 
 
 def cal_tide_map(y, m):
-    """항구를 고른 경우: 그 항구의 바다타임 물때표로 날짜별 조류세기(%) → ({날짜: %}, 지점 이름)"""
+    """항구(또는 시·군)를 고른 경우: 그 항구의 바다타임 물때표로 날짜별 조류세기(%) → ({날짜: %}, 지점 이름, 기준 항구)
+    항구가 '전체'면 항구 목록에서 처음 나오는 항구를 기준으로 함(항구가 없으면 시·군 기준)"""
     rg = ss.get("region") or {}
-    if not rg.get("port") or rg.get("port") == "전체":
-        return {}, ""
-    code, name = bt_station_of({"port": rg["port"], "sigungu": rg.get("sgg"), "sido": rg.get("sido")})
+    if not rg.get("sgg"):
+        return {}, "", ""
+    port = rg.get("port") if rg.get("port") and rg.get("port") != "전체" else ""
+    if not port:
+        _, _, (_, _, ports_) = region_pool(rg)
+        port = next((p_ for p_ in ports_ if p_ != "전체"), "")
+    code, name = bt_station_of({"port": port, "sigungu": rg.get("sgg"), "sido": rg.get("sido")})
+    base = port or rg.get("sgg")
     days_, py, pm = {}, (y - 1, 12) if m == 1 else (y, m - 1), None
     for yy, mm in (py, (y, m)):                           # 전달은 1일 계산(전날 비교)용
         try:
@@ -2219,16 +2225,17 @@ def cal_tide_map(y, m):
         except Exception:
             pass
     if not days_:
-        return {}, name
+        return {}, name, base
     td = tide_with_strength(days_, code)
-    return {d: v["pct"] for d, v in td.items() if d.year == y and d.month == m and v.get("pct") is not None}, name
+    return ({d: v["pct"] for d, v in td.items() if d.year == y and d.month == m and v.get("pct") is not None},
+            name, base)
 
 
 def render_calendar(scope="app"):
     """달력 + 빠른 선택. scope='fragment'면 팝업 안에서 팝업을 닫지 않고 다시 그림"""
     y, m = ss.cal_ym
     month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(y, m) for d in wk if d.month == m]
-    tide_pct, tide_name = cal_tide_map(y, m)
+    tide_pct, tide_name, tide_base = cal_tide_map(y, m)
     rules = []                                           # 일=빨강, 토=파랑, 오늘=테두리, 선택=노랑
     for d in month_days:
         k = f".st-key-cal div.st-key-d{d.isoformat()} button"
@@ -2274,7 +2281,7 @@ def render_calendar(scope="app"):
                     ss.sel_days.symmetric_difference_update({d})
                     st.rerun(scope=scope)
     if tide_pct:
-        st.markdown(f"<div class='cal-legend'>날짜 아래 % = <b>{htmlmod.escape(ss.region.get('port', ''))}</b> 조류세기"
+        st.markdown(f"<div class='cal-legend'>날짜 아래 % = <b>{htmlmod.escape(tide_base)}</b> 조류세기"
                     f"(바다타임 {htmlmod.escape(tide_name)} 물때표) · <span class='lf'>파란 테두리</span> = "
                     f"{LOW_FLOW_PCT}% 이하(물살 약한 날)</div>", unsafe_allow_html=True)
     with st.container(key="quick"):
