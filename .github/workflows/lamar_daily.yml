@@ -2,7 +2,7 @@ name: 라마르 조과 매일 갱신
 
 on:
   schedule:
-    - cron: "7 0 * * *"      # 매일 한국시간 오전 9시 7분 (전날 밤 올라온 글까지 반영)
+    - cron: "０ １５ * * *"      # 매일 한국시간 오전 9시 7분 (전날 밤 올라온 글까지 반영)
   workflow_dispatch:         # Actions 탭에서 [Run workflow]로 바로 실행 가능
 
 permissions:
