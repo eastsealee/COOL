@@ -18,9 +18,10 @@ import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v38"
+APP_VERSION = "v39"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v39", "블로그 자동 갱신 시각을 매일 자정(오전 0시)으로 변경"),
     ("v38", "제목 아래 '2018~2026년 9~12월' 문구 삭제"),
     ("v37", "예상 갑오징어 아래 '2026 가중치 ×… 적용' 표시 삭제 (가중치 계산은 그대로)"),
     ("v36", "24시간 그래프 입질 확률을 쭈갑물때 모델로 계산 + 블로그 오전·오후 조황 보정, 주꾸미·갑오징어 오늘 점수·추천·최적 시간대"),
@@ -244,7 +245,7 @@ except Exception as ex:
 BT = dict(BT)  # 캐시 원본을 건드리지 않도록 복사
 
 st.sidebar.markdown(f"**라마르 조과분위기 {APP_VERSION}** · {APP_DATE}")
-st.sidebar.caption(f"블로그 데이터: {len(df)}일 · 마지막 조과 {df['date'].max()} (매일 오전 9시 자동 갱신)")
+st.sidebar.caption(f"블로그 데이터: {len(df)}일 · 마지막 조과 {df['date'].max()} (매일 자정 자동 갱신)")
 CAL_THEME = st.sidebar.radio("예상 달력 테마", ["🌙 눈 편한 어두운 달력", "☀️ 밝은 달력"], index=0, horizontal=False,
                              key="cal_theme")
 def gg26_ratios(d_):
