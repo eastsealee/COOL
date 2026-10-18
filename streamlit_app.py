@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.20-2 (어종 순서)"
+APP_VERSION = "v10.20-3 (어종 여러 개 선택 수정)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -2428,7 +2428,12 @@ else:
 
         # ----- ② 어종
         step_head(2, "어종", "비워 두면 모든 어종을 조회합니다")
-        fish_sel = st.multiselect("어종", fish_list, default=ss.fish_v, placeholder="전체 어종",
+        # key로 선택을 기억(전에는 고를 때마다 칸이 새로 만들어져 두 번째 선택이 사라졌음)
+        if "w_fish" not in ss:
+            ss.w_fish = [f for f in ss.fish_v if f in fish_list_set]
+        else:
+            ss.w_fish = [f for f in ss.w_fish if f in fish_list_set]
+        fish_sel = st.multiselect("어종", fish_list, key="w_fish", placeholder="전체 어종",
                                   label_visibility="collapsed")
         ss.fish_v = list(fish_sel)
 
