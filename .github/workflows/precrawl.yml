@@ -33,7 +33,7 @@ jobs:
           git show origin/data:ss_ships.json > out/ss_ships.json 2>/dev/null || echo '{}' > out/ss_ships.json
 
       - name: 선상24 사전조회 실행
-        run: python precrawl.py out
+        run: python sunsang24/precrawl.py out
 
       - name: data 브랜치에 저장 (기록을 쌓지 않고 덮어씀)
         run: |

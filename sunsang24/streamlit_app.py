@@ -62,7 +62,7 @@ def kst_today():
     """서버(미국, UTC)가 아니라 한국 날짜 기준 '오늘'"""
     return kst_now().date()
 
-APP_VERSION = "v10.20-1 (시·군 선택 시 첫 항구 조류세기)"
+APP_VERSION = "v10.20-3 (어종 여러 개 선택 수정)"
 
 # ---------------------------------------------------------------- 어종
 SS_FISH = ["참돔", "광어", "우럭", "참우럭", "감성돔", "문어", "무늬오징어", "주꾸미", "갑오징어", "한치",
@@ -1890,10 +1890,9 @@ def fish_options(_ver=CACHE_VER):
     for f in TF_FISH:
         if f not in fish:
             fish.append(f)
-    # '쭈갑'(주꾸미+갑오징어)은 주꾸미 바로 위에
-    fish = [f for f in fish if f != "쭈갑"]
-    at = next((i for i, f in enumerate(fish) if f in ("주꾸미", "쭈꾸미")), 0)
-    fish.insert(at, "쭈갑")
+    # 맨 위 고정 순서: 주꾸미, 쭈갑, 갑오징어, 문어 (나머지는 원래 순서)
+    top = ["주꾸미", "쭈갑", "갑오징어", "문어"]
+    fish = top + [f for f in fish if f not in top and f != "쭈꾸미"]
     return fish
 
 
@@ -2429,7 +2428,12 @@ else:
 
         # ----- ② 어종
         step_head(2, "어종", "비워 두면 모든 어종을 조회합니다")
-        fish_sel = st.multiselect("어종", fish_list, default=ss.fish_v, placeholder="전체 어종",
+        # key로 선택을 기억(전에는 고를 때마다 칸이 새로 만들어져 두 번째 선택이 사라졌음)
+        if "w_fish" not in ss:
+            ss.w_fish = [f for f in ss.fish_v if f in fish_list_set]
+        else:
+            ss.w_fish = [f for f in ss.w_fish if f in fish_list_set]
+        fish_sel = st.multiselect("어종", fish_list, key="w_fish", placeholder="전체 어종",
                                   label_visibility="collapsed")
         ss.fish_v = list(fish_sel)
 

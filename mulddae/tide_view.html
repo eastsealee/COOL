@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700&display=swap">
+<style>
+:root{
+  --brown:#7a5444; --brown2:#6c4a3c; --tab-off:#dccbc1; --tab-line:#d6b88a;
+  --panel:rgba(118,138,168,.62); --panel-line:rgba(170,190,215,.75);
+  --navy:#0c1f39; --low:#0e3a8e; --high:#9c2335; --now:#8b3b7d;
+  --sans:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:transparent}
+body{font-family:var(--sans);color:#fff}
+.app{max-width:480px;margin:0 auto;container-type:inline-size;border-radius:14px;overflow:hidden;box-shadow:0 6px 24px rgba(0,0,0,.35);background:#1b1a19}
+.app *{--p:calc(100cqw/1331)}
+header{background:var(--brown);height:calc(170*var(--p));position:relative}
+header .ic{position:absolute;top:50%;transform:translateY(-50%);display:flex}
+header svg{width:calc(90*var(--p));height:calc(90*var(--p))}
+.loc{position:absolute;left:calc(200*var(--p));right:calc(330*var(--p));top:50%;transform:translateY(-50%);font-weight:700;font-size:calc(66*var(--p));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+nav{background:var(--brown2);height:calc(105*var(--p));display:flex;white-space:nowrap;overflow:hidden}
+nav button{flex:1;background:none;border:0;font:700 calc(52*var(--p)) var(--sans);color:var(--tab-off);height:100%;padding:0;position:relative;cursor:pointer}
+nav button.on{color:#fff}
+nav button.on::after{content:"";position:absolute;left:12%;right:12%;bottom:0;height:calc(8*var(--p));background:var(--tab-line)}
+.stage{position:relative;height:calc(2075*var(--p));overflow:hidden}
+canvas#bg{position:absolute;inset:0;width:100%;height:100%}
+.a{position:absolute;left:calc(var(--x)*var(--p));top:calc((var(--y) - 275)*var(--p));width:calc(var(--w)*var(--p));height:calc(var(--h)*var(--p))}
+.t{text-shadow:0 1px 3px rgba(0,0,0,.35)}
+.info{background:var(--panel);border:1px solid var(--panel-line);font-weight:700}
+.info .l{position:absolute;left:calc(20*var(--p));font-size:calc(54*var(--p));line-height:1;white-space:nowrap}
+#moon{position:absolute;left:calc(705*var(--p));top:calc(20*var(--p));width:calc(210*var(--p));height:calc(210*var(--p))}
+.bar{position:absolute;left:calc(258*var(--p));top:calc(174*var(--p));width:calc(292*var(--p));height:calc(56*var(--p));border:1px solid #c8c97c;background:rgba(40,60,90,.25)}
+.bar b{display:block;height:100%;background:#d9e38a}
+.rc{background:var(--panel);border-left:1px solid var(--panel-line);border-bottom:2px solid var(--panel-line)}
+.btn{display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(58*var(--p));border:0;color:#fff;font-family:var(--sans);cursor:pointer}
+button:focus-visible{outline:2px solid #ffd76a;outline-offset:-3px}
+.dim{color:rgba(255,255,255,.28);cursor:default}
+.on-alert{color:#fff}
+.tri{width:0;height:0;margin-left:calc(26*var(--p));border-top:calc(26*var(--p)) solid transparent;border-bottom:calc(26*var(--p)) solid transparent;border-left:calc(46*var(--p)) solid var(--c)}
+.gbtn{background:rgba(120,135,155,.55)}
+#timeline{position:absolute;left:calc(427*var(--p));top:calc(265*var(--p));width:calc(76*var(--p));height:calc(1600*var(--p));background:var(--navy);border-radius:calc(38*var(--p))}
+.hr{position:absolute;left:0;right:0;text-align:center;font-weight:700;font-size:calc(42*var(--p));transform:translateY(-50%)}
+.tide{border-radius:calc(16*var(--p));display:flex;flex-direction:column;justify-content:center;align-items:center;font-weight:700;font-size:calc(58*var(--p));line-height:1.45;box-shadow:0 2px 6px rgba(0,0,0,.3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.tide.low{background:var(--low)}.tide.high{background:var(--high)}
+.ev{background:var(--navy);border-radius:calc(18*var(--p));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(56*var(--p));font-variant-numeric:tabular-nums;white-space:nowrap}
+.now{background:var(--now);border-radius:calc(10*var(--p));display:flex;align-items:center;justify-content:center;font-weight:700;font-size:calc(40*var(--p))}
+.cur{font-weight:700}
+.cur .v{position:absolute;left:calc(18*var(--p));top:calc(20*var(--p));font-size:calc(52*var(--p));line-height:1.42;width:calc(60*var(--p));text-align:center}
+.cur .d{position:absolute;left:calc(112*var(--p));top:calc(18*var(--p));font-size:calc(52*var(--p));line-height:1.52}
+.fc .h{position:absolute;left:calc(18*var(--p));top:calc(22*var(--p));font-size:calc(52*var(--p));font-weight:700;line-height:1.3;width:calc(60*var(--p));text-align:center}
+.fc svg{position:absolute;left:calc(80*var(--p));top:calc(15*var(--p));width:calc(250*var(--p));height:calc(200*var(--p))}
+.fc .w{position:absolute;left:0;right:0;top:calc(250*var(--p));text-align:center;font-weight:700;font-size:calc(56*var(--p))}
+.navb{display:flex}
+.navb button{flex:1;background:rgba(80,95,115,.5);border:0;border-right:2px solid rgba(160,175,195,.35);color:#fff;font:700 calc(60*var(--p)) var(--sans);cursor:pointer}
+.navb button:disabled{color:rgba(255,255,255,.3);cursor:default}
+.navb button.sel{background:rgba(80,95,115,.72)}
+.list{background:rgba(20,35,55,.72);border:1px solid var(--panel-line);display:flex;flex-direction:column}
+.list .head{font-weight:700;font-size:calc(54*var(--p));padding:calc(28*var(--p)) calc(30*var(--p));border-bottom:1px solid var(--panel-line);display:flex;justify-content:space-between;align-items:baseline;gap:calc(20*var(--p))}
+.list .head small{font-size:calc(36*var(--p));font-weight:500;color:#c9d3e0}
+.list .cols,.list .row{display:grid;grid-template-columns:var(--cols);align-items:center;text-align:center;font-variant-numeric:tabular-nums}
+.list .cols{font-size:calc(36*var(--p));color:#c9d3e0;padding:calc(14*var(--p)) calc(10*var(--p));border-bottom:1px solid rgba(170,190,215,.35)}
+.list .body{overflow-y:auto;flex:1}
+.list .row{font-size:calc(46*var(--p));font-weight:500;height:calc(118*var(--p));padding:0 calc(10*var(--p));border-bottom:1px solid rgba(170,190,215,.18)}
+.list .row.cur-h{background:rgba(139,59,125,.45)}
+.list .row>div{display:flex;align-items:center;justify-content:center;gap:calc(10*var(--p))}
+.list .row svg{width:calc(100*var(--p));height:calc(80*var(--p));justify-self:center}
+.list .empty{padding:calc(60*var(--p));font-size:calc(46*var(--p));text-align:center;color:#c9d3e0}
+.arrow{display:inline-block;width:calc(56*var(--p));height:calc(56*var(--p))}
+#toast{position:absolute;left:50%;bottom:calc(260*var(--p));transform:translateX(-50%);background:rgba(20,20,20,.88);padding:calc(18*var(--p)) calc(36*var(--p));border-radius:calc(40*var(--p));font-size:calc(42*var(--p));transition:opacity .3s;opacity:0;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+</style></head><body>
+<div class="app">
+  <header>
+    <span class="ic" style="left:calc(65*var(--p))"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="#fff" stroke-width="2.4"/></svg></span>
+    <div class="loc t" id="portName"></div>
+    <span class="ic" style="left:calc(1003*var(--p))"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2" fill="#fff"/><circle cx="12" cy="12" r="2.2" fill="#fff"/><circle cx="12" cy="19" r="2.2" fill="#fff"/></svg></span>
+    <span class="ic" style="left:calc(1192*var(--p))"><svg viewBox="0 0 24 24"><path d="M12 2.5l2.9 6.2 6.6.7-4.9 4.5 1.4 6.6L12 17.2l-5.9 3.3 1.4-6.6-4.9-4.5 6.6-.7z" fill="#fff"/></svg></span>
+  </header>
+  <nav id="tabs">
+    <button data-tab="point">포인트</button>
+    <button data-tab="tide" class="on">물때</button>
+    <button data-tab="weather">날씨</button>
+    <button data-tab="wind">바람/파고</button>
+  </nav>
+
+  <div class="stage">
+    <canvas id="bg"></canvas>
+
+    <div id="tideView">
+      <div class="a info" style="--x:2;--y:277;--w:928;--h:243">
+        <div class="l t" id="dateL" style="top:calc(18*var(--p))"></div>
+        <div class="l t" id="lunarL" style="top:calc(98*var(--p))"></div>
+        <div class="l t" style="top:calc(176*var(--p))">조류세기</div>
+        <div class="bar"><b id="flow"></b></div>
+        <div class="l t" id="flowT" style="top:calc(176*var(--p));left:calc(570*var(--p))"></div>
+        <canvas id="moon"></canvas>
+      </div>
+      <button class="a btn gbtn t" style="--x:690;--y:525;--w:240;--h:183" data-go="wind">관측</button>
+      <div id="timeline">
+        <div class="hr" style="top:calc(67*var(--p))">0</div>
+        <div class="hr" style="top:calc(382*var(--p))">6</div>
+        <div class="hr" style="top:calc(698*var(--p))">12</div>
+        <div class="hr" style="top:calc(1014*var(--p))">18</div>
+        <div class="hr" style="top:calc(1330*var(--p))">24</div>
+      </div>
+      <div id="dyn"></div>
+      <button class="a btn gbtn t" style="--x:445;--y:1955;--w:243;--h:185" data-go="weather">날씨</button>
+      <button class="a btn gbtn t" style="--x:690;--y:1955;--w:240;--h:185" data-go="wind">파고</button>
+      <svg class="a" style="--x:8;--y:1908;--w:236;--h:236" viewBox="-120 -120 240 240" aria-hidden="true">
+        <g id="compass">
+          <circle r="116" fill="#cfd2d6" stroke="#9a9ea4" stroke-width="3"/>
+          <circle r="84" fill="#fff" stroke="#b4b8bd" stroke-width="2"/>
+          <g font-family="Noto Sans KR,sans-serif" font-weight="700" fill="#3a3f46" text-anchor="middle">
+            <text y="-92" font-size="20">N</text><text y="-92" font-size="13" transform="rotate(45)">NE</text>
+            <text y="-92" font-size="20" transform="rotate(90)">E</text><text y="-92" font-size="13" transform="rotate(135)">SE</text>
+            <text y="-92" font-size="20" transform="rotate(180)">S</text><text y="-92" font-size="13" transform="rotate(225)">SW</text>
+            <text y="-92" font-size="20" transform="rotate(270)">W</text><text y="-92" font-size="13" transform="rotate(315)">NW</text>
+          </g>
+        </g>
+        <g id="needle">
+          <path d="M0-78L-9 0 9 0Z" fill="#e8262a"/><path d="M0 78L-9 0 9 0Z" fill="#1f2a3a"/>
+          <circle r="30" fill="none" stroke="#9aa0a6" stroke-width="8"/><circle r="7" fill="#444"/>
+        </g>
+      </svg>
+    </div>
+
+    <div id="listView" class="a list" style="--x:0;--y:277;--w:1331;--h:1880" hidden></div>
+
+    <div id="rightCol">
+      <div class="a rc btn dim" style="--x:933;--y:277;--w:398;--h:180">특보발효중<span class="tri" style="--c:rgba(220,90,140,.35)"></span></div>
+      <div class="a rc btn dim" style="--x:933;--y:458;--w:398;--h:182">태풍진행중<span class="tri" style="--c:rgba(90,120,220,.4)"></span></div>
+      <button class="a rc btn t" style="--x:933;--y:641;--w:398;--h:182" data-go="weather">기상정보<span class="tri" style="--c:#c0291e"></span></button>
+      <button class="a rc btn t" style="--x:933;--y:824;--w:398;--h:180" data-go="wind">바람파고<span class="tri" style="--c:#3e6fd6"></span></button>
+      <div class="a rc cur t" style="--x:933;--y:1005;--w:398;--h:422" id="curBox"></div>
+      <div id="fcBoxes"></div>
+    </div>
+
+    <div class="a navb" style="--x:0;--y:2160;--w:932;--h:190" id="navb">
+      <button id="prev">-1일</button><button id="today" class="sel">오늘</button><button id="next">+1일</button>
+    </div>
+    <div id="toast"></div>
+  </div>
+</div>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <radialGradient id="gSun" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff9a8"/><stop offset=".55" stop-color="#ffe21a"/><stop offset="1" stop-color="#e8a800"/></radialGradient>
+    <radialGradient id="gMoon" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fffbe0"/><stop offset="1" stop-color="#e2c96a"/></radialGradient>
+    <linearGradient id="gCl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset=".6" stop-color="#d4d6da"/><stop offset="1" stop-color="#8f949b"/></linearGradient>
+    <linearGradient id="gDk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#b9bec6"/><stop offset="1" stop-color="#6c727b"/></linearGradient>
+    <g id="cloudShape"><path d="M60 160h140a36 36 0 0 0 4-72 52 52 0 0 0-96-22 40 40 0 0 0-56 34 30 30 0 0 0 8 60z"/></g>
+    <g id="i-cloud"><use href="#cloudShape" fill="url(#gCl)" stroke="#9aa0a7" stroke-width="2"/></g>
+    <g id="i-sun"><circle cx="125" cy="100" r="70" fill="url(#gSun)"/></g>
+    <g id="i-moon"><path d="M150 40a70 70 0 1 0 40 115 58 58 0 1 1-40-115z" fill="url(#gMoon)"/></g>
+    <g id="i-sunCloud"><circle cx="120" cy="88" r="78" fill="url(#gSun)"/><g transform="translate(70 40) scale(.62)"><use href="#i-cloud"/></g><g transform="translate(-20 -60) scale(.42)"><use href="#i-cloud"/></g></g>
+    <g id="i-moonCloud"><g transform="translate(-20 -10)"><use href="#i-moon"/></g><g transform="translate(70 40) scale(.62)"><use href="#i-cloud"/></g></g>
+    <g id="i-rain"><use href="#cloudShape" fill="url(#gDk)" stroke="#5f656d" stroke-width="2" transform="translate(0 -30)"/><g stroke="#5aa8ff" stroke-width="7" stroke-linecap="round"><path d="M80 150l-10 30M120 150l-10 30M160 150l-10 30"/></g></g>
+    <g id="i-snow"><use href="#cloudShape" fill="url(#gCl)" stroke="#9aa0a7" stroke-width="2" transform="translate(0 -30)"/><g fill="#fff" stroke="#9ab" stroke-width="2"><circle cx="80" cy="168" r="8"/><circle cx="120" cy="180" r="8"/><circle cx="160" cy="168" r="8"/></g></g>
+    <g id="i-fog"><use href="#i-cloud" transform="translate(0 -25)"/><g stroke="#c9ced5" stroke-width="9" stroke-linecap="round"><path d="M50 160h150M70 185h120"/></g></g>
+    <g id="i-thunder"><use href="#i-rain"/><path d="M125 120l-25 45h20l-12 35 35-50h-20l12-30z" fill="#ffd21a"/></g>
+  </defs>
+</svg>
+
+<script>
+const D = /*__DATA__*/null;
+(function(){
+const WD=["일","월","화","수","목","금","토"];
+const DIRS=["북","북북동","북동","동북동","동","동남동","남동","남남동","남","남남서","남서","서남서","서","서북서","북서","북북서"];
+const dates=Object.keys(D.days).sort();
+let idx=Math.max(0,dates.indexOf(D.today)); if(dates.indexOf(D.today)<0){idx=dates.findIndex(d=>d>D.today); if(idx<0)idx=dates.length-1}
+let tab="tide";
+const $=id=>document.getElementById(id);
+const toMin=s=>{const [h,m]=s.split(":").map(Number);return h*60+m};
+const fmt=m=>{m=Math.round(m);return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0")};
+const Y=min=>607+52.62*(min/60);
+const box=(cls,x,y,w,h,html)=>`<div class="a ${cls}" style="--x:${x};--y:${y};--w:${w};--h:${h}">${html}</div>`;
+const nowKST=()=>{const n=new Date(new Date().toLocaleString("en-US",{timeZone:"Asia/Seoul"}));return n};
+const dirName=d=>d==null?"-":DIRS[Math.round(d/22.5)%16];
+const r1=v=>v==null?"-":(Math.round(v*10)/10).toFixed(1);
+
+function wInfo(code,isDay){
+  const n=isDay===0;
+  if(code==null)return{icon:"i-cloud",label:"-"};
+  if(code===0)return{icon:n?"i-moon":"i-sun",label:"맑음"};
+  if(code===1)return{icon:n?"i-moon":"i-sun",label:"대체로 맑음"};
+  if(code===2)return{icon:n?"i-moonCloud":"i-sunCloud",label:"구름 많음"};
+  if(code===3)return{icon:"i-cloud",label:"흐림"};
+  if(code===45||code===48)return{icon:"i-fog",label:"안개"};
+  if(code>=51&&code<=57)return{icon:"i-rain",label:"이슬비"};
+  if(code>=61&&code<=67)return{icon:"i-rain",label:"비"};
+  if(code>=71&&code<=77)return{icon:"i-snow",label:"눈"};
+  if(code>=80&&code<=82)return{icon:"i-rain",label:"소나기"};
+  if(code>=85&&code<=86)return{icon:"i-snow",label:"소낙눈"};
+  if(code>=95)return{icon:"i-thunder",label:"뇌우"};
+  return{icon:"i-cloud",label:"흐림"};
+}
+const icon=(id,vb="0 0 250 200")=>`<svg viewBox="${vb}"><use href="#${id}"/></svg>`;
+const arrow=deg=>deg==null?"":`<svg class="arrow" viewBox="-12 -12 24 24" style="transform:rotate(${deg+180}deg)"><path d="M0-10L6 8 0 4-6 8Z" fill="#ffd76a"/></svg>`;
+function hoursFor(date){return (D.weather||[]).filter(h=>h.time.startsWith(date))}
+
+function renderHeader(){
+  $("portName").textContent=D.port;
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
+  $("prev").disabled=idx<=0; $("next").disabled=idx>=dates.length-1;
+  $("today").classList.toggle("sel",dates[idx]===D.today);
+}
+
+function renderTide(){
+  const date=dates[idx], d=D.days[date], [yy,mm,dd]=date.split("-").map(Number);
+  const wd=new Date(Date.UTC(yy,mm-1,dd)).getUTCDay();
+  $("dateL").textContent=`${yy}년 ${mm}월 ${dd}일(${WD[wd]})`;
+  const [lm,ld]=d.lunar.split(".").map(Number);
+  $("lunarL").innerHTML=`음력 ${lm}월 ${ld}일 &nbsp;&nbsp; ${d.mul}`;
+  $("flow").style.width=d.flow+"%"; $("flowT").textContent=d.flow+"%";
+  drawMoon(ld);
+  let h="";
+  d.tides.forEach(e=>{const low=e.type==="low",x=low?30:55,w=low?373:348,m=toMin(e.t);
+    h+=box(`tide t ${e.type}`,x,Y(m)-57,w,183,`<span>${low?"간조":"만조"} ${e.t}</span><span>(${e.h}) ${low?"▼":"▲"} ${e.diff}</span>`)});
+  const ev=[];
+  if(d.sunrise)ev.push(["일출",d.sunrise]); if(d.sunset)ev.push(["일몰",d.sunset]);
+  if(d.moonrise)ev.push(["월출",d.moonrise]); if(d.moonset)ev.push(["월몰",d.moonset]);
+  ev.sort((a,b)=>toMin(a[1])-toMin(b[1]));
+  let last=-999; ev.forEach(([n,t])=>{let y=Y(toMin(t))-45; if(y<last+96)y=last+96; last=y; h+=box("ev t",528,y,282,90,`${n} ${t}`)});
+  if(date===D.today){const n=nowKST(),m=n.getHours()*60+n.getMinutes(); h+=box("now t",403,Y(m)-35,127,70,fmt(m))}
+  $("dyn").innerHTML=h;
+}
+
+function renderRight(){
+  const n=nowKST(), key=`${D.today}T${String(n.getHours()).padStart(2,"0")}:00`;
+  const all=D.weather||[]; const i=all.findIndex(h=>h.time===key);
+  if(i<0){$("curBox").innerHTML=`<div class="d" style="left:calc(30*var(--p))">날씨 정보를<br>불러오지<br>못했습니다</div>`;$("fcBoxes").innerHTML="";return}
+  const c=all[i];
+  $("curBox").innerHTML=`<div class="v">${n.getHours()}<br>시<br>현<br>재</div><div class="d">기온<br>${r1(c.temp)}°C<br>${dirName(c.wdir)}풍 ${r1(c.wspd)}m/<br>s<br>습도 ${c.hum??"-"}%</div>`;
+  $("needle").setAttribute("transform",`rotate(${(c.wdir??0)+180})`);
+  let h="";
+  [0,1,2].forEach(k=>{const e=all[i+k]; if(!e)return; const w=wInfo(e.wcode,e.is_day);
+    h+=box("rc fc t",933,1428+k*361,398,360,`<div class="h">${Number(e.time.slice(11,13))}<br>시</div>${icon(w.icon)}<div class="w">${w.label}</div>`)});
+  $("fcBoxes").innerHTML=h;
+}
+
+function renderList(){
+  const date=dates[idx], [yy,mm,dd]=date.split("-").map(Number), d=D.days[date];
+  const wd=new Date(Date.UTC(yy,mm-1,dd)).getUTCDay();
+  const hrs=hoursFor(date), n=nowKST(), curH=date===D.today?n.getHours():-1;
+  const title=tab==="weather"?"시간별 날씨":"시간별 바람·파고";
+  let cols, head, rows;
+  if(tab==="weather"){
+    cols="1fr 1.3fr 1.6fr 1.1fr 1fr 1fr";
+    head=["시각","","날씨","기온","습도","강수"];
+    rows=hrs.map(e=>{const w=wInfo(e.wcode,e.is_day);return [`${e.time.slice(11,13)}시`,icon(w.icon),w.label,`${r1(e.temp)}°`,`${e.hum??"-"}%`,e.precip?`${r1(e.precip)}㎜`:"-"]});
+  }else{
+    cols="0.9fr 1.5fr 1.1fr 1fr 0.9fr 1.1fr";
+    head=["시각","풍향","풍속","파고","주기","수온"];
+    rows=hrs.map(e=>[`${e.time.slice(11,13)}시`,`${arrow(e.wdir)} ${dirName(e.wdir)}`,`${r1(e.wspd)}<small>m/s</small>`,e.wave==null?"-":`${r1(e.wave)}m`,e.wper==null?"-":`${Math.round(e.wper)}초`,e.sst==null?"-":`${r1(e.sst)}°`]);
+  }
+  const sub=`${mm}월 ${dd}일(${WD[wd]}) · ${d?d.mul:""}`;
+  let body=rows.length?rows.map((r,i)=>`<div class="row${Number(hrs[i].time.slice(11,13))===curH?" cur-h":""}">${r.map(c=>`<div>${c}</div>`).join("")}</div>`).join("")
+    :`<div class="empty">이 날짜의 예보가 없습니다.<br>예보는 오늘부터 7일까지 제공됩니다.</div>`;
+  $("listView").style.setProperty("--cols",cols);
+  $("listView").innerHTML=`<div class="head t"><span>${title}</span><small>${sub}</small></div><div class="cols">${head.map(c=>`<div>${c}</div>`).join("")}</div><div class="body" id="lb">${body}</div>`;
+  const cur=$("listView").querySelector(".cur-h"); if(cur)$("lb").scrollTop=cur.offsetTop-$("lb").offsetTop-40;
+}
+
+function render(){
+  renderHeader();
+  const isTide=tab==="tide";
+  $("tideView").hidden=!isTide; $("rightCol").hidden=!isTide; $("listView").hidden=isTide;
+  if(isTide){renderTide();renderRight()} else renderList();
+}
+
+function drawMoon(L){
+  const c=$("moon"), s=Math.round(c.clientWidth*devicePixelRatio); if(!s)return;
+  c.width=c.height=s; const g=c.getContext("2d"), r=s/2*0.96, cx=s/2, cy=s/2;
+  g.beginPath(); g.arc(cx,cy,r,0,7); g.fillStyle="#3b4556"; g.fill();
+  const ph=((L-1)/29.53)*2*Math.PI, k=Math.cos(ph), waxing=L<15.5;
+  g.save(); g.beginPath(); g.arc(cx,cy,r,0,7); g.clip();
+  const lit=g.createRadialGradient(cx+r*.2,cy-r*.2,r*.1,cx,cy,r); lit.addColorStop(0,"#d8d8d6"); lit.addColorStop(1,"#9c9c9a");
+  g.fillStyle=lit; g.beginPath();
+  g.ellipse(cx,cy,r,r,0,-Math.PI/2,Math.PI/2,!waxing);
+  g.ellipse(cx,cy,Math.abs(k)*r,r,0,Math.PI/2,-Math.PI/2,(k>0)===waxing);
+  g.fill();
+  let seed=7; const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
+  for(let i=0;i<70;i++){const a=rnd()*7,d=Math.sqrt(rnd())*r*.95,cr=r*(.03+rnd()*.1);g.beginPath();g.arc(cx+Math.cos(a)*d,cy+Math.sin(a)*d,cr,0,7);g.fillStyle=`rgba(60,60,60,${.08+rnd()*.15})`;g.fill()}
+  g.restore();
+  g.beginPath(); g.arc(cx,cy,r,0,7); g.strokeStyle="rgba(230,235,240,.6)"; g.lineWidth=s*.008; g.stroke();
+}
+
+function drawBg(){
+  const c=$("bg"), W=c.clientWidth*devicePixelRatio, H=c.clientHeight*devicePixelRatio; if(!W)return;
+  c.width=W; c.height=H; const g=c.getContext("2d"), p=W/1331; g.scale(p,p);
+  const HZ=995, HH=2075; let seed=3; const rnd=()=>(seed=(seed*9301+49297)%233280)/233280;
+  let sk=g.createLinearGradient(0,0,0,HZ); sk.addColorStop(0,"#6f9cc8"); sk.addColorStop(.7,"#a9c3dc"); sk.addColorStop(1,"#cbd9e5");
+  g.fillStyle=sk; g.fillRect(0,0,1331,HZ);
+  g.filter="blur(14px)"; for(let i=0;i<14;i++){g.fillStyle=`rgba(255,255,255,${.15+rnd()*.25})`;g.beginPath();g.ellipse(rnd()*1331,80+rnd()*700,90+rnd()*160,25+rnd()*40,0,0,7);g.fill()} g.filter="none";
+  g.fillStyle="#8d9cad"; g.beginPath(); g.moveTo(880,HZ); g.bezierCurveTo(1000,930,1150,880,1331,850); g.lineTo(1331,HZ); g.fill();
+  g.fillStyle="#9fb0c0"; g.beginPath(); g.moveTo(300,HZ); g.quadraticCurveTo(450,978,620,HZ); g.fill();
+  let sea=g.createLinearGradient(0,HZ,0,HH); sea.addColorStop(0,"#53789b"); sea.addColorStop(.35,"#2f5779"); sea.addColorStop(1,"#1a3854");
+  g.fillStyle=sea; g.fillRect(0,HZ,1331,HH-HZ);
+  for(let i=0;i<2600;i++){const y=HZ+Math.pow(rnd(),1.4)*(HH-HZ), t=(y-HZ)/(HH-HZ), len=6+t*70*rnd(), x=rnd()*1331;
+    g.strokeStyle=rnd()<.5?`rgba(190,215,235,${.12+.25*rnd()})`:`rgba(10,30,50,${.2+.3*rnd()})`; g.lineWidth=1+t*4*rnd();
+    g.beginPath(); g.moveTo(x,y); g.quadraticCurveTo(x+len/2,y-1-t*4,x+len,y); g.stroke()}
+  g.fillStyle="rgba(230,240,248,.5)"; g.fillRect(0,HZ-2,1331,3);
+  g.fillStyle="#6b625a"; g.beginPath();
+  g.moveTo(0,820); g.lineTo(60,840); g.lineTo(120,880); g.lineTo(200,905); g.lineTo(260,940); g.lineTo(330,975); g.lineTo(380,1005); g.lineTo(405,1045); g.lineTo(360,1065); g.lineTo(0,1075); g.fill();
+  for(let i=0;i<500;i++){const x=rnd()*400, y=830+rnd()*240; if(y<820+x*0.55) continue; g.fillStyle=rnd()<.5?`rgba(40,35,30,${.2+rnd()*.3})`:`rgba(170,160,145,${.15+rnd()*.25})`; g.fillRect(x,y,4+rnd()*22,2+rnd()*8)}
+  g.fillStyle="rgba(220,230,235,.55)"; for(let i=0;i<40;i++){g.fillRect(rnd()*420,1060+rnd()*16,6+rnd()*20,2)}
+  g.fillStyle="#3b3631"; g.beginPath(); g.moveTo(0,1960); g.quadraticCurveTo(120,1940,200,2000); g.lineTo(260,2075); g.lineTo(0,2075); g.fill();
+}
+
+let tt; function toast(m){const e=$("toast"); e.textContent=m; e.classList.add("show"); clearTimeout(tt); tt=setTimeout(()=>e.classList.remove("show"),1800)}
+document.querySelectorAll("#tabs button").forEach(b=>b.onclick=()=>{
+  if(b.dataset.tab==="point"){toast("화면 위 '포인트' 목록에서 항구를 고르세요");return}
+  tab=b.dataset.tab; render()});
+document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{tab=b.dataset.go;render()});
+$("prev").onclick=()=>{if(idx>0){idx--;render()}};
+$("next").onclick=()=>{if(idx<dates.length-1){idx++;render()}};
+$("today").onclick=()=>{const i=dates.indexOf(D.today); if(i>=0){idx=i;render()}};
+function all(){drawBg();render()}
+if(!dates.length){document.querySelector(".stage").innerHTML='<div style="padding:24px;font-size:16px">물때 자료를 불러오지 못했습니다.</div>'}
+else{ (document.fonts?document.fonts.ready:Promise.resolve()).then(all); all(); addEventListener("resize",all); setInterval(()=>{if(tab==="tide")renderTide()},30000); }
+})();
+</script>
+</body></html>

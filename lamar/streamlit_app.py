@@ -12,15 +12,17 @@ import pandas as pd
 import streamlit as st
 from korean_lunar_calendar import KoreanLunarCalendar
 
-BASE = Path(__file__).resolve().parent.parent  # 저장소 최상위
+BASE = Path(__file__).resolve().parent  # lamar 폴더 (lamar_*.py, data/ 가 여기 있음)
 sys.path.insert(0, str(BASE))
 import lamar_badatime as bt  # noqa: E402
 import lamar_sun as sun      # noqa: E402
+import lamar_forecast as lf  # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v40"
+APP_VERSION = "v41"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v41", "🎯 예상 vs 실제 탭: 매일 7일 예상 저장·실제 블로그 마릿수와 비교, 최근 오차로 2026 예상 자동 보정"),
     ("v40", "10월 분위기 % 가중치를 조과 50% · 본문 30% · 날씨 20%로 변경"),
     ("v39", "블로그 자동 갱신 시각을 매일 자정(오전 0시)으로 변경"),
     ("v38", "제목 아래 '2018~2026년 9~12월' 문구 삭제"),
@@ -86,7 +88,7 @@ def seg_label(v):
 # ------------------------------------------------------------ 데이터
 DATA_FILE = BASE / "data" / "lamar_days.json"
 # 월별 분위기 % 가중치: (조과, 본문 분위기, 날씨)
-WEIGHTS = {9: (0.60, 0.30, 0.10), 10: (0.50, 0.30, 0.20), 11: (0.40, 0.40, 0.20), 12: (0.30, 0.50, 0.20)}
+WEIGHTS = lf.WEIGHTS                                    # 월별 가중치는 lamar_forecast.py 에서 함께 관리
 
 
 def mood_score(r):
@@ -270,12 +272,33 @@ def gg26_ratios(d_):
 
 
 GG26_AUTO, GG26_ALL, GG26_ROWS = gg26_ratios(df)
-GG26_FIXED = {10: 2.7, 11: 2.0, 12: 2.0}               # 사용자가 정한 배율 (10월 2.7배, 11·12월 2배)
+GG26_FIXED = dict(lf.GG26_FIXED)                       # 사용자가 정한 배율 (10월 2.7배, 11·12월 2배)
 for _m, _v in GG26_FIXED.items():
     _data_txt = f"데이터 ×{GG26_AUTO[_m]:.2f}" if _m not in (11, 12) else f"전체 배율 ×{GG26_ALL:.2f}"
     GG26_ROWS = [(r[0], r[1], r[2], f"×{_v:.2f} (지정 · {_data_txt})") if r[0] == f"{_m}월" else r
                  for r in GG26_ROWS]
     GG26_AUTO[_m] = _v
+FC_FILE = BASE / "data" / "lamar_forecasts.json"
+
+
+@st.cache_data
+def load_forecasts(stamp):
+    return json.loads(FC_FILE.read_text(encoding="utf-8")) if FC_FILE.exists() else []
+
+
+FC = load_forecasts(FC_FILE.stat().st_mtime_ns if FC_FILE.exists() else 0)
+ACTUAL = {}
+for _r in df.to_dict("records"):
+    ACTUAL.setdefault(_r["date"], {"jj_med": None if pd.isna(_r["jj_med"]) else _r["jj_med"],
+                                   "gg_med": None if pd.isna(_r["gg_med"]) else _r["gg_med"], "score": _r["score"]})
+CAL = lf.calibration(FC, ACTUAL)
+with st.sidebar.expander("🎯 실제 조과로 예상 보정", expanded=False):
+    st.toggle("2026 예상에 보정 적용", value=True, key="cal_on")
+    if CAL["n"]:
+        st.caption(f"최근 {CAL['n']}일 예상 vs 실제 비교 → 주꾸미 ×{CAL['jj']:.2f} · 갑오징어 ×{CAL['gg']:.2f}")
+    else:
+        st.caption("비교할 기록이 아직 없어요. 자동 갱신이 돌면 생겨요.")
+CAL_USE = CAL if st.session_state.get("cal_on", True) else {"jj": 1.0, "gg": 1.0, "n": 0}
 with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
     gg_mode = st.radio("적용 방식", ["📊 데이터 기준 (자동)", "✍️ 직접 입력"], index=0, key="gg26_mode")
     if gg_mode.startswith("📊"):
@@ -353,8 +376,9 @@ st.title(f"🦑 라마르호 예상 조과 분석 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
 
-tab1, tab8, tab5, tab6, tab2, tab3, tab4 = st.tabs(["📅 날짜별 조회", "🔮 2026 예상", "🔮 2027 예상", "🗓️ 2027 달력",
-                                                    "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
+tab1, tab8, tab9, tab5, tab6, tab2, tab3, tab4 = st.tabs(
+    ["📅 날짜별 조회", "🔮 2026 예상", "🎯 예상 vs 실제", "🔮 2027 예상", "🗓️ 2027 달력",
+     "📋 전체 목록", "📊 물때·시기 분석", "ℹ️ 산출 방식"])
 
 
 
@@ -763,6 +787,9 @@ def predict(c):
             if out.get(k) is not None:
                 out[k] = out[k] * f
         out["gg_boost"] = f
+        for k, ck in (("jj", "jj"), ("jj_max", "jj"), ("gg", "gg"), ("gg_max", "gg")):   # 실제 조과 보정
+            if out.get(k) is not None:
+                out[k] = out[k] * CAL_USE[ck]
     out["n"] = len(near)
     out["basis"] = basis
     out["similar"] = near.assign(_rank=near["_w"]).sort_values("_rank", ascending=False).head(6)
@@ -981,7 +1008,7 @@ def forecast_tab(year, start, end, prefix, state_key):
         pass
     P_ = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith(str(year))]), str(LUNCH_T),
                          start.isoformat(), end.isoformat(),
-                         str(sorted(GG26.items())) if year == 2026 else "")
+                         str(sorted(GG26.items())) + str(CAL_USE) if year == 2026 else "")
     period = f"{start.month}월 {start.day}일 ~ {end.month}월 {end.day}일"
     st.subheader(f"{year}년 {period} 예상 달력")
     button_calendar(P_, prefix, year, months, state_key, start, end)
@@ -1059,8 +1086,82 @@ with tab5:
     P = forecast_tab(2027, PRED_START, PRED_END, "c27", "pred_day")
 
 with tab8:
-    TODAY = dt.date(2026, 10, 18)
+    TODAY = min(max(dt.datetime.now(KST_TZ).date(), dt.date(2026, 9, 1)), dt.date(2026, 12, 31))
     forecast_tab(2026, TODAY, dt.date(2026, 12, 31), "c26", "pred_day26")
+
+# ---------------- 탭9: 예상 vs 실제
+with tab9:
+    st.subheader("🎯 예상 vs 실제 조과")
+    if not FC:
+        st.info("아직 저장된 예상이 없어요. 자동 갱신(매일 자정)이 한 번 돌면, 9월 1일부터의 비교와 앞으로 7일 예상이 생겨요.")
+    else:
+        best = lf.best_per_target(FC)
+        rows_ = []
+        for tgt, f in sorted(best.items()):
+            a = ACTUAL.get(tgt) or {}
+            rows_.append({"날짜": tgt, "구분": f["kind"], "며칠 전 예상": f["lead"], "물때": f["mul"], "물세기": f["pct"],
+                          "예상 주꾸미(보정 전)": f["jj_raw"], "예상 주꾸미": f["jj"], "실제 주꾸미": a.get("jj_med"),
+                          "예상 갑오징어(보정 전)": f["gg_raw"], "예상 갑오징어": f["gg"], "실제 갑오징어": a.get("gg_med"),
+                          "예상 분위기": f["score"], "실제 분위기": a.get("score")})
+        V = pd.DataFrame(rows_)
+        V["주꾸미 오차"] = V["실제 주꾸미"] - V["예상 주꾸미"]
+        V["갑오징어 오차"] = V["실제 갑오징어"] - V["예상 갑오징어"]
+        done = V.dropna(subset=["실제 주꾸미", "예상 주꾸미"])
+        done_g = V.dropna(subset=["실제 갑오징어", "예상 갑오징어"])
+
+        def mape(a, p):
+            m = (a > 0) & p.notna()
+            return float(((a[m] - p[m]).abs() / a[m]).mean() * 100) if m.any() else None
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("비교한 날", f"{len(done)}일", "마릿수 기록이 있는 날", delta_color="off")
+        e0, e1 = mape(done["실제 주꾸미"], done["예상 주꾸미(보정 전)"]), mape(done["실제 주꾸미"], done["예상 주꾸미"])
+        k2.metric("주꾸미 평균 오차", f"{e1:.0f}%" if e1 is not None else "-",
+                  f"보정 전 {e0:.0f}%" if e0 is not None else None, delta_color="off")
+        g0, g1 = mape(done_g["실제 갑오징어"], done_g["예상 갑오징어(보정 전)"]), mape(done_g["실제 갑오징어"], done_g["예상 갑오징어"])
+        k3.metric("갑오징어 평균 오차", f"{g1:.0f}%" if g1 is not None else "-",
+                  f"보정 전 {g0:.0f}%" if g0 is not None else None, delta_color="off")
+        k4.metric("지금 보정 배율", f"주꾸미 ×{CAL['jj']:.2f}", f"갑오징어 ×{CAL['gg']:.2f}", delta_color="off")
+
+        st.markdown("**마릿수 추이 — 실제(실선·점) vs 예상(점선)**")
+        for sp, col in (("주꾸미", "#e8590c"), ("갑오징어", "#1971c2")):
+            L = V[["날짜", f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]].melt("날짜", var_name="구분", value_name="마리").dropna()
+            L["날짜"] = pd.to_datetime(L["날짜"])
+            dom = [f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]
+            ch = alt.Chart(L).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(size=45)).encode(
+                x=alt.X("날짜:T", axis=alt.Axis(format="%m/%d", title=None)),
+                y=alt.Y("마리:Q", title=f"{sp} 중앙값(마리)"),
+                color=alt.Color("구분:N", scale=alt.Scale(domain=dom, range=[col, col, "#adb5bd"]),
+                                legend=alt.Legend(orient="top", title=None)),
+                strokeDash=alt.StrokeDash("구분:N", scale=alt.Scale(domain=dom, range=[[1, 0], [6, 4], [2, 3]]), legend=None),
+                tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), "구분", alt.Tooltip("마리:Q", format=".1f")])
+            today_rule = alt.Chart(pd.DataFrame({"t": [pd.Timestamp(dt.datetime.now(KST_TZ).date())]})).mark_rule(
+                color="#868e96", strokeDash=[3, 3]).encode(x="t:T")
+            st.altair_chart((ch + today_rule).properties(height=260), width="stretch")
+
+        st.markdown("**앞으로 7일 예상** (가장 최근 자동 갱신 기준)")
+        last_made = max(f["made"] for f in FC)
+        up = pd.DataFrame([f for f in FC if f["made"] == last_made]).sort_values("target")
+        up["요일"] = pd.to_datetime(up["target"]).dt.dayofweek.map(lambda i: WD[i])
+        st.dataframe(up[["target", "요일", "mul", "pct", "score", "jj", "jj_max", "gg", "gg_max", "am", "pm"]].rename(columns={
+            "target": "날짜", "mul": "물때", "pct": "물세기 %", "score": "예상 분위기", "jj": "예상 주꾸미", "jj_max": "주꾸미 최고",
+            "gg": "예상 갑오징어", "gg_max": "갑오징어 최고", "am": "오전 %", "pm": "오후 %"}), hide_index=True, width="stretch",
+            column_config={"예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100)})
+        st.caption(f"{last_made} 자정에 만든 예상 · 주꾸미·갑오징어는 보정 후 값")
+
+        st.markdown("**날짜별 비교표**")
+        show = V.sort_values("날짜", ascending=False)
+        st.dataframe(show, hide_index=True, width="stretch", height=420, column_config={
+            "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
+            "실제 분위기": st.column_config.ProgressColumn("실제 분위기", format="%d%%", min_value=0, max_value=100),
+            "주꾸미 오차": st.column_config.NumberColumn("주꾸미 오차", format="%+.0f"),
+            "갑오징어 오차": st.column_config.NumberColumn("갑오징어 오차", format="%+.1f")})
+        st.download_button("비교표 CSV", show.to_csv(index=False).encode("utf-8-sig"),
+                           f"lamar_예상vs실제_{APP_VERSION}.csv", "text/csv", key="dl_cmp")
+        st.caption("· 백테스트 = 자동 갱신을 시작하기 전 날짜를 '그 전날까지의 기록만으로 예상했다면'으로 채운 값이에요.  \n"
+                   "· 오차 = 실제 − 예상 (+면 예상보다 많이 잡힘).  \n"
+                   f"· 보정 = 최근 {lf.CAL_WINDOW}일 동안 실제 마릿수 합 ÷ 보정 전 예상 합 (×{lf.CAL_CLIP[0]}~×{lf.CAL_CLIP[1]} 사이). "
+                   "이 배율을 🔮 2026 예상과 7일 예상에 곱해요. 사이드바 '🎯 실제 조과로 예상 보정'에서 끌 수 있어요.")
 
 
 # ---------------- 탭6: 2027 달력 (깜빡임 없는 색칠 달력)
