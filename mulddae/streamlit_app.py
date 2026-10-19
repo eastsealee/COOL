@@ -124,14 +124,35 @@ def parse_month(text: str, year: int, month: int) -> dict[str, dict]:
     return days
 
 
-FLOW = {"조금": 3, "무시": 6, "1물": 15, "2물": 28, "3물": 43, "4물": 58, "5물": 72, "6물": 84,
-        "7물": 93, "8물": 99, "9물": 100, "10물": 95, "11물": 85, "12물": 70, "13물": 50, "14물": 30}
+# 조류세기 — 선상낚시 예약조회(sunsang24/streamlit_app.py)의 tide_with_strength와 같은 계산
+# ▲/▼ 뒤 숫자(직전 물때와의 높이 변화 cm)의 하루 평균 = 바다타임 '물흐름'과 비례하는 지표
+# 남당항(356)은 바다타임 물흐름%와 대조해 맞춘 기준값, 다른 항구는 불러온 석 달 안에서 최약 0% ~ 최강 100%
+FLOW_ZERO, FLOW_FULL = 201.0, 732.0           # 사리 → 조금 (물살이 약해지는 기간)
+FLOW_ZERO_UP, FLOW_FULL_UP = 234.0, 727.0     # 조금 → 사리 (물살이 세지는 기간)
+FLOW_CALIBRATED = {356}
 
 
-def add_flow(days: dict[str, dict]) -> None:
-    """조류세기(%) — 물때 단계 기준 상대값 (조금 최저, 8~9물 최고)."""
+def add_flow(days: dict[str, dict], code: int) -> None:
     for d in days.values():
-        d["flow"] = FLOW.get(d["mul"], 50)
+        deltas = [abs(e["diff"]) for e in d["tides"]][:4]
+        d["_flow"] = round(sum(deltas) / len(deltas), 1) if deltas else None
+    flows = [d["_flow"] for d in days.values() if d["_flow"] is not None]
+    fmin, fmax = (min(flows), max(flows)) if flows else (0, 0)
+    for key in sorted(days):
+        d, f = days[key], days[key]["_flow"]
+        if f is None:
+            pct = None
+        elif code not in FLOW_CALIBRATED:
+            pct = round((f - fmin) / (fmax - fmin) * 100) if fmax > fmin else None
+        else:
+            prev_key = (datetime.strptime(key, "%Y-%m-%d") - timedelta(days=1)).strftime("%Y-%m-%d")
+            prev = days.get(prev_key, {}).get("_flow")
+            rising = prev is not None and f > prev and len(d["tides"]) >= 4
+            z, full = (FLOW_ZERO_UP, FLOW_FULL_UP) if rising else (FLOW_ZERO, FLOW_FULL)
+            pct = round((f - z) / (full - z) * 100)
+        d["flow"] = 0 if pct is None else max(0, min(100, pct))
+    for d in days.values():
+        d.pop("_flow", None)
 
 
 @st.cache_data(ttl=6 * 3600, show_spinner=False)
@@ -235,7 +256,7 @@ if not days:
         st.caption(" / ".join(errors))
     st.stop()
 
-add_flow(days)
+add_flow(days, pid)
 
 try:
     weather = fetch_weather(lat, lon)
@@ -255,5 +276,5 @@ components.html(html, height=870, scrolling=False)
 
 st.caption(
     f"물때: [바다타임](https://www.badatime.com/{pid}.html) · 날씨/파고: [Open-Meteo](https://open-meteo.com) · "
-    f"조류세기는 물때 단계 기준 상대값 · {now:%m-%d %H:%M} 기준"
+    f"조류세기는 선상낚시 예약조회와 같은 계산(▲▼ 변화량 평균) · {now:%m-%d %H:%M} 기준"
 )
