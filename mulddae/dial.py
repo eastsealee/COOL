@@ -12,13 +12,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
 from tide_data import KST, PORTS, fetch_weather, load_days  # noqa: E402
-
-dial = components.declare_component("mulddae_dial", path=str(HERE / "dial_component"))
+from dial_widget import dial  # noqa: E402
 
 st.set_page_config(page_title="물때 시계", layout="centered")
 st.markdown("<style>.block-container{padding-top:1.2rem;padding-bottom:1rem;max-width:560px}</style>",
