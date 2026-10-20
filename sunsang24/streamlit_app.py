@@ -2069,12 +2069,21 @@ ss.setdefault("cal_ym", (today.year, today.month))
 # ----- 물때 시계에서 넘어왔으면 맨 위에 '돌아가기' (보던 날짜·항구로 돌아감)
 if ss.get("back_to_mulddae"):
     st.markdown("""<style>
-    .st-key-back_mulddae button{border:2px solid #4cc3e6 !important;border-radius:999px !important;
-      font-weight:700 !important;animation:backGlow 1.2s ease-in-out infinite}
-    .st-key-back_mulddae button p{font-weight:700 !important}
-    @keyframes backGlow{0%,100%{box-shadow:0 0 0 0 rgba(76,195,230,.0);border-color:#4cc3e6}
-      50%{box-shadow:0 0 14px 3px rgba(76,195,230,.65);border-color:#bff1ff}}
-    @media (prefers-reduced-motion:reduce){.st-key-back_mulddae button{animation:none}}
+    /* 돌아가기 버튼: 흐르는 빛 + 맥박처럼 커졌다 작아짐 + 퍼지는 물결 + 화살표가 왼쪽으로 톡톡 */
+    .st-key-back_mulddae button{position:relative;overflow:visible !important;
+      border:2px solid #bff1ff !important;border-radius:999px !important;padding:0.55rem 1.4rem !important;
+      background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%) !important;
+      background-size:250% 100% !important;color:#fff !important;
+      animation:backShine 2.2s linear infinite, backPulse 1.1s ease-in-out infinite, backRing 1.6s ease-out infinite}
+    .st-key-back_mulddae button p{font-size:1.05rem !important;font-weight:800 !important;color:#fff !important;
+      text-shadow:0 1px 3px rgba(0,40,60,.8);animation:backNudge 1.1s ease-in-out infinite}
+    .st-key-back_mulddae button:hover{filter:brightness(1.12)}
+    @keyframes backShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+    @keyframes backPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+    @keyframes backRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.75),0 0 12px 2px rgba(76,195,230,.6)}
+      100%{box-shadow:0 0 0 16px rgba(76,195,230,0),0 0 12px 2px rgba(76,195,230,.6)}}
+    @keyframes backNudge{0%,100%{transform:translateX(0)}50%{transform:translateX(-5px)}}
+    @media (prefers-reduced-motion:reduce){.st-key-back_mulddae button,.st-key-back_mulddae button p{animation:none}}
     </style>""", unsafe_allow_html=True)
     if st.button("← 물때 시계로 돌아가기", key="back_mulddae"):
         ss.pop("back_to_mulddae", None)
