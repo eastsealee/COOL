@@ -2066,6 +2066,12 @@ if ss.get("app_ver") != APP_VERSION:
         st.toast(f"새 버전({APP_VERSION})이 적용되어 이전 조회 결과를 지웠습니다. 다시 조회해 주세요.")
 ss.setdefault("cal_ym", (today.year, today.month))
 
+# ----- 물때 시계에서 넘어왔으면 맨 위에 '돌아가기' (보던 날짜·항구로 돌아감)
+if ss.get("back_to_mulddae"):
+    if st.button("← 물때 시계로 돌아가기", key="back_mulddae"):
+        ss.pop("back_to_mulddae", None)
+        st.switch_page("mulddae/dial.py")
+
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
 site_codes = [k for k, v in SITES.items() if v in site_sel]
 

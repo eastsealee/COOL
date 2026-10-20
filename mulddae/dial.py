@@ -90,6 +90,8 @@ if isinstance(val, dict) and val.get("n") != st.session_state.get("dial_n"):
         area, sido, sgg = PORT_META.get(port, ("서해", "", ""))
         st.session_state["jump_from_mulddae"] = {"date": str(val.get("date", ""))[:10], "sea": area, "sido": sido,
                                                  "sgg": sgg, "port": port.split(" (")[0]}
+        st.session_state["dial_center"] = st.session_state["jump_from_mulddae"]["date"] or center_s   # 돌아오면 그 날짜로
+        st.session_state["back_to_mulddae"] = True        # 예약조회 맨 위에 '물때 시계로 돌아가기' 표시
         st.switch_page("sunsang24/streamlit_app.py")
     if val.get("port") in PORTS and val["port"] != port:
         st.session_state["dial_port"] = val["port"]
