@@ -19,9 +19,10 @@ import lamar_sun as sun      # noqa: E402
 import lamar_forecast as lf  # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v42"
+APP_VERSION = "v43"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v43", "예상 vs 실제 추이 그래프에서 '보정 전' 회색 선 삭제"),
     ("v42", "예상 vs 실제 그래프: 실제·예상 주꾸미/갑오징어를 4가지 색으로 구분"),
     ("v41", "🎯 예상 vs 실제 탭: 매일 7일 예상 저장·실제 블로그 마릿수와 비교, 최근 오차로 2026 예상 자동 보정, 지정한 날짜부터 7일 예상"),
     ("v40", "10월 분위기 % 가중치를 조과 50% · 본문 30% · 날씨 20%로 변경"),
@@ -1229,17 +1230,17 @@ with tab9:
                   f"보정 전 {g0:.0f}%" if g0 is not None else None, delta_color="off")
         k4.metric("지금 보정 배율", f"주꾸미 ×{CAL['jj']:.2f}", f"갑오징어 ×{CAL['gg']:.2f}", delta_color="off")
 
-        st.markdown("**마릿수 추이 — 실제(실선) vs 예상(점선, 다른 색) vs 보정 전(회색)**")
+        st.markdown("**마릿수 추이 — 실제(실선) vs 예상(점선)**")
         for sp, col, pcol in (("주꾸미", "#e8590c", "#fcc419"), ("갑오징어", "#1971c2", "#20c997")):
-            L = V[["날짜", f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]].melt("날짜", var_name="구분", value_name="마리").dropna()
+            L = V[["날짜", f"실제 {sp}", f"예상 {sp}"]].melt("날짜", var_name="구분", value_name="마리").dropna()
             L["날짜"] = pd.to_datetime(L["날짜"])
-            dom = [f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]
+            dom = [f"실제 {sp}", f"예상 {sp}"]
             ch = alt.Chart(L).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(size=45)).encode(
                 x=alt.X("날짜:T", axis=alt.Axis(format="%m/%d", title=None)),
                 y=alt.Y("마리:Q", title=f"{sp} 중앙값(마리)"),
-                color=alt.Color("구분:N", scale=alt.Scale(domain=dom, range=[col, pcol, "#adb5bd"]),
+                color=alt.Color("구분:N", scale=alt.Scale(domain=dom, range=[col, pcol]),
                                 legend=alt.Legend(orient="top", title=None)),
-                strokeDash=alt.StrokeDash("구분:N", scale=alt.Scale(domain=dom, range=[[1, 0], [6, 4], [2, 3]]), legend=None),
+                strokeDash=alt.StrokeDash("구분:N", scale=alt.Scale(domain=dom, range=[[1, 0], [6, 4]]), legend=None),
                 tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), "구분", alt.Tooltip("마리:Q", format=".1f")])
             today_rule = alt.Chart(pd.DataFrame({"t": [pd.Timestamp(dt.datetime.now(KST_TZ).date())]})).mark_rule(
                 color="#868e96", strokeDash=[3, 3]).encode(x="t:T")
