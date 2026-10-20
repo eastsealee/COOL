@@ -22,10 +22,11 @@ st.set_page_config(page_title="물때 시계", layout="centered")
 st.markdown("<style>.block-container{padding-top:1.2rem;padding-bottom:1rem;max-width:560px}</style>",
             unsafe_allow_html=True)
 
+# 항구: 화면 안 '항구 선택' 버튼으로 고름 (주소의 ?port= 로 기억)
 names = list(PORTS)
-q = st.query_params.get("port")
-port = st.selectbox("포인트", names, index=names.index(q) if q in names else 0,
-                    help="입력해서 검색할 수 있습니다")
+port = st.session_state.get("dial_port") or st.query_params.get("port")
+if port not in PORTS:
+    port = names[0]
 st.query_params["port"] = port
 pid, lat, lon = PORTS[port]
 
@@ -41,6 +42,10 @@ if len(days) < 3:
     st.error(f"{center:%Y년 %m월 %d일} 앞뒤 물때 자료를 가져오지 못했습니다. 다른 날짜나 포인트를 골라 보세요.")
     if errors:
         st.caption(" / ".join(errors))
+    other = st.selectbox("다른 항구", names, index=names.index(port))
+    if other != port:
+        st.session_state["dial_port"] = other
+        st.rerun()
     if center_s != today and st.button("오늘로 돌아가기"):
         st.session_state["dial_center"] = today
         st.rerun()
@@ -56,12 +61,16 @@ if w_lo <= w_hi:
     except Exception:
         st.warning("날씨 정보를 가져오지 못했습니다. 물때만 표시합니다.")
 
-data = {"port": port.split(" (")[0], "today": today, "center": center_s, "days": days, "weather": weather}
+data = {"port": port.split(" (")[0], "portFull": port, "ports": names, "today": today, "center": center_s, "days": days, "weather": weather}
 val = dial(data=data, key="dial", default=None)
 
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴
 if isinstance(val, dict) and val.get("n") != st.session_state.get("dial_n"):
     st.session_state["dial_n"] = val.get("n")
+    if val.get("port") in PORTS and val["port"] != port:
+        st.session_state["dial_port"] = val["port"]
+        st.query_params["port"] = val["port"]
+        st.rerun()
     picked = str(val.get("date", ""))[:10]
     try:
         datetime.strptime(picked, "%Y-%m-%d")
