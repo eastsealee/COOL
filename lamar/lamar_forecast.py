@@ -164,14 +164,16 @@ def make_record(made, target, p, cal, kind):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--days", type=int, default=7, help="며칠치 예상을 만들지 (오늘 포함)")
+    ap.add_argument("--days", type=int, default=7, help="며칠치 예상을 만들지 (시작일 포함)")
+    ap.add_argument("--start", default="", help="예상 시작일 YYYY-MM-DD (비우면 오늘)")
     ap.add_argument("--backtest-from", default="2026-09-01", help="파일이 없을 때 백테스트 시작일")
     args = ap.parse_args()
 
     today = dt.datetime.now(KST).date()
+    start = dt.date.fromisoformat(args.start.strip()) if args.start.strip() else today
     rows = load_rows()
     fc = json.loads(FC_FILE.read_text(encoding="utf-8")) if FC_FILE.exists() else []
-    targets = [today + dt.timedelta(days=i) for i in range(args.days)]
+    targets = [start + dt.timedelta(days=i) for i in range(args.days)]
     targets = [d for d in targets if d.month in WEIGHTS]
     bt_start = dt.date.fromisoformat(args.backtest_from)
     back = [] if fc else [bt_start + dt.timedelta(days=i) for i in range((today - bt_start).days) if
@@ -190,12 +192,17 @@ def main():
         fc.append(make_record(d - dt.timedelta(days=1), d, predict_one(d, past, tide), cal, "백테스트"))
         added += 1
 
-    cal = calibration(fc, actual)
-    made = today.isoformat()
-    fc = [f for f in fc if f["made"] != made]          # 같은 날 다시 돌리면 덮어씀
+    # 지난 날짜를 지정하면 그날 이전 기록만 써서 공정하게 예상 (그날 실제 조과가 섞이지 않도록)
+    made_d = min(today, start)
+    use_rows = rows if start > today else [r for r in rows if r["date"] < start.isoformat()]
+    cal = calibration(fc, actual, before=start.isoformat() if start <= today else None)
+    made = made_d.isoformat()
+    tset = {d.isoformat() for d in targets}
+    fc = [f for f in fc if not (f["made"] == made and f["target"] in tset)]   # 같은 날 다시 돌리면 덮어씀
     for d in targets:
-        fc.append(make_record(today, d, predict_one(d, rows, tide), cal, "예상"))
+        fc.append(make_record(made_d, d, predict_one(d, use_rows, tide), cal, "예상"))
         added += 1
+    print(f"예상 기간: {targets[0] if targets else '-'} ~ {targets[-1] if targets else '-'} (만든 날 {made})")
 
     fc.sort(key=lambda f: (f["target"], f["made"]))
     FC_FILE.write_text(json.dumps(fc, ensure_ascii=False, indent=1), encoding="utf-8")
