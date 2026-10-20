@@ -24,6 +24,8 @@ COOL/
 │   └─ data/lamar_days.json
 └─ mulddae/
     ├─ tide_data.py        물때·날씨 수집 + 조류세기 계산
+    ├─ build_ports.py      바다타임 전국 지점 목록 만들기 → data/ports.json
+    │                      (Actions '물때 시계 전국 항구 목록 만들기'로 실행)
     ├─ dial.py             물때 시계 화면 (날짜를 고르면 그 날짜 물때를 불러옴)
     └─ dial_component/     원형 화면 (index.html)
 ```

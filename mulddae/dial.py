@@ -15,7 +15,7 @@ import streamlit as st
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
-from tide_data import KST, PORTS, fetch_weather, load_days  # noqa: E402
+from tide_data import DEFAULT_PORT, KST, PORT_META, PORTS, fetch_weather, load_days  # noqa: E402
 from dial_widget import dial  # noqa: E402
 
 st.set_page_config(page_title="물때 시계", layout="centered")
@@ -26,7 +26,7 @@ st.markdown("<style>.block-container{padding-top:1.2rem;padding-bottom:1rem;max-
 names = list(PORTS)
 port = st.session_state.get("dial_port") or st.query_params.get("port")
 if port not in PORTS:
-    port = names[0]
+    port = DEFAULT_PORT if DEFAULT_PORT in PORTS else names[0]
 st.query_params["port"] = port
 pid, lat, lon = PORTS[port]
 
@@ -61,7 +61,7 @@ if w_lo <= w_hi:
     except Exception:
         st.warning("날씨 정보를 가져오지 못했습니다. 물때만 표시합니다.")
 
-data = {"port": port.split(" (")[0], "portFull": port, "ports": names, "today": today, "center": center_s, "days": days, "weather": weather}
+data = {"port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", ""))] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
 val = dial(data=data, key="dial", default=None)
 
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴

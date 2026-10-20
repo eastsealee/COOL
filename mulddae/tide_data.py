@@ -25,7 +25,7 @@ UA = {
 }
 
 # 이름: (바다타임 ID, 위도, 경도)  — 좌표는 날씨·파고 조회용 근사값
-PORTS: dict[str, tuple[int, float, float]] = {
+_FALLBACK: dict[str, tuple[int, float, float]] = {
     "남당항 (홍성)": (356, 36.538, 126.452),
     "홍성죽도 (홍성)": (181, 36.535, 126.433),
     "궁리항 (홍성)": (1392, 36.585, 126.436),
@@ -66,6 +66,40 @@ PORTS: dict[str, tuple[int, float, float]] = {
     "목포": (105, 34.780, 126.380),
     "진도항 (진도)": (1229, 34.375, 126.310),
 }
+
+DEFAULT_PORT = "남당항 (홍성)"
+SIDO_SHORT = {"서울특별시": "서울", "부산광역시": "부산", "인천광역시": "인천", "울산광역시": "울산", "경기도": "경기",
+              "강원도": "강원", "강원특별자치도": "강원", "충청남도": "충남", "충청북도": "충북", "전라북도": "전북",
+              "전북특별자치도": "전북", "전라남도": "전남", "경상북도": "경북", "경상남도": "경남", "제주특별자치도": "제주"}
+
+
+def _short(sg: str) -> str:
+    return sg[:-1] if len(sg) > 2 and sg[-1] in "시군구" else sg
+
+
+def _load_ports() -> tuple[dict[str, tuple[int, float, float]], dict[str, tuple[str, str, str]]]:
+    """전국 지점 목록(data/ports.json, build_ports.py가 만듦) → {"이름 (시군)": (ID, 위도, 경도)}, {같은 키: (권역, 시도, 시군)}
+    목록 파일이 없으면 서해 주요 항구(_FALLBACK)만"""
+    f = HERE / "data" / "ports.json"
+    if not f.exists():
+        return dict(_FALLBACK), {k: ("서해", "", k.split("(")[-1].rstrip(")") if "(" in k else "") for k in _FALLBACK}
+    ports: dict[str, tuple[int, float, float]] = {}
+    meta: dict[str, tuple[str, str, str]] = {}
+    for p in json.loads(f.read_text(encoding="utf-8")):
+        sido = SIDO_SHORT.get(p.get("sido", ""), p.get("sido", ""))
+        sg = _short(p.get("sigungu", "")) or sido
+        key = f"{p['name']} ({sg})" if sg else p["name"]
+        if key in ports:
+            key = f"{p['name']} ({sg} {p['id']})"
+        ports[key] = (int(p["id"]), float(p["lat"]), float(p["lon"]))
+        meta[key] = (p.get("area", ""), sido, sg)
+    if DEFAULT_PORT not in ports:  # 남당항은 항상 맨 앞에
+        ports = {DEFAULT_PORT: _FALLBACK[DEFAULT_PORT], **ports}
+        meta = {DEFAULT_PORT: ("서해", "충남", "홍성"), **meta}
+    return ports, meta
+
+
+PORTS, PORT_META = _load_ports()
 
 # ---------------------------------------------------------------- 물때 파싱
 ROW_RE = re.compile(r"(?<![가-힣\w])([일월화수목금토])\s+(\d{1,2})\s+(\d{1,2})\.(\d{1,2})\s+(무시|조금|\d{1,2}\s*물)")

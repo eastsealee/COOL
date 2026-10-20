@@ -33,6 +33,15 @@ body{font-family:var(--sans);color:var(--ink);padding:4px 4px 12px}
 .ports .grp button{font:700 14px var(--sans);color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(143,166,194,.35);border-radius:999px;padding:6px 12px;cursor:pointer}
 .ports .grp button.on{background:#d9e38a;color:#14304b;border-color:#d9e38a}
 .ports .none{padding:20px;text-align:center;color:var(--sub)}
+.ports .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding-top:8px;position:sticky;top:0;background:var(--pop);padding-bottom:4px;z-index:1}
+.ports .tabs button{font:900 14px var(--sans);color:#fff;background:rgba(255,255,255,.07);border:1px solid rgba(143,166,194,.35);border-radius:10px;padding:7px 0;cursor:pointer}
+.ports .tabs button.on{background:#c45cb0;border-color:#c45cb0}
+.ports .sgrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px}
+.ports .sgrow span{font-size:12px;color:#d9e38a;font-weight:900;min-width:30px}
+.ports button.sg{font:700 13px var(--sans);color:#dfe8f2;background:none;border:1px solid rgba(143,166,194,.35);border-radius:8px;padding:4px 9px;cursor:pointer}
+.ports button.sg.on{background:#244a70;color:#fff;border-color:#9cd1ff}
+.ports .grp small{font-size:11px;color:var(--sub);font-weight:500}
+.ports .grp button.on small{color:#14304b}
 .bar span{font-size:12px;color:#ead9cf}
 .day{padding:12px 12px 8px}
 .card{background:var(--card);border:1px solid var(--card-line);padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;min-width:0}
@@ -96,7 +105,7 @@ svg text{font-family:var(--sans)}
 <div class="app">
   <div class="loading" id="loading" hidden>물때 불러오는 중…</div>
   <div class="bar"><div class="pl"><b id="portName"></b><button id="portBtn" aria-haspopup="dialog">항구 선택 ▾</button></div><span>물때 시계</span></div>
-  <div class="ports" id="ports" role="dialog" aria-label="항구 선택" hidden><div class="top"><input id="portQ" type="search" placeholder="항구 이름 검색" autocomplete="off"><button id="portClose">닫기</button></div><div class="list" id="portList"></div></div>
+  <div class="ports" id="ports" role="dialog" aria-label="항구 선택" hidden><div class="top"><input id="portQ" type="search" placeholder="항구·지역 검색 (예: 오천, 여수, 제주)" autocomplete="off"><button id="portClose">닫기</button></div><div class="list" id="portList"></div></div>
 
   <div class="day">
     <div class="card">
@@ -378,15 +387,37 @@ function setHeight(){send("streamlit:setFrameHeight",{height:Math.ceil(document.
 function requestDate(k){loadEl.hidden=false;send("streamlit:setComponentValue",{value:{date:k,n:Date.now()},dataType:"json"})}
 /* 항구 선택: 이름 옆 버튼 → 지역별 목록·검색 → 고르면 서버가 그 항구 물때를 불러옴 (날짜는 그대로) */
 const portsEl=document.getElementById("ports"),portQ=document.getElementById("portQ");
-function buildPorts(){const q=portQ.value.trim(),groups={};
-  (D.ports||[]).forEach(full=>{const m=full.match(/^(.*?)\s*\((.*)\)$/),name=m?m[1]:full,reg=m?m[2]:"기타";
-    if(q&&!full.includes(q))return;(groups[reg]??=[]).push([full,name])});
-  const regs=Object.keys(groups);
-  document.getElementById("portList").innerHTML=regs.length?regs.map(r=>`<h4>${r}</h4><div class="grp">${groups[r].map(([f,n])=>
-    `<button data-p="${f}" class="${f===D.portFull?"on":""}">${n}</button>`).join("")}</div>`).join(""):'<div class="none">찾는 항구가 없습니다</div>';
-  document.querySelectorAll("#portList button").forEach(b=>b.onclick=()=>{portsEl.hidden=true;
+/* D.ports: [키, 권역, 시도, 시군]. 권역 탭 → 시·군 → 항구, 검색은 전국 */
+let pArea=null,pSg=null;
+const AREAS=["서해","남해","동해","제주"];
+const esc=t=>String(t).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const pname=k=>k.replace(/\s*\(.*\)$/,"");
+function portBtn(p,withSg){return `<button data-p="${esc(p[0])}" class="${p[0]===D.portFull?"on":""}">${esc(pname(p[0]))}${withSg?` <small>${esc(p[2])} ${esc(p[3])}</small>`:""}</button>`}
+function buildPorts(){
+  const P=D.ports||[],q=portQ.value.trim(),list=document.getElementById("portList");
+  if(q){const rank=p=>{const n=pname(p[0]);return n.startsWith(q)?0:n.includes(q)?1:(p[2]+" "+p[3]).includes(q)?2:9};
+    const all=P.map(p=>[rank(p),p]).filter(x=>x[0]<9).sort((a,b)=>a[0]-b[0]).map(x=>x[1]),hit=all.slice(0,120);
+    list.innerHTML=hit.length?`<h4>검색 결과 ${all.length}곳${all.length>120?" (앞 120곳만 표시 — 더 자세히 입력하세요)":""}</h4><div class="grp">${hit.map(p=>portBtn(p,true)).join("")}</div>`:'<div class="none">찾는 항구가 없습니다</div>';
+  }else{
+    const areas=AREAS.filter(a=>P.some(p=>p[1]===a));if(!areas.includes(pArea))pArea=areas[0];
+    const inA=P.filter(p=>p[1]===pArea).map(p=>[p[0],p[1],p[2]||"",p[3]||"기타"]),sgs=[];inA.forEach(p=>{const k=p[2]+"|"+p[3];if(!sgs.includes(k))sgs.push(k)});
+    const ORD={서해:["인천","경기","충남","전북","전남"],남해:["전남","경남","부산"],동해:["강원","경북","울산"],제주:["제주"]}[pArea]||[];
+    const rk=sd=>{const i=ORD.indexOf(sd);return i<0?99:i};
+    sgs.sort((a,b)=>{const[sa,ga]=a.split("|"),[sb,gb]=b.split("|");return rk(sa)-rk(sb)||ga.localeCompare(gb,"ko")});
+    if(!sgs.includes(pSg))pSg=sgs[0];
+    const bySido={};sgs.forEach(k=>{const[sd,sg]=k.split("|");(bySido[sd]??=[]).push(sg)});
+    let h=`<div class="tabs">${areas.map(a=>`<button data-a="${a}" class="${a===pArea?"on":""}">${a}</button>`).join("")}</div><h4>시·군</h4>`;
+    h+=Object.entries(bySido).map(([sd,arr])=>`<div class="sgrow">${sd?`<span>${esc(sd)}</span>`:""}${arr.map(sg=>`<button class="sg ${sd+"|"+sg===pSg?"on":""}" data-s="${esc(sd+"|"+sg)}">${esc(sg)}</button>`).join("")}</div>`).join("");
+    const ps=inA.filter(p=>p[2]+"|"+p[3]===pSg);
+    h+=`<h4 id="pHead">${esc(pSg.replace("|"," "))} 항구 ${ps.length}곳</h4><div class="grp">${ps.map(p=>portBtn(p,false)).join("")}</div>`;
+    list.innerHTML=h;
+    list.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{pArea=b.dataset.a;pSg=null;buildPorts();list.scrollTop=0});
+    list.querySelectorAll("button.sg").forEach(b=>b.onclick=()=>{pSg=b.dataset.s;buildPorts();document.getElementById("pHead").scrollIntoView({block:"start"})});
+  }
+  list.querySelectorAll("button[data-p]").forEach(b=>b.onclick=()=>{portsEl.hidden=true;
     if(b.dataset.p!==D.portFull){loadEl.hidden=false;send("streamlit:setComponentValue",{value:{port:b.dataset.p,n:Date.now()},dataType:"json"})}})}
-document.getElementById("portBtn").onclick=()=>{if(portsEl.hidden){calEl.hidden=true;portQ.value="";buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
+function openPorts(){const me=(D.ports||[]).find(p=>p[0]===D.portFull);if(me){pArea=me[1];pSg=me[2]+"|"+me[3]}}
+document.getElementById("portBtn").onclick=()=>{if(portsEl.hidden){calEl.hidden=true;portQ.value="";openPorts();buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
 document.getElementById("portClose").onclick=()=>{portsEl.hidden=true};
 portQ.oninput=buildPorts;
 document.addEventListener("keydown",e=>{if(e.key==="Escape")portsEl.hidden=true});
