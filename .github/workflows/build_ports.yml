@@ -1,0 +1,36 @@
+name: 물때 시계 전국 항구 목록 만들기
+
+on:
+  workflow_dispatch:         # Actions 탭에서 [Run workflow]로 실행 (항구 목록을 새로 만들 때만)
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 패키지 설치
+        run: pip install requests beautifulsoup4
+
+      - name: 바다타임 지점 목록·위치 모으기
+        run: python mulddae/build_ports.py
+
+      - name: 저장
+        run: |
+          if git diff --quiet -- mulddae/data/ports.json && git ls-files --error-unmatch mulddae/data/ports.json >/dev/null 2>&1; then
+            echo "바뀐 내용 없음"; exit 0
+          fi
+          git config user.name "ports-bot"
+          git config user.email "ports-bot@users.noreply.github.com"
+          git add mulddae/data/ports.json
+          git commit -m "물때 시계 전국 항구 목록 갱신 $(TZ=Asia/Seoul date +%Y-%m-%d)"
+          git pull --rebase origin main
+          git push origin HEAD:main
