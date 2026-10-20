@@ -149,7 +149,6 @@ svg text{font-family:var(--sans)}
     <div class="cal" id="cal" hidden></div>
   </div>
 
-  <div class="chips" id="chips"></div>
 
   <section class="bite" id="bite" hidden>
     <div class="bhead"><b>입질 확률</b><span id="biteSub"></span></div>
@@ -345,9 +344,6 @@ function render(){
   document.getElementById("sst").textContent=ssts.length?(ssts.reduce((a,b)=>a+b)/ssts.length).toFixed(1)+"°":"-";
   document.getElementById("temp").textContent=temps.length?`${Math.min(...temps)}~${Math.max(...temps)}°`:"-";
   document.getElementById("maxWind").textContent=W?Math.round(Math.max(...W.map(w=>w.wspd)))+"m/s":"-";
-  const chips=document.getElementById("chips");chips.innerHTML="";
-  d.tides.forEach(t=>chips.insertAdjacentHTML("beforeend",`<span class="chip ${t.type==="high"?"h":"lw"}">${t.type==="high"?"만조":"간조"} ${t.t} (${t.h})</span>`));
-  chips.insertAdjacentHTML("beforeend",`<span class="chip s">일출 ${d.sunrise}</span><span class="chip s">일몰 ${d.sunset}</span>`);
   document.getElementById("portName").textContent=D.port;
   const off=dkey(d.date)-dkey(D.today);
   document.getElementById("navinfo").textContent=(off===0?"오늘":off>0?`오늘 +${off}일`:`오늘 ${off}일`)+" · 다른 날짜는 달력에서";
