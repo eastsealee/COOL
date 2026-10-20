@@ -53,6 +53,8 @@ def menu_links(html: str) -> list[tuple[int, str]]:
 
 def station(pid: int) -> dict:
     text = re.sub(r"\s+", " ", BeautifulSoup(get(f"https://www.badatime.com/{pid}.html"), "html.parser").get_text(" "))
+    if pid in SEEDS.values() and Path("ports-log").is_dir():
+        (Path("ports-log") / f"text_{pid}.txt").write_text(text[:6000], encoding="utf-8")
     info: dict = {"id": pid}
     c = COORD_RE.search(text)
     if c:
@@ -68,8 +70,12 @@ def station(pid: int) -> dict:
 
 def main() -> None:
     found: dict[int, dict] = {}
+    dbg = Path("ports-log")
     for area, seed in SEEDS.items():
-        links = menu_links(get(f"https://www.badatime.com/{seed}.html"))
+        html = get(f"https://www.badatime.com/{seed}.html")
+        if dbg.is_dir():
+            (dbg / f"seed_{seed}.html").write_text(html, encoding="utf-8")
+        links = menu_links(html)
         print(f"[{area}] 메뉴 링크 {len(links)}개", flush=True)
         for pid, name in links:
             found.setdefault(pid, {"id": pid, "name": name, "area": area})

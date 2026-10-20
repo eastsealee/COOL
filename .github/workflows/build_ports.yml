@@ -21,7 +21,9 @@ jobs:
         run: pip install requests beautifulsoup4
 
       - name: 바다타임 지점 목록·위치 모으기
-        run: python mulddae/build_ports.py
+        run: |
+          mkdir -p ports-log
+          python mulddae/build_ports.py 2>&1 | tee ports-log/build.log; exit ${PIPESTATUS[0]}
 
       - name: 저장
         run: |
@@ -34,3 +36,15 @@ jobs:
           git commit -m "물때 시계 전국 항구 목록 갱신 $(TZ=Asia/Seoul date +%Y-%m-%d)"
           git pull --rebase origin main
           git push origin HEAD:main
+
+      - name: 실행 기록을 ports-log 브랜치에 저장 (문제 확인용)
+        if: always()
+        run: |
+          cd ports-log
+          git init -q
+          git config user.name "ports-bot"
+          git config user.email "ports-bot@users.noreply.github.com"
+          git checkout -q -b ports-log
+          git add -A
+          git commit -q -m "build log $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" ports-log
