@@ -6,7 +6,6 @@
 |---|---|---|
 | `sunsang24/` | 선상낚시 예약조회 (선상24·더피싱) | `/sunsang24` (첫 화면) |
 | `lamar/` | 라마르호 예상 조과 분석 | `/lamar` |
-| `mulddae/` | 물때 (물때·날씨·바람/파고) | `/mulddae` |
 | `mulddae/` | 물때 시계 (24시간 원형 화면) | `/mulddae-clock` |
 
 ```
@@ -24,9 +23,9 @@ COOL/
 │   ├─ lamar_*.py
 │   └─ data/lamar_days.json
 └─ mulddae/
-    ├─ tide_data.py        물때·날씨 수집 + 조류세기 계산 (두 화면이 함께 씀)
-    ├─ streamlit_app.py    물때 화면  + tide_view.html
-    └─ dial.py             물때 시계  + dial_view.html
+    ├─ tide_data.py        물때·날씨 수집 + 조류세기 계산
+    ├─ dial.py             물때 시계 화면
+    └─ dial_view.html
 ```
 
 ## 새 프로그램 추가
