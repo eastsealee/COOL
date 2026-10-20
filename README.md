@@ -24,8 +24,8 @@ COOL/
 │   └─ data/lamar_days.json
 └─ mulddae/
     ├─ tide_data.py        물때·날씨 수집 + 조류세기 계산
-    ├─ dial.py             물때 시계 화면
-    └─ dial_view.html
+    ├─ dial.py             물때 시계 화면 (날짜를 고르면 그 날짜 물때를 불러옴)
+    └─ dial_component/     원형 화면 (index.html)
 ```
 
 ## 새 프로그램 추가

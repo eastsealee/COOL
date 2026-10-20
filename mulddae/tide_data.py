@@ -169,9 +169,14 @@ def fetch_month(pid: int, year: int, month: int) -> dict[str, dict]:
 
 # ---------------------------------------------------------------- 날씨·파고
 @st.cache_data(ttl=1800, show_spinner=False)
-def fetch_weather(lat: float, lon: float, past_days: int = 1, forecast_days: int = 7) -> list[dict]:
-    common = {"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul",
-              "past_days": past_days, "forecast_days": forecast_days}
+def fetch_weather(lat: float, lon: float, past_days: int = 1, forecast_days: int = 7,
+                  start: str | None = None, end: str | None = None) -> list[dict]:
+    """시간별 날씨·바람·파고·수온. start/end(YYYY-MM-DD)를 주면 그 기간 (예보 API 범위: 약 3달 전 ~ 16일 뒤)"""
+    common = {"latitude": lat, "longitude": lon, "timezone": "Asia/Seoul"}
+    if start and end:
+        common.update(start_date=start, end_date=end)
+    else:
+        common.update(past_days=past_days, forecast_days=forecast_days)
     f = requests.get("https://api.open-meteo.com/v1/forecast", params={
         **common,
         "hourly": "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_direction_10m,precipitation,is_day",
