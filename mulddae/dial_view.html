@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@500;700;900&display=swap">
+<style>
+/* Layout: one phone screen — app bar, day card, stats, day nav, 24h dial (calendar at 9 o'clock), tide chips, legend */
+:root{
+  --bg:#0f2236; --bg2:#14304b; --card:#5f7896; --card-line:#8fa6c2;
+  --brown:#7a5444; --ink:#ffffff; --sub:#b9c7d8; --faint:#6f86a0;
+  --tide:#ff3b3b; --sun:#ffc23d; --now:#c45cb0; --pop:#1b3a59;
+  --sans:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color-scheme:dark;
+}
+html,body{background:var(--bg)}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0}
+body{font-family:var(--sans);color:var(--ink);padding:4px 4px 12px}
+.app{max-width:420px;margin:0 auto;background:var(--bg2);border-radius:18px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.45)}
+.bar{background:var(--brown);display:flex;align-items:center;justify-content:space-between;padding:12px 16px}
+.bar b{font-size:20px}
+.bar span{font-size:12px;color:#ead9cf}
+.day{padding:12px 12px 8px}
+.card{background:var(--card);border:1px solid var(--card-line);padding:10px 12px;display:grid;grid-template-columns:1fr auto;gap:2px 10px;align-items:center;min-width:0}
+.card .l{font-weight:700;font-size:16px;line-height:1.5;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.3)}
+.flow{display:flex;align-items:center;gap:8px}
+.flow i{display:block;width:92px;height:18px;border:1px solid #c8c97c;background:rgba(40,60,90,.35)}
+.flow i b{display:block;height:100%;background:#d9e38a}
+#moon{grid-row:1/4;grid-column:2;width:64px;height:64px}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 8px}
+.stats div{background:rgba(255,255,255,.06);border-radius:10px;padding:6px 4px;display:flex;flex-direction:column;align-items:center;gap:1px}
+.stats small{font-size:11px;color:var(--sub)}
+.stats strong{font-size:17px;font-variant-numeric:tabular-nums}
+.nav{display:grid;grid-template-columns:1fr 1.3fr 1fr;gap:6px;padding:0 12px}
+.nav button{font:700 15px var(--sans);color:#fff;background:rgba(255,255,255,.08);border:1px solid rgba(143,166,194,.35);border-radius:10px;padding:9px 0;cursor:pointer}
+.nav button.today{background:rgba(196,92,176,.28);border-color:var(--now)}
+.nav button:disabled{opacity:.3;cursor:default}
+.nav button:focus-visible,.cal button:focus-visible{outline:2px solid #ffd76a;outline-offset:1px}
+.navinfo{text-align:center;font-size:12px;color:var(--sub);padding:5px 0 0;font-variant-numeric:tabular-nums}
+.dialwrap{position:relative;padding:0 4px}
+svg#dial{width:100%;height:auto;display:block;touch-action:manipulation}
+svg text{font-family:var(--sans)}
+.wedge{fill:transparent;cursor:pointer}
+.wedge:focus-visible{outline:none;stroke:#ffd76a;stroke-width:2}
+#calBtn{cursor:pointer}
+#calBtn:focus-visible{outline:none}
+#calBtn:focus-visible rect.face{stroke:#ffd76a;stroke-width:2.5}
+.cal{position:absolute;left:8px;top:8px;width:min(300px,calc(100% - 16px));background:var(--pop);border:1px solid var(--card-line);border-radius:14px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,.55);z-index:5}
+.cal .hd{display:flex;align-items:center;justify-content:space-between;font-weight:900;font-size:15px;padding:0 2px 8px}
+.cal .hd button{background:none;border:0;color:#fff;font:700 18px var(--sans);width:32px;height:28px;cursor:pointer;border-radius:8px}
+.cal .hd button:disabled{opacity:.25;cursor:default}
+.cal .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cal .wd{font-size:11px;text-align:center;color:var(--sub);padding-bottom:2px}
+.cal .wd:first-child{color:#ff8a8a}.cal .wd:last-child{color:#8ab8ff}
+.cal .grid button{border:1px solid transparent;background:rgba(255,255,255,.06);color:#fff;border-radius:8px;padding:4px 0 3px;display:flex;flex-direction:column;align-items:center;gap:0;cursor:pointer;font-family:var(--sans)}
+.cal .grid button b{font-size:14px;line-height:1.2}
+.cal .grid button small{font-size:9.5px;color:#d9e38a;font-variant-numeric:tabular-nums}
+.cal .grid button.t{border-color:var(--now)}
+.cal .grid button.sel{background:#d9e38a;color:#14304b}
+.cal .grid button.sel small{color:#14304b}
+.cal .grid button:disabled{background:none;color:rgba(255,255,255,.22);cursor:default}
+.cal .grid button:disabled small{visibility:hidden}
+.cal .ft{display:flex;justify-content:space-between;align-items:center;padding-top:8px;font-size:11px;color:var(--sub)}
+.cal .ft button{font:700 13px var(--sans);color:#fff;background:rgba(255,255,255,.1);border:0;border-radius:8px;padding:5px 12px;cursor:pointer}
+.chips{display:flex;flex-wrap:wrap;gap:6px;padding:2px 12px 10px;justify-content:center}
+.chip{font-size:13px;font-weight:700;padding:5px 10px;border-radius:999px;background:rgba(255,255,255,.07);font-variant-numeric:tabular-nums;white-space:nowrap}
+.chip.h{color:var(--tide);border:1.5px solid var(--tide)}
+.chip.lw{color:var(--tide);border:1.5px dashed var(--tide)}
+.chip.s{color:var(--sun);border:1.5px solid rgba(255,194,61,.6)}
+.legend{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 12px;padding:10px 14px 14px;border-top:1px solid rgba(143,166,194,.25);font-size:12px;color:var(--sub)}
+.legend div{display:flex;align-items:center;gap:6px;min-width:0}
+.legend svg{width:22px;height:22px;flex:none}
+.note{font-size:11px;color:var(--faint);text-align:center;padding:0 12px 12px}
+</style></head><body>
+
+<div class="app">
+  <div class="bar"><b id="portName"></b><span>물때 시계</span></div>
+
+  <div class="day">
+    <div class="card">
+      <div class="l" id="dateL"></div>
+      <div class="l" id="lunarL"></div>
+      <div class="l flow">조류세기 <i><b id="flowBar"></b></i> <span id="flowPct"></span></div>
+      <canvas id="moon" width="128" height="128"></canvas>
+    </div>
+  </div>
+  <div class="stats">
+    <div><small>수온</small><strong id="sst"></strong></div>
+    <div><small>기온</small><strong id="temp"></strong></div>
+    <div><small>최대 바람</small><strong id="maxWind"></strong></div>
+  </div>
+
+  <div class="nav">
+    <button id="prev">◀ -1일</button>
+    <button id="today" class="today">오늘</button>
+    <button id="next">+1일 ▶</button>
+  </div>
+  <div class="navinfo" id="navinfo"></div>
+
+  <div class="dialwrap">
+    <svg id="dial" viewBox="-34 -34 468 468" role="img" aria-label="24시간 물때 시계"></svg>
+    <div class="cal" id="cal" hidden></div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <div class="legend">
+    <div><svg viewBox="0 0 22 22"><rect x="2" y="6" width="18" height="10" rx="5" fill="#ff3b3b"/></svg>만조 (빨간 칸)</div>
+    <div><svg viewBox="0 0 22 22"><rect x="2" y="6" width="18" height="10" rx="5" fill="#102a44" stroke="#ff3b3b" stroke-width="2"/></svg>간조 (빨간 테)</div>
+    <div><svg viewBox="0 0 22 22"><path d="M2 16 Q6 6 11 11 T20 6 V20 H2Z" fill="#3d8bd6"/></svg>물높이 (파란 띠)</div>
+    <div><svg viewBox="0 0 22 22"><rect x="2" y="8" width="18" height="6" rx="3" fill="url(#lgFlow)"/><defs><linearGradient id="lgFlow"><stop offset="0" stop-color="#1d3d5c"/><stop offset="1" stop-color="#ffd23d"/></linearGradient></defs></svg>시간별 조류세기</div>
+    <div><svg viewBox="-11 -11 22 22"><path d="M0 -9 L5 6 L0 3 L-5 6Z" fill="#ffd84d"/></svg>바람 부는 방향</div>
+    <div><svg viewBox="0 0 22 22"><text x="11" y="15" text-anchor="middle" font-size="13" font-weight="900" fill="#ff9a3c">9</text></svg>풍속 m/s (색=세기)</div>
+    <div><svg viewBox="0 0 22 22"><line x1="2" y1="11" x2="20" y2="11" stroke="#ffc23d" stroke-width="2" stroke-dasharray="3 3"/><circle cx="20" cy="11" r="3" fill="#ffc23d"/></svg>일출·일몰</div>
+    <div><svg viewBox="0 0 22 22"><line x1="2" y1="11" x2="20" y2="11" stroke="#ff6ad5" stroke-width="2.5"/></svg>지금 시각 (오늘)</div>
+  </div>
+  <div class="note" id="note"></div>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <radialGradient id="gSun" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#fff6a0"/><stop offset=".6" stop-color="#ffcf1f"/><stop offset="1" stop-color="#f0a000"/></radialGradient>
+    <linearGradient id="gCl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff"/><stop offset="1" stop-color="#b9bfc8"/></linearGradient>
+    <linearGradient id="gDk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#aab1bb"/><stop offset="1" stop-color="#5d646e"/></linearGradient>
+    <path id="cl" d="M6 19h11a4 4 0 0 0 .4-8 5.5 5.5 0 0 0-10.4-1.6A4 4 0 0 0 6 19z"/>
+    <g id="w-sun"><circle cx="12" cy="12" r="6" fill="url(#gSun)"/><g stroke="#ffcf1f" stroke-width="1.6" stroke-linecap="round"><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M4.9 19.1l1.8-1.8M17.3 6.7l1.8-1.8"/></g></g>
+    <g id="w-moon"><path d="M15 3a9 9 0 1 0 6 13 7.5 7.5 0 1 1-6-13z" fill="#f3e3a0"/></g>
+    <g id="w-suncloud"><circle cx="9" cy="9" r="5.5" fill="url(#gSun)"/><use href="#cl" fill="url(#gCl)" transform="translate(2 1)"/></g>
+    <g id="w-mooncloud"><path d="M10 2a6.5 6.5 0 1 0 4.5 9.5 5.5 5.5 0 1 1-4.5-9.5z" fill="#f3e3a0"/><use href="#cl" fill="url(#gCl)" transform="translate(2 2)"/></g>
+    <g id="w-cloud"><use href="#cl" fill="url(#gCl)" transform="translate(0 -1) scale(1.05)"/></g>
+    <g id="w-rain"><use href="#cl" fill="url(#gDk)" transform="translate(0 -4)"/><g stroke="#5fb0ff" stroke-width="1.8" stroke-linecap="round"><path d="M9 17l-1 3M13 17l-1 3M17 17l-1 3"/></g></g>
+    <g id="w-heavy"><use href="#cl" fill="#4a515b" transform="translate(0 -5)"/><g stroke="#3a8cff" stroke-width="2.2" stroke-linecap="round"><path d="M7 15l-1.5 4.5M11 15l-1.5 4.5M15 15l-1.5 4.5M19 15l-1.5 4.5"/></g></g>
+    <g id="w-snow"><use href="#cl" fill="url(#gCl)" transform="translate(0 -4)"/><g fill="#fff" stroke="#9ab" stroke-width=".8"><circle cx="9" cy="19" r="1.8"/><circle cx="13" cy="21" r="1.8"/><circle cx="17" cy="19" r="1.8"/></g></g>
+    <g id="w-fog"><use href="#cl" fill="url(#gCl)" transform="translate(0 -4)"/><g stroke="#c9ced5" stroke-width="2" stroke-linecap="round"><path d="M4 18h16M7 21h10"/></g></g>
+    <g id="w-wind"><g fill="none" stroke="#dfe8f2" stroke-width="2" stroke-linecap="round"><path d="M3 8h11a3 3 0 1 0-3-3"/><path d="M3 13h15a3 3 0 1 1-3 3"/><path d="M3 18h7"/></g></g>
+  </defs>
+</svg>
+
+<script>
+(function(){
+const D=/*__DATA__*/null;
+const toMin=s=>{const[a,b]=s.split(":").map(Number);return a*60+b};
+const dkey=k=>Date.UTC(+k.slice(0,4),+k.slice(5,7)-1,+k.slice(8,10))/864e5;
+const dates=Object.keys(D.days).sort(),d0=dkey(dates[0]);
+const DAYS=dates.map(k=>{const r=D.days[k],off=(dkey(k)-d0)*1440;
+  return{date:k,lunar:r.lunar,mul:r.mul,flow:r.flow,sunrise:r.sunrise||"06:30",sunset:r.sunset||"18:00",
+    tides:r.tides.map(t=>({t:t.t,h:t.h,d:t.diff,type:t.type,m:off+toMin(t.t)})),off}});
+const ALL=DAYS.flatMap(d=>d.tides).sort((a,b)=>a.m-b.m);
+/* 조류세기(d.flow)는 서버(tide_data.add_flow)에서 선상낚시 예약조회와 같은 방식으로 계산 */
+
+/* 오늘 ±10일 */
+let TODAY=dates.indexOf(D.today); if(TODAY<0)TODAY=Math.max(0,dates.findIndex(k=>k>D.today));
+const MIN=Math.max(1,TODAY-10), MAX=Math.min(DAYS.length-2,TODAY+10);
+let cur=TODAY, selH=null;
+
+/* 물높이: 만조·간조 사이를 코사인으로 잇기 (전날·다음날 물때까지 이어서) */
+function level(m){for(let i=0;i<ALL.length-1;i++){const a=ALL[i],b=ALL[i+1];if(m>=a.m&&m<=b.m){const p=(m-a.m)/(b.m-a.m);return a.h+(b.h-a.h)*(1-Math.cos(Math.PI*p))/2}}return ALL[0].h}
+
+/* ---------- 날씨 (Open-Meteo 시간별) ---------- */
+const WX={};(D.weather||[]).forEach(w=>{(WX[w.time.slice(0,10)]??=[])[+w.time.slice(11,13)]=w});
+function wxInfo(c,night,ws){
+  let r;
+  if(c==null)r=["cloud","-"];
+  else if(c===0)r=[night?"moon":"sun","맑음"];
+  else if(c===1)r=[night?"mooncloud":"suncloud","구름 조금"];
+  else if(c===2)r=[night?"mooncloud":"suncloud","구름 많음"];
+  else if(c===3)r=["cloud","흐림"];
+  else if(c===45||c===48)r=["fog","안개"];
+  else if(c>=51&&c<=57)r=["rain","이슬비"];
+  else if(c===61||c===63||c===66)r=["rain","비"];
+  else if(c===65||c===67)r=["heavy","폭우"];
+  else if(c>=71&&c<=77||c===85||c===86)r=["snow","눈"];
+  else if(c===80||c===81)r=["rain","소나기"];
+  else if(c===82)r=["heavy","폭우"];
+  else if(c>=95)r=["heavy","뇌우"];
+  else r=["cloud","흐림"];
+  if(ws>=12&&!["rain","heavy","snow"].includes(r[0]))r=["wind","강풍"];
+  return r}
+function weather(i){const hrs=WX[DAYS[i].date];if(!hrs)return null;const out=[];
+  for(let h=0;h<24;h++){const w=hrs[h];if(!w)return null;const[icon,label]=wxInfo(w.wcode,w.is_day===0,w.wspd??0);
+    out.push({icon,label,temp:w.temp==null?null:Math.round(w.temp),dir:w.wdir??0,wspd:w.wspd==null?0:Math.round(w.wspd*10)/10,sst:w.sst})}
+  return out}
+
+const DIRS=["북","북북동","북동","동북동","동","동남동","남동","남남동","남","남남서","남서","서남서","서","서북서","북서","북북서"];
+const WD=["일","월","화","수","목","금","토"];
+const windCol=v=>v<4?"#8be08b":v<8?"#ffd84d":v<12?"#ff9a3c":"#ff4d4d";
+const windWord=v=>v<4?"약함":v<8?"보통":v<12?"강함":"매우 강함";
+
+/* ---------- 원 그리기 ---------- */
+const C=200,NS="http://www.w3.org/2000/svg",svg=document.getElementById("dial");
+const ang=m=>(m/1440)*2*Math.PI-Math.PI/2;
+const pt=(m,r)=>[C+r*Math.cos(ang(m)),C+r*Math.sin(ang(m))];
+const el=(tag,attrs,parent=svg)=>{const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent.appendChild(e);return e};
+const txt=(x,y,s,attrs,parent)=>{const t=el("text",{x,y,"text-anchor":"middle","dominant-baseline":"central",...attrs},parent);t.textContent=s;return t};
+function arc(m1,m2,r1,r2){if(m2<m1)m2+=1440;const big=(m2-m1)>720?1:0;const[a,b]=pt(m1,r2),[c,d]=pt(m2,r2),[e,f]=pt(m2,r1),[g,h]=pt(m1,r1);
+  return `M${a} ${b}A${r2} ${r2} 0 ${big} 1 ${c} ${d}L${e} ${f}A${r1} ${r1} 0 ${big} 0 ${g} ${h}Z`}
+
+let W=[],HFLOW=[],sel,cHour,cIcon,cWx,cFlow,cWind,cTide;
+
+function draw(){
+  const d=DAYS[cur],base=d.off;W=weather(cur);
+  svg.innerHTML="";
+  /* 시간별 조류세기: 물높이 변화 속도, 하루 평균 = 그날 조류세기 */
+  const sp=[];for(let h=0;h<24;h++)sp.push(Math.abs(level(base+h*60+30)-level(base+h*60-30)));
+  const avg=sp.reduce((a,b)=>a+b)/24;HFLOW=sp.map(s=>Math.min(100,Math.round(d.flow*s/avg)));
+
+  // 바탕 (낮/밤)
+  el("circle",{cx:C,cy:C,r:198,fill:"#1c4266"});
+  el("path",{d:arc(toMin(d.sunset),toMin(d.sunrise),80,198),fill:"#081625"});
+  el("circle",{cx:C,cy:C,r:80,fill:"#102a44"});
+  sel=el("path",{fill:"rgba(196,92,176,.35)",stroke:"#c45cb0","stroke-width":1.5});
+
+  // 바깥: 시간 숫자 + 눈금
+  for(let h=0;h<24;h++){const[x1,y1]=pt(h*60,198),[x2,y2]=pt(h*60,h%3?192:187);
+    el("line",{x1,y1,x2,y2,stroke:"#8fa6c2","stroke-width":h%6?1:2});
+    const[tx,ty]=pt(h*60+30,213);txt(tx,ty,h,{"font-size":h%3?11:14,"font-weight":h%3?500:900,fill:h%3?"#9fb3c9":"#fff"})}
+  el("circle",{cx:C,cy:C,r:198,fill:"none",stroke:"#8fa6c2","stroke-width":1.2});
+
+  // 원 안 맨 바깥: 풍속 숫자 (m/s)
+  if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,180),v=W[h].wspd;
+    txt(x,y,Math.round(v),{"font-size":12.5,"font-weight":900,fill:windCol(v)})}
+  // 날씨 아이콘
+  if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,157);el("use",{href:"#w-"+W[h].icon,x:x-11,y:y-11,width:22,height:22})}
+  // 바람 방향 화살표 (부는 방향)
+  if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,134),v=W[h].wspd,len=6+Math.min(v,14)*.5;
+    el("path",{d:`M0 ${-len} L${len*.55} ${len*.65} L0 ${len*.3} L${-len*.55} ${len*.65}Z`,fill:windCol(v),transform:`translate(${x} ${y}) rotate(${W[h].dir+180})`})}
+  // 조류세기 링
+  for(let h=0;h<24;h++){const p=HFLOW[h]/100;el("path",{d:arc(h*60+2,h*60+58,117,123),fill:`rgb(${Math.round(29+226*p)},${Math.round(61+149*p)},${Math.round(92-31*p)})`})}
+  // 물높이 띠 (높이 눈금은 이 기간 전체 최저~최고)
+  const hs=[];for(let m=0;m<=1440;m+=10)hs.push(level(base+m));let hmin=Math.min(...hs),hmax=Math.max(...hs);
+  if(hmax-hmin<450){const c=(hmax+hmin)/2;hmin=c-225;hmax=c+225}const R0=84,R1=114;
+  el("circle",{cx:C,cy:C,r:R0,fill:"none",stroke:"rgba(156,209,255,.35)","stroke-width":1});
+  let line="";for(let m=0;m<=1440;m+=10){const r=R0+(level(base+m)-hmin)/(hmax-hmin)*(R1-R0);const[x,y]=pt(m,r);line+=(m?"L":"M")+x.toFixed(1)+" "+y.toFixed(1)}
+  let back="";for(let m=1440;m>=0;m-=20){const[x,y]=pt(m,R0);back+="L"+x.toFixed(1)+" "+y.toFixed(1)}
+  el("path",{d:line+back+"Z",fill:"rgba(61,139,214,.7)"});
+  el("path",{d:line,fill:"none",stroke:"#9cd1ff","stroke-width":1.6});
+  // 만조·간조 (빨간색)
+  d.tides.forEach(t=>{const mm=t.m-base,r=R0+(t.h-hmin)/(hmax-hmin)*(R1-R0);const[x,y]=pt(mm,r);const hi=t.type==="high";
+    el("rect",{x:x-19,y:y-8,width:38,height:16,rx:8,fill:hi?"#ff3b3b":"#102a44",stroke:"#ff3b3b","stroke-width":1.8});
+    txt(x,y+.5,t.t,{"font-size":10.5,"font-weight":900,fill:hi?"#fff":"#ff5a5a"})});
+  // 일출·일몰 (원 안 점선 + 바깥 표시)
+  [[d.sunrise,"일출"],[d.sunset,"일몰"]].forEach(([s,n])=>{const m=toMin(s),[x1,y1]=pt(m,80),[x2,y2]=pt(m,198);
+    el("line",{x1,y1,x2,y2,stroke:"#ffc23d","stroke-width":1.6,"stroke-dasharray":"3 3"});
+    const[px,py]=pt(m,198);el("circle",{cx:px,cy:py,r:4,fill:"#ffc23d",stroke:"#14304b","stroke-width":1.5})});
+  // 지금 시각 (오늘만)
+  if(cur===TODAY){const n=new Date(Date.now()+9*3600e3),m=n.getUTCHours()*60+n.getUTCMinutes();
+    const[x1,y1]=pt(m,80),[x2,y2]=pt(m,198);el("line",{x1,y1,x2,y2,stroke:"#ff6ad5","stroke-width":2.2});
+    const[px,py]=pt(m,198);el("circle",{cx:px,cy:py,r:4.5,fill:"#ff6ad5"})}
+
+  // 가운데 정보
+  const g=el("g",{});const T=(y,size,weight,fill)=>txt(C,y,"",{"font-size":size,"font-weight":weight,fill},g);
+  cHour=T(152,12,700,"#b9c7d8");cIcon=el("use",{x:C-14,y:161,width:28,height:28},g);cWx=T(200,14.5,900,"#fff");
+  cFlow=T(219,11.5,700,"#ffd23d");cWind=T(235,11.5,700,"#8be08b");cTide=T(251,10.5,700,"#ff6b6b");
+
+  // 터치 영역
+  for(let h=0;h<24;h++){const w=el("path",{d:arc(h*60,h*60+60,80,198),class:"wedge",tabindex:0,role:"button","aria-label":`${h}시`});
+    w.addEventListener("click",()=>select(h));w.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();select(h)}})}
+
+  // 9시 방향 달력 버튼
+  const [mo,dd]=[+d.date.slice(5,7),+d.date.slice(8,10)];
+  const[kx,ky]=pt(21*60,250);const cb=el("g",{id:"calBtn",tabindex:0,role:"button","aria-label":"달력에서 날짜 고르기",transform:`translate(${kx} ${ky})`});
+  el("rect",{class:"face",x:-20,y:-21,width:40,height:44,rx:7,fill:"#f4f6f9",stroke:"#8fa6c2","stroke-width":1},cb);
+  el("rect",{x:-20,y:-21,width:40,height:13,rx:7,fill:"#e0443e"},cb);el("rect",{x:-20,y:-13,width:40,height:5,fill:"#e0443e"},cb);
+  el("rect",{x:-12,y:-25,width:3.5,height:8,rx:1.5,fill:"#5d646e"},cb);el("rect",{x:8.5,y:-25,width:3.5,height:8,rx:1.5,fill:"#5d646e"},cb);
+  txt(0,-14.5,mo+"월",{"font-size":8.5,"font-weight":900,fill:"#fff"},cb);
+  txt(0,8,dd,{"font-size":17,"font-weight":900,fill:"#14304b"},cb);
+  txt(0,32,"달력",{"font-size":10,"font-weight":700,fill:"#b9c7d8"},cb);
+  cb.addEventListener("click",toggleCal);cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
+}
+
+function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
+function select(h){selH=h;
+  sel.setAttribute("d",arc(h*60,h*60+60,80,198));const w=W?W[h]:null;
+  cHour.textContent=`${h<12?"오전":"오후"} ${h%12||12}시`;cFlow.textContent=`조류세기 ${HFLOW[h]}%`;
+  if(w){cIcon.setAttribute("href","#w-"+w.icon);cWx.textContent=`${w.label}${w.temp==null?"":" "+w.temp+"°"}`;
+    cWind.textContent=`${DIRS[Math.round(w.dir/22.5)%16]}풍 ${w.wspd}m/s ${windWord(w.wspd)}`;cWind.setAttribute("fill",windCol(w.wspd))}
+  else{cIcon.removeAttribute("href");cWx.textContent="날씨 예보 없음";cWind.textContent="";}
+  const nt=nextTide(h);cTide.textContent=nt?`다음 ${nt.type==="high"?"만조":"간조"} ${nt.t}${nt.m>=DAYS[cur].off+1440?" (다음날)":""}`:"";
+}
+
+function moon(L){const c=document.getElementById("moon"),g=c.getContext("2d"),r=60,cx=64,cy=64;
+  g.clearRect(0,0,128,128);g.beginPath();g.arc(cx,cy,r,0,7);g.fillStyle="#3b4556";g.fill();
+  const k=Math.cos(((L-1)/29.53)*2*Math.PI),wax=L<15.5;
+  g.save();g.beginPath();g.arc(cx,cy,r,0,7);g.clip();
+  const lit=g.createRadialGradient(cx+12,cy-12,6,cx,cy,r);lit.addColorStop(0,"#e4e4e2");lit.addColorStop(1,"#a2a2a0");g.fillStyle=lit;
+  g.beginPath();g.ellipse(cx,cy,r,r,0,-Math.PI/2,Math.PI/2,!wax);g.ellipse(cx,cy,Math.abs(k)*r,r,0,Math.PI/2,-Math.PI/2,(k>0)===wax);g.fill();
+  let sd=7;const rnd=()=>(sd=(sd*9301+49297)%233280)/233280;
+  for(let i=0;i<50;i++){const a=rnd()*7,dd=Math.sqrt(rnd())*r*.95,cr=r*(.03+rnd()*.1);g.beginPath();g.arc(cx+Math.cos(a)*dd,cy+Math.sin(a)*dd,cr,0,7);g.fillStyle=`rgba(60,60,60,${.08+rnd()*.15})`;g.fill()}
+  g.restore()}
+
+function render(){
+  const d=DAYS[cur],[y,m,dd]=d.date.split("-").map(Number),wd=WD[new Date(Date.UTC(y,m-1,dd)).getUTCDay()];
+  const [lm,ld]=d.lunar.split(".").map(Number);
+  document.getElementById("dateL").textContent=`${y}년 ${m}월 ${dd}일(${wd})`;
+  document.getElementById("lunarL").innerHTML=`음력 ${lm}월 ${ld}일 &nbsp; ${d.mul}`;
+  document.getElementById("flowBar").style.width=d.flow+"%";document.getElementById("flowPct").textContent=d.flow+"%";
+  moon(ld);
+  draw();
+  const temps=W?W.map(w=>w.temp).filter(v=>v!=null):[],ssts=W?W.map(w=>w.sst).filter(v=>v!=null):[];
+  document.getElementById("sst").textContent=ssts.length?(ssts.reduce((a,b)=>a+b)/ssts.length).toFixed(1)+"°":"-";
+  document.getElementById("temp").textContent=temps.length?`${Math.min(...temps)}~${Math.max(...temps)}°`:"-";
+  document.getElementById("maxWind").textContent=W?Math.round(Math.max(...W.map(w=>w.wspd)))+"m/s":"-";
+  const chips=document.getElementById("chips");chips.innerHTML="";
+  d.tides.forEach(t=>chips.insertAdjacentHTML("beforeend",`<span class="chip ${t.type==="high"?"h":"lw"}">${t.type==="high"?"만조":"간조"} ${t.t} (${t.h})</span>`));
+  chips.insertAdjacentHTML("beforeend",`<span class="chip s">일출 ${d.sunrise}</span><span class="chip s">일몰 ${d.sunset}</span>`);
+  document.getElementById("portName").textContent=D.port;
+  document.getElementById("note").textContent=`물때·조류세기·일출몰: 바다타임 ${D.port} · 날씨·바람·수온: Open-Meteo${W?"":" (이 날짜는 예보 범위 밖)"}`;
+  const off=cur-TODAY;
+  document.getElementById("navinfo").textContent=off===0?"오늘":(off>0?`오늘 +${off}일`:`오늘 ${off}일`)+" · 앞뒤 10일까지";
+  document.getElementById("prev").disabled=cur<=MIN;document.getElementById("next").disabled=cur>=MAX;
+  const h=selH!=null?selH:(cur===TODAY?new Date(Date.now()+9*3600e3).getUTCHours():8);select(h);
+  if(!calEl.hidden)buildCal();
+}
+
+/* ---------- 달력 ---------- */
+const calEl=document.getElementById("cal");let calMonth=null;
+function toggleCal(){if(calEl.hidden){calMonth=DAYS[cur].date.slice(0,7);buildCal();calEl.hidden=false;calEl.querySelector(".grid button.sel,.grid button:not(:disabled)")?.focus()}else calEl.hidden=true}
+function buildCal(){
+  const [y,m]=calMonth.split("-").map(Number),first=new Date(Date.UTC(y,m-1,1)).getUTCDay(),n=new Date(Date.UTC(y,m,0)).getUTCDate();
+  const months=[...new Set(DAYS.slice(MIN,MAX+1).map(d=>d.date.slice(0,7)))],mi=months.indexOf(calMonth);
+  let h=`<div class="hd"><button id="cPrev" aria-label="이전 달" ${mi<=0?"disabled":""}>‹</button><span>${y}년 ${m}월</span><button id="cNext" aria-label="다음 달" ${mi>=months.length-1?"disabled":""}>›</button></div><div class="grid">`;
+  h+=WD.map(w=>`<div class="wd">${w}</div>`).join("");
+  for(let i=0;i<first;i++)h+="<div></div>";
+  for(let day=1;day<=n;day++){const key=`${calMonth}-${String(day).padStart(2,"0")}`,i=DAYS.findIndex(d=>d.date===key),ok=i>=MIN&&i<=MAX;
+    h+=`<button data-i="${i}" class="${i===TODAY?"t ":""}${i===cur?"sel":""}" ${ok?"":"disabled"} aria-label="${m}월 ${day}일"><b>${day}</b><small>${ok?DAYS[i].flow+"%":"-"}</small></button>`}
+  h+=`</div><div class="ft"><span>숫자 아래 % = 조류세기</span><button id="cClose">닫기</button></div>`;
+  calEl.innerHTML=h;
+  calEl.querySelectorAll(".grid button:not(:disabled)").forEach(b=>b.onclick=()=>{cur=+b.dataset.i;calEl.hidden=true;render()});
+  calEl.querySelector("#cClose").onclick=()=>{calEl.hidden=true};
+  const cp=calEl.querySelector("#cPrev"),cn=calEl.querySelector("#cNext");
+  if(cp)cp.onclick=()=>{calMonth=months[mi-1];buildCal()};if(cn)cn.onclick=()=>{calMonth=months[mi+1];buildCal()};
+}
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&!calEl.hidden)calEl.hidden=true});
+
+document.getElementById("prev").onclick=()=>{if(cur>MIN){cur--;render()}};
+document.getElementById("next").onclick=()=>{if(cur<MAX){cur++;render()}};
+document.getElementById("today").onclick=()=>{cur=TODAY;selH=null;render()};
+if(!DAYS.length){document.querySelector('.app').innerHTML='<div style="padding:24px">물때 자료를 불러오지 못했습니다.</div>'}else render();
+})();
+</script>
+</body></html>
