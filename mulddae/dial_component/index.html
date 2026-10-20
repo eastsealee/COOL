@@ -98,6 +98,10 @@ button,input,select{font-family:var(--sans)}
 svg#dial{width:100%;height:auto;display:block;touch-action:manipulation}
 svg text{font-family:var(--sans)}
 .wedge{fill:transparent;cursor:pointer}
+/* 바람이 빨간색(12m/s 이상)이면 풍향 화살표·풍속 숫자를 깜빡임 */
+#dial .warn{animation:windBlink .9s steps(2,jump-none) infinite;filter:drop-shadow(0 0 3px rgba(255,77,77,.9))}
+@keyframes windBlink{0%{opacity:1}100%{opacity:.15}}
+@media (prefers-reduced-motion:reduce){#dial .warn{animation:none}}
 .wedge:focus,#calBtn:focus,#rsvBtn:focus{outline:none}
 .wedge:focus-visible{stroke:var(--sea);stroke-width:2}
 #calBtn,#rsvBtn{cursor:pointer}
@@ -293,12 +297,12 @@ function draw(){
 
   // 원 안 맨 바깥: 풍속 숫자 (m/s)
   if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,180),v=W[h].wspd;
-    txt(x,y,Math.round(v),{"font-size":13,"font-weight":700,fill:windCol(v),"font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif",stroke:"#0b1825","stroke-width":3,"paint-order":"stroke"})}
+    txt(x,y,Math.round(v),{class:v>=12?"warn":"","font-size":13,"font-weight":700,fill:windCol(v),"font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif",stroke:"#0b1825","stroke-width":3,"paint-order":"stroke"})}
   // 날씨 아이콘
   if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,157);el("use",{href:"#w-"+W[h].icon,x:x-11,y:y-11,width:22,height:22})}
   // 바람 방향 화살표 (부는 방향)
   if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,134),v=W[h].wspd,len=6+Math.min(v,14)*.5;
-    el("path",{d:`M0 ${-len} L${len*.55} ${len*.65} L0 ${len*.3} L${-len*.55} ${len*.65}Z`,fill:windCol(v),transform:`translate(${x} ${y}) rotate(${W[h].dir+180})`})}
+    el("path",{d:`M0 ${-len} L${len*.55} ${len*.65} L0 ${len*.3} L${-len*.55} ${len*.65}Z`,fill:windCol(v),transform:`translate(${x} ${y}) rotate(${W[h].dir+180})`,class:v>=12?"warn":""})}
   // 조류세기 링
   for(let h=0;h<24;h++){const p=HFLOW[h]/100;el("path",{d:arc(h*60+2,h*60+58,117,123),fill:`rgb(${Math.round(29+226*p)},${Math.round(61+149*p)},${Math.round(92-31*p)})`})}
   // 물높이 띠 (높이 눈금은 이 기간 전체 최저~최고)
