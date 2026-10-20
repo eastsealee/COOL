@@ -412,7 +412,13 @@ function drawBite(){
   sp.forEach(([k,n,c])=>{const bw=BM.bw[k];if(bw)E("rect",{x:BX(bw.s),y:22,width:BX(bw.e)-BX(bw.s),height:150,fill:c,opacity:.12})});
   sp.forEach(([k,n,c])=>{const arr=BM[k];let pts="";arr.forEach((v,i)=>{pts+=`${(BX(i/6)).toFixed(1)},${BY(v).toFixed(1)} `});
     E("polyline",{points:pts,fill:"none",stroke:c,"stroke-width":2.6,"stroke-linejoin":"round"});
-    const mx=Math.max(...arr),ix=arr.indexOf(mx);if(mx>2){E("circle",{cx:BX(ix/6),cy:BY(mx),r:3.6,fill:c});T(BX(ix/6),BY(mx)-10,mx+"%",{"font-size":11,"font-weight":900,fill:c})}});
+    // 오전(0~12시)·오후(12~24시) 각각 최고점: 시각과 %를 표시 (주꾸미는 점 위, 갑오징어는 점 아래)
+    [[0,72],[72,145]].forEach(([i0,i1])=>{let ix=i0;for(let i=i0;i<i1;i++)if(arr[i]>arr[ix])ix=i;const mx=arr[ix];if(mx<=2)return;
+      const x=BX(ix/6),y=BY(mx),hm=`${String(Math.floor(ix/6)).padStart(2,"0")}:${String(ix%6*10).padStart(2,"0")}`,up=k==="jj";
+      E("circle",{cx:x,cy:y,r:3.6,fill:c,stroke:"#171c22","stroke-width":1.2});
+      const ly=up?Math.max(31,y-11):Math.min(164,y+12),lx=Math.min(366,Math.max(58,x));
+      E("rect",{x:lx-26,y:ly-7.5,width:52,height:15,rx:4,fill:"rgba(17,26,36,.85)"});
+      T(lx,ly,`${hm} ${mx}%`,{"font-size":10.5,"font-weight":900,fill:c})})});
   if(cur===TODAY){const n=new Date(Date.now()+9*3600e3),h=n.getUTCHours()+n.getUTCMinutes()/60;
     E("line",{x1:BX(h),x2:BX(h),y1:22,y2:172,stroke:"#fff","stroke-dasharray":"4 3","stroke-width":1.2})}
   E("text",{x:6,y:97,"font-size":10,fill:"#8a99a8",transform:"rotate(-90 9 97)","text-anchor":"middle"}).textContent="입질 확률 %";
