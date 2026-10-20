@@ -2068,6 +2068,14 @@ ss.setdefault("cal_ym", (today.year, today.month))
 
 # ----- 물때 시계에서 넘어왔으면 맨 위에 '돌아가기' (보던 날짜·항구로 돌아감)
 if ss.get("back_to_mulddae"):
+    st.markdown("""<style>
+    .st-key-back_mulddae button{border:2px solid #4cc3e6 !important;border-radius:999px !important;
+      font-weight:700 !important;animation:backGlow 1.2s ease-in-out infinite}
+    .st-key-back_mulddae button p{font-weight:700 !important}
+    @keyframes backGlow{0%,100%{box-shadow:0 0 0 0 rgba(76,195,230,.0);border-color:#4cc3e6}
+      50%{box-shadow:0 0 14px 3px rgba(76,195,230,.65);border-color:#bff1ff}}
+    @media (prefers-reduced-motion:reduce){.st-key-back_mulddae button{animation:none}}
+    </style>""", unsafe_allow_html=True)
     if st.button("← 물때 시계로 돌아가기", key="back_mulddae"):
         ss.pop("back_to_mulddae", None)
         st.switch_page("mulddae/dial.py")

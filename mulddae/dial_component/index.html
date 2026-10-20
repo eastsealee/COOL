@@ -20,15 +20,21 @@
 html,body{margin:0;background:var(--bg)}
 body{font-family:var(--sans);color:var(--ink);padding:4px 4px 12px;-webkit-font-smoothing:antialiased}
 button,input,select{font-family:var(--sans)}
-.app{position:relative;max-width:420px;margin:0 auto;background:var(--app);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.app{container-type:inline-size;position:relative;max-width:420px;margin:0 auto;background:var(--app);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}
 
 /* 머리줄 */
-.bar{display:flex;align-items:center;gap:8px;padding:14px 14px 12px;background:linear-gradient(180deg,#142a3c,#0d1a26);border-bottom:1px solid var(--line)}
-.bar .pl{display:flex;align-items:center;gap:8px;min-width:0;flex:none;max-width:58%}
-.bar b{font-size:21px;font-weight:900;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:14px 14px 12px;background:linear-gradient(180deg,#142a3c,#0d1a26);border-bottom:1px solid var(--line)}
+.bar .pl{display:flex;align-items:center;gap:8px;min-width:0;flex:0 1 auto;max-width:62%}
+.bar b{font-size:clamp(17px,5.4cqw,21px);font-weight:900;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #portBtn{flex:none;font-weight:700;font-size:12.5px;color:var(--ink);background:var(--panel2);border:1px solid var(--line2);border-radius:999px;padding:6px 11px;cursor:pointer;display:flex;align-items:center;gap:4px}
 #portBtn:hover{border-color:var(--sea)}
 .bar .hq{flex:1;min-width:0;position:relative}
+/* 폰처럼 폭이 좁으면 머리줄을 두 줄로: 항구 이름+선택 버튼 / 검색 칸 — 이름이 '외…'처럼 잘리지 않게 */
+@container (max-width:400px){
+  .bar .pl{flex:1 1 100%;max-width:none;justify-content:space-between}
+  .bar .hq{flex:1 1 100%}
+  .bar b{white-space:normal;overflow:visible;line-height:1.2}
+}
 .bar .hq input{width:100%;font-size:13px;color:var(--ink);background:rgba(0,0,0,.25);border:1px solid var(--line2);border-radius:999px;padding:7px 10px 7px 30px}
 .bar .hq input::placeholder{color:var(--faint)}
 .bar .hq input:focus{outline:none;border-color:var(--sea);box-shadow:0 0 0 3px rgba(76,195,230,.18)}
@@ -64,20 +70,20 @@ button,input,select{font-family:var(--sans)}
 .day{padding:12px 12px 8px}
 .card{background:linear-gradient(135deg,#183247,#122230 60%);border:1px solid var(--line);border-radius:16px;padding:14px 14px 12px;display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;min-width:0}
 .card .l{white-space:nowrap;min-width:0}
-#dateL{font-size:19px;font-weight:900;letter-spacing:-.02em}
+#dateL{font-size:clamp(16px,4.8cqw,19px);font-weight:900;letter-spacing:-.02em}
 #lunarL{font-size:13.5px;color:var(--sub);font-weight:500;display:flex;align-items:center;gap:8px}
 #lunarL em{font-style:normal;font-weight:900;font-size:13px;color:#06202b;background:var(--sea);border-radius:6px;padding:1px 8px}
 .flow{display:flex;align-items:center;gap:10px;margin-top:8px;font-size:13px;font-weight:700;color:var(--sub)}
 .flow i{display:block;flex:1;max-width:150px;height:8px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden}
 .flow i b{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#8fd6a0,var(--gauge) 60%,#ffcf5a)}
 #flowPct{font-family:var(--num);font-size:20px;font-weight:700;color:var(--gauge);font-variant-numeric:tabular-nums}
-#moon{grid-row:1/4;grid-column:2;width:68px;height:68px;filter:drop-shadow(0 0 10px rgba(220,230,240,.18))}
+#moon{grid-row:1/4;grid-column:2;width:clamp(52px,16cqw,68px);height:clamp(52px,16cqw,68px);filter:drop-shadow(0 0 10px rgba(220,230,240,.18))}
 
 /* 수치 3칸 */
 .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:0 12px 10px}
 .stats div{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 4px 7px;display:flex;flex-direction:column;align-items:center;gap:1px}
 .stats small{font-size:11px;color:var(--sub);letter-spacing:.02em}
-.stats strong{font-family:var(--num);font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+.stats strong{font-family:var(--num);font-size:clamp(15px,4.6cqw,19px);font-weight:700;font-variant-numeric:tabular-nums}
 
 /* 날짜 이동 (세그먼트) */
 .nav{display:grid;grid-template-columns:1fr 1.25fr 1fr;margin:0 12px;padding:3px;gap:3px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
@@ -534,13 +540,14 @@ function buildPorts(){
   list.querySelectorAll("button[data-p]").forEach(b=>b.onclick=()=>{portsEl.hidden=true;hdrQ.value="";
     if(b.dataset.p!==D.portFull){loadEl.hidden=false;send("streamlit:setComponentValue",{value:{port:b.dataset.p,n:Date.now()},dataType:"json"})}})}
 function openPorts(){const me=(D.ports||[]).find(p=>p[0]===D.portFull);if(me){pArea=me[1];pSg=me[2]+"|"+me[3]}}
-document.getElementById("portBtn").onclick=()=>{if(portsEl.hidden){calEl.hidden=true;portQ.value="";openPorts();buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
+const placePorts=()=>{portsEl.style.top=(document.querySelector(".bar").offsetHeight+6)+"px"};
+document.getElementById("portBtn").onclick=()=>{placePorts();if(portsEl.hidden){calEl.hidden=true;portQ.value="";openPorts();buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
 document.getElementById("portClose").onclick=()=>{portsEl.hidden=true};
 portQ.oninput=buildPorts;
 /* 머리줄 검색 칸: 입력하면 항구 목록이 검색 결과로 열리고, Enter면 첫 번째 결과로 이동 */
 const hdrQ=document.getElementById("hdrQ");
 hdrQ.oninput=()=>{const v=hdrQ.value.trim();if(!v){portsEl.hidden=true;return}
-  calEl.hidden=true;portQ.value=v;buildPorts();portsEl.hidden=false};
+  calEl.hidden=true;placePorts();portQ.value=v;buildPorts();portsEl.hidden=false};
 hdrQ.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();const b=document.querySelector("#portList button[data-p]");if(b)b.click()}
   else if(e.key==="Escape"){hdrQ.value="";portsEl.hidden=true}};
 portQ.addEventListener("input",()=>{hdrQ.value=portQ.value});
