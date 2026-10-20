@@ -19,10 +19,11 @@ import lamar_sun as sun      # noqa: E402
 import lamar_forecast as lf  # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v41"
+APP_VERSION = "v42"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
-    ("v41", "🎯 예상 vs 실제 탭: 매일 7일 예상 저장·실제 블로그 마릿수와 비교, 최근 오차로 2026 예상 자동 보정"),
+    ("v42", "예상 vs 실제 그래프: 실제·예상 주꾸미/갑오징어를 4가지 색으로 구분"),
+    ("v41", "🎯 예상 vs 실제 탭: 매일 7일 예상 저장·실제 블로그 마릿수와 비교, 최근 오차로 2026 예상 자동 보정, 지정한 날짜부터 7일 예상"),
     ("v40", "10월 분위기 % 가중치를 조과 50% · 본문 30% · 날씨 20%로 변경"),
     ("v39", "블로그 자동 갱신 시각을 매일 자정(오전 0시)으로 변경"),
     ("v38", "제목 아래 '2018~2026년 9~12월' 문구 삭제"),
@@ -105,9 +106,16 @@ NEED_COLS = ["gg_med", "am", "pre_lunch", "post_lunch", "pm", "lt", "seg_avg", "
 
 
 @st.cache_data
-def load_days(stamp):
-    """stamp(파일 수정시각·크기)가 바뀌면 캐시를 버리고 새 데이터를 읽음"""
+def load_days(stamp, extra_json=""):
+    """stamp(파일 수정시각·크기)가 바뀌면 캐시를 버리고 새 데이터를 읽음.
+    extra_json = 앱에서 '블로그 새 글 가져오기'로 방금 받은 글(파일에 없는 것만)"""
     rows = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+    if extra_json:
+        import lamar_analyze as la
+        known = {r["link"] for r in rows}
+        add = [r for r in json.loads(extra_json) if r["link"] not in known]
+        if add:
+            rows = la.finalize(sorted(rows + add, key=lambda r: (r["date"], r["link"])))
     df = pd.DataFrame(rows)
     for c in NEED_COLS:  # 예전 데이터 파일이어도 멈추지 않도록 빈 열 채움
         if c not in df.columns:
@@ -237,7 +245,8 @@ def flow_kind(text):
     return text + " 내내"
 
 
-df = load_days(f"{_st.st_mtime_ns}-{_st.st_size}")
+df = load_days(f"{_st.st_mtime_ns}-{_st.st_size}", st.session_state.get("live_rows", ""))
+LIVE_KEY = str(len(st.session_state.get("live_rows", "")))     # 새 글을 가져오면 예상 캐시도 새로
 
 # ------------------------------------------------------------ 물때표 불러오기
 need = tuple(bt.months_for(sorted(set(df["날짜"]))))
@@ -375,6 +384,33 @@ df["오후 물흐름"] = [x[3] for x in _ff]
 st.title(f"🦑 라마르호 예상 조과 분석 : {APP_VERSION}")
 st.caption(f"남당항 라마르호 '오늘의 조과' {len(df)}일 · 블로그 본문 분석 · "
            f"물때·조석·물세기는 바다타임 {bt.PORT_NAME} 기준")
+
+def fetch_blog_now(days=10):
+    """블로그 최근 글을 지금 바로 가져와 분석 (이번 접속 동안만 반영 · 파일 저장은 매일 자정 자동 갱신이 함)"""
+    import lamar_update as lu
+    import lamar_analyze as la
+    today = dt.datetime.now(KST_TZ).date()
+    known = set(df["link"])
+    out, msgs = [], []
+    for p in lu.list_posts(today - dt.timedelta(days=days), today):
+        link = f"https://blog.naver.com/{lu.BLOG_ID}/{p['logNo']}"
+        if link in known or (p["title"] and not lu.TITLE_DATE.match(p["title"])):
+            continue
+        page_title, body = lu.read_post(p["logNo"])
+        title = p["title"] or page_title
+        m = lu.TITLE_DATE.match(title or "")
+        if not m:
+            continue
+        fish = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        if fish.month not in lu.MONTHS or fish > today:
+            continue
+        r = la.analyze_post(fish.isoformat(), title, link, body)
+        r.pop("_hasbody", None)
+        r["basis"] = "본문" if body else "제목만"
+        out.append(r)
+        msgs.append(f"{fish} {title}")
+    return out, msgs
+
 
 tab1, tab8, tab9, tab5, tab6, tab2, tab3, tab4 = st.tabs(
     ["📅 날짜별 조회", "🔮 2026 예상", "🎯 예상 vs 실제", "🔮 2027 예상", "🗓️ 2027 달력",
@@ -1008,7 +1044,7 @@ def forecast_tab(year, start, end, prefix, state_key):
         pass
     P_ = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith(str(year))]), str(LUNCH_T),
                          start.isoformat(), end.isoformat(),
-                         str(sorted(GG26.items())) + str(CAL_USE) if year == 2026 else "")
+                         (str(sorted(GG26.items())) + str(CAL_USE) if year == 2026 else "") + LIVE_KEY)
     period = f"{start.month}월 {start.day}일 ~ {end.month}월 {end.day}일"
     st.subheader(f"{year}년 {period} 예상 달력")
     button_calendar(P_, prefix, year, months, state_key, start, end)
@@ -1092,6 +1128,76 @@ with tab8:
 # ---------------- 탭9: 예상 vs 실제
 with tab9:
     st.subheader("🎯 예상 vs 실제 조과")
+    c_a, c_b = st.columns([1, 3])
+    if c_a.button("🔄 블로그 새 글 지금 가져오기", key="live_fetch"):
+        with st.spinner("블로그 최근 10일 글 확인 중…"):
+            try:
+                new_rows, msgs = fetch_blog_now()
+                if new_rows:
+                    prev = json.loads(st.session_state.get("live_rows", "") or "[]")
+                    st.session_state["live_rows"] = json.dumps(prev + new_rows, ensure_ascii=False)
+                    st.session_state["live_msg"] = "새 글 " + str(len(new_rows)) + "개 반영: " + " / ".join(msgs)
+                    st.rerun()
+                else:
+                    st.session_state["live_msg"] = "새 글이 없어요. (이미 반영된 글까지가 최신이에요)"
+            except Exception as ex:
+                st.session_state["live_msg"] = f"블로그를 읽지 못했어요: {ex}"
+    c_b.caption(st.session_state.get("live_msg", f"블로그 데이터 마지막 조과: {df['date'].max()} · "
+                                    "버튼을 누르면 그 뒤에 올라온 글을 바로 가져와 이번 접속 동안 반영해요 "
+                                    "(파일 저장은 매일 자정 자동 갱신)"))
+
+    # ---- 달력에서 시작일 고르기 → 그날부터 7일 예상
+    st.markdown("#### 📅 날짜를 고르면 그날부터 7일 예상")
+    CMP_START, CMP_END = dt.date(2026, 9, 1), dt.date(2026, 12, 31)
+    if "cmp_day" not in st.session_state:
+        st.session_state["cmp_day"] = min(max(dt.datetime.now(KST_TZ).date(), CMP_START), CMP_END)
+    P26 = all_predictions(_st.st_mtime_ns, len([k for k in BT if k.startswith("2026")]), str(LUNCH_T),
+                          CMP_START.isoformat(), CMP_END.isoformat(),
+                          str(sorted(GG26.items())) + str(CAL_USE) + LIVE_KEY)
+    button_calendar(P26, "v26", 2026, [9, 10, 11, 12], "cmp_day", CMP_START, CMP_END,
+                    note="날짜를 누르면 아래에 그날부터 7일 예상과 실제 조과가 나와요.")
+    d0 = st.session_state["cmp_day"]
+    best0 = lf.best_per_target(FC) if FC else {}
+    today_k = dt.datetime.now(KST_TZ).date()
+    wk = []
+    for i in range(7):
+        d_ = d0 + dt.timedelta(days=i)
+        if d_ > CMP_END:
+            break
+        f = best0.get(d_.isoformat())
+        if f and d_ <= today_k:                        # 지난 날은 그날 전에 저장된 예상을 우선 사용 (공정한 비교)
+            src, pj, pg, ps = ("저장된 예상" if f["kind"] == "예상" else "백테스트"), f["jj"], f["gg"], f["score"]
+        else:
+            pp = predict(pred_conditions(d_))
+            src, pj, pg, ps = "지금 계산", pp["jj"], pp["gg"], (None if pp["score"] is None else round(pp["score"]))
+        a = ACTUAL.get(d_.isoformat()) or {}
+        wk.append({"날짜": d_.isoformat(), "요일": WD[d_.weekday()], "물때": lunar_mul(d_)[1] if not tide_info(d_) else tide_info(d_)["mul"],
+                   "예상 분위기": ps, "실제 분위기": a.get("score"),
+                   "예상 주꾸미": None if pj is None else round(pj), "실제 주꾸미": a.get("jj_med"),
+                   "예상 갑오징어": None if pg is None else round(pg, 1), "실제 갑오징어": a.get("gg_med"), "예상 근거": src})
+    W7 = pd.DataFrame(wk)
+    CMP_DOM = ["실제 주꾸미", "예상 주꾸미", "실제 갑오징어", "예상 갑오징어"]
+    CMP_COL = ["#e8590c", "#fcc419", "#1971c2", "#20c997"]     # 주황 · 노랑 · 파랑 · 청록
+    st.markdown(f"**{d0:%Y-%m-%d}({WD[d0.weekday()]})부터 7일**")
+    st.dataframe(W7, hide_index=True, width="stretch", column_config={
+        "예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100),
+        "실제 분위기": st.column_config.ProgressColumn("실제 분위기", format="%d%%", min_value=0, max_value=100)})
+    L7 = W7.melt(id_vars=["날짜"], value_vars=["예상 주꾸미", "실제 주꾸미", "예상 갑오징어", "실제 갑오징어"],
+                 var_name="구분", value_name="마리").dropna()
+    if len(L7):
+        L7["어종"] = L7["구분"].str.split(" ").str[1]
+        L7["종류"] = L7["구분"].str.split(" ").str[0]
+        st.altair_chart(alt.Chart(L7).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(size=55)).encode(
+            x=alt.X("날짜:N", title=None), y=alt.Y("마리:Q", title="중앙값(마리)"),
+            color=alt.Color("구분:N", scale=alt.Scale(domain=CMP_DOM, range=CMP_COL),
+                            legend=alt.Legend(orient="top", title=None)),
+            strokeDash=alt.StrokeDash("종류:N", scale=alt.Scale(domain=["실제", "예상"], range=[[1, 0], [6, 4]]),
+                                      legend=None),
+            tooltip=["날짜", "구분", alt.Tooltip("마리:Q", format=".1f")]).properties(height=240),
+            width="stretch")
+    st.caption("지난 날은 그날 이전에 저장된 예상(또는 백테스트)을 쓰고, 오늘 이후는 지금 데이터로 바로 계산해요. "
+               "실제 주꾸미 = 주황 실선 · 예상 주꾸미 = 노랑 점선 · 실제 갑오징어 = 파랑 실선 · 예상 갑오징어 = 청록 점선.")
+    st.divider()
     if not FC:
         st.info("아직 저장된 예상이 없어요. 자동 갱신(매일 자정)이 한 번 돌면, 9월 1일부터의 비교와 앞으로 7일 예상이 생겨요.")
     else:
@@ -1123,15 +1229,15 @@ with tab9:
                   f"보정 전 {g0:.0f}%" if g0 is not None else None, delta_color="off")
         k4.metric("지금 보정 배율", f"주꾸미 ×{CAL['jj']:.2f}", f"갑오징어 ×{CAL['gg']:.2f}", delta_color="off")
 
-        st.markdown("**마릿수 추이 — 실제(실선·점) vs 예상(점선)**")
-        for sp, col in (("주꾸미", "#e8590c"), ("갑오징어", "#1971c2")):
+        st.markdown("**마릿수 추이 — 실제(실선) vs 예상(점선, 다른 색) vs 보정 전(회색)**")
+        for sp, col, pcol in (("주꾸미", "#e8590c", "#fcc419"), ("갑오징어", "#1971c2", "#20c997")):
             L = V[["날짜", f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]].melt("날짜", var_name="구분", value_name="마리").dropna()
             L["날짜"] = pd.to_datetime(L["날짜"])
             dom = [f"실제 {sp}", f"예상 {sp}", f"예상 {sp}(보정 전)"]
             ch = alt.Chart(L).mark_line(interpolate="monotone", point=alt.OverlayMarkDef(size=45)).encode(
                 x=alt.X("날짜:T", axis=alt.Axis(format="%m/%d", title=None)),
                 y=alt.Y("마리:Q", title=f"{sp} 중앙값(마리)"),
-                color=alt.Color("구분:N", scale=alt.Scale(domain=dom, range=[col, col, "#adb5bd"]),
+                color=alt.Color("구분:N", scale=alt.Scale(domain=dom, range=[col, pcol, "#adb5bd"]),
                                 legend=alt.Legend(orient="top", title=None)),
                 strokeDash=alt.StrokeDash("구분:N", scale=alt.Scale(domain=dom, range=[[1, 0], [6, 4], [2, 3]]), legend=None),
                 tooltip=[alt.Tooltip("날짜:T", format="%Y-%m-%d"), "구분", alt.Tooltip("마리:Q", format=".1f")])
@@ -1139,15 +1245,17 @@ with tab9:
                 color="#868e96", strokeDash=[3, 3]).encode(x="t:T")
             st.altair_chart((ch + today_rule).properties(height=260), width="stretch")
 
-        st.markdown("**앞으로 7일 예상** (가장 최근 자동 갱신 기준)")
-        last_made = max(f["made"] for f in FC)
+        st.markdown("**7일 예상** (자동 갱신 또는 지정한 날짜로 만든 예상)")
+        made_list = sorted({f["made"] for f in FC if f["kind"] == "예상"}, reverse=True) or [max(f["made"] for f in FC)]
+        last_made = st.selectbox("예상을 만든 날", made_list, index=0, key="fc_made")
         up = pd.DataFrame([f for f in FC if f["made"] == last_made]).sort_values("target")
         up["요일"] = pd.to_datetime(up["target"]).dt.dayofweek.map(lambda i: WD[i])
         st.dataframe(up[["target", "요일", "mul", "pct", "score", "jj", "jj_max", "gg", "gg_max", "am", "pm"]].rename(columns={
             "target": "날짜", "mul": "물때", "pct": "물세기 %", "score": "예상 분위기", "jj": "예상 주꾸미", "jj_max": "주꾸미 최고",
             "gg": "예상 갑오징어", "gg_max": "갑오징어 최고", "am": "오전 %", "pm": "오후 %"}), hide_index=True, width="stretch",
             column_config={"예상 분위기": st.column_config.ProgressColumn("예상 분위기", format="%d%%", min_value=0, max_value=100)})
-        st.caption(f"{last_made} 자정에 만든 예상 · 주꾸미·갑오징어는 보정 후 값")
+        st.caption(f"{last_made}에 만든 예상 ({up['target'].min()} ~ {up['target'].max()}) · 주꾸미·갑오징어는 보정 후 값 · "
+                   "날짜를 지정해 만들려면 GitHub Actions → '라마르 조과 매일 갱신' → Run workflow에서 시작일을 넣으세요.")
 
         st.markdown("**날짜별 비교표**")
         show = V.sort_values("날짜", ascending=False)
