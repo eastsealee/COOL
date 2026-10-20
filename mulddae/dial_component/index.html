@@ -215,8 +215,7 @@ function draw(){
   const avg=sp.reduce((a,b)=>a+b)/24;HFLOW=sp.map(s=>Math.min(100,Math.round(d.flow*s/avg)));
 
   // 바탕 (낮/밤)
-  el("circle",{cx:C,cy:C,r:198,fill:"#1c4266"});
-  el("path",{d:arc(toMin(d.sunset),toMin(d.sunrise),80,198),fill:"#081625"});
+  el("circle",{cx:C,cy:C,r:198,fill:"#081625"});   // 낮·밤 같은 바탕 (일출·일몰은 노란 점선으로만 표시)
   el("circle",{cx:C,cy:C,r:80,fill:"#102a44"});
   sel=el("path",{fill:"rgba(196,92,176,.35)",stroke:"#c45cb0","stroke-width":1.5});
 
