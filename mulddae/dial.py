@@ -26,7 +26,7 @@ from tide_data import DEFAULT_PORT, KST, PORT_META, PORTS, fetch_weather, load_d
 from dial_widget import dial  # noqa: E402
 
 st.set_page_config(page_title="물때 시계", layout="centered")
-st.markdown("<style>.block-container{padding-top:1.2rem;padding-bottom:1rem;max-width:560px}</style>",
+st.markdown("<style>.block-container{padding-top:3.6rem;padding-bottom:1rem;max-width:560px}</style>",
             unsafe_allow_html=True)
 
 # 항구: 화면 안 '항구 선택' 버튼으로 고름 (주소의 ?port= 로 기억)
