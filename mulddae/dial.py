@@ -15,6 +15,13 @@ import streamlit as st
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+import importlib  # noqa: E402
+
+import tide_data  # noqa: E402
+
+# 앱이 켜진 채로 코드가 바뀌면 예전 tide_data가 메모리에 남아 있을 수 있어, 새 항목이 없으면 다시 읽음
+if not all(hasattr(tide_data, n) for n in ("DEFAULT_PORT", "PORT_META", "load_days")):
+    tide_data = importlib.reload(tide_data)
 from tide_data import DEFAULT_PORT, KST, PORT_META, PORTS, fetch_weather, load_days  # noqa: E402
 from dial_widget import dial  # noqa: E402
 
