@@ -24,6 +24,7 @@ if not all(hasattr(tide_data, n) for n in ("DEFAULT_PORT", "PORT_META", "load_da
     tide_data = importlib.reload(tide_data)
 from tide_data import DEFAULT_PORT, KST, PORT_META, PORTS, fetch_weather, load_days  # noqa: E402
 from dial_widget import dial  # noqa: E402
+import bite as bite_mod  # noqa: E402
 
 st.set_page_config(page_title="물때 시계", layout="centered")
 st.markdown("<style>.block-container{padding-top:3.6rem;padding-bottom:1rem;max-width:560px}</style>",
@@ -68,7 +69,18 @@ if w_lo <= w_hi:
     except Exception:
         st.warning("날씨 정보를 가져오지 못했습니다. 물때만 표시합니다.")
 
-data = {"port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", ""))] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
+# 입질 확률: 인천·경기·충남 항구에서만, 라마르호 기록으로 예상한 그날 오전·오후 조황을 함께 넘김
+bite = {"on": False}
+if PORT_META.get(port, ("", "", ""))[1] in bite_mod.REGIONS:
+    win = sorted(k for k in days if (center - timedelta(days=11)).strftime("%Y-%m-%d") <= k
+                 <= (center + timedelta(days=11)).strftime("%Y-%m-%d"))
+    try:
+        with st.spinner("라마르호 기록으로 예상 조황 계산 중…"):
+            bite = {"on": True, "pred": bite_mod.predictions(win)}
+    except Exception:  # noqa: BLE001  예상 계산이 안 되면 보정 없이 모델만
+        bite = {"on": True, "pred": {}}
+
+data = {"bite": bite, "port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", ""))] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
 val = dial(data=data, key="dial", default=None)
 
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴
