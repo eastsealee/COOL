@@ -64,11 +64,11 @@ body{font-family:var(--sans);color:var(--ink);padding:4px 4px 12px}
 svg#dial{width:100%;height:auto;display:block;touch-action:manipulation}
 svg text{font-family:var(--sans)}
 .wedge{fill:transparent;cursor:pointer}
-.wedge:focus,#calBtn:focus{outline:none}
+.wedge:focus,#calBtn:focus,#rsvBtn:focus{outline:none}
 .wedge:focus-visible{outline:none;stroke:#ffd76a;stroke-width:2}
-#calBtn{cursor:pointer}
+#calBtn,#rsvBtn{cursor:pointer}
 #calBtn:focus-visible{outline:none}
-#calBtn:focus-visible rect.face{stroke:#ffd76a;stroke-width:2.5}
+#calBtn:focus-visible rect.face,#rsvBtn:focus-visible rect.face{stroke:#ffd76a;stroke-width:2.5}
 .cal{position:absolute;left:8px;top:8px;width:min(300px,calc(100% - 16px));background:var(--pop);border:1px solid var(--card-line);border-radius:14px;padding:10px;box-shadow:0 12px 30px rgba(0,0,0,.55);z-index:5}
 .cal .hd{display:flex;align-items:center;justify-content:space-between;font-weight:900;font-size:15px;padding:0 2px 8px}
 .cal .sels{display:flex;gap:6px}
@@ -309,7 +309,17 @@ function draw(){
   txt(0,-14.5,mo+"월",{"font-size":8.5,"font-weight":900,fill:"#fff"},cb);
   txt(0,8,dd,{"font-size":17,"font-weight":900,fill:"#14304b"},cb);
   txt(0,32,"달력",{"font-size":10,"font-weight":700,fill:"#b9c7d8"},cb);
-  cb.addEventListener("click",toggleCal);cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
+  cb.addEventListener("click",toggleCal);
+  // 2시 방향 예약조회 버튼: 보던 날짜·항구 지역으로 '선상낚시 예약조회'를 엶
+  const[rx,ry]=pt(170,258);const rb=el("g",{id:"rsvBtn",tabindex:0,role:"button","aria-label":"이 날짜·지역으로 선상낚시 예약조회 열기",transform:`translate(${rx} ${ry})`});
+  el("rect",{class:"face",x:-20,y:-21,width:40,height:44,rx:7,fill:"#f4f6f9",stroke:"#8fa6c2","stroke-width":1},rb);
+  el("rect",{x:-20,y:-21,width:40,height:13,rx:7,fill:"#2f6fd6"},rb);el("rect",{x:-20,y:-13,width:40,height:5,fill:"#2f6fd6"},rb);
+  txt(0,-14.5,"예약",{"font-size":8.5,"font-weight":900,fill:"#fff"},rb);
+  el("path",{d:"M-12 6h24l-4 7h-16z",fill:"#14304b"},rb);el("path",{d:"M-1 5V-5l8 9z",fill:"#2f6fd6"},rb);el("path",{d:"M-2 5V-3l-6 8z",fill:"#7fa8e6"},rb);
+  el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
+  txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#b9c7d8"},rb);
+  const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  rb.addEventListener("click",goRsv);rb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goRsv()}});cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
 }
 
 function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
@@ -504,7 +514,7 @@ document.getElementById("portClose").onclick=()=>{portsEl.hidden=true};
 portQ.oninput=buildPorts;
 document.addEventListener("keydown",e=>{if(e.key==="Escape")portsEl.hidden=true});
 window.addEventListener("message",e=>{const m=e.data;if(!m||m.type!=="streamlit:render")return;
-  loadEl.hidden=true;const nd=m.args&&m.args.data;
+  loadEl.hidden=true;loadEl.textContent="물때 불러오는 중…";const nd=m.args&&m.args.data;
   if(!nd||!nd.days||!Object.keys(nd.days).length){document.querySelector(".app").innerHTML='<div style="padding:24px">물때 자료를 불러오지 못했습니다.</div>';setHeight();return}
   setData(nd);render();setHeight()});
 new ResizeObserver(setHeight).observe(document.body);

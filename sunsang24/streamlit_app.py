@@ -2174,6 +2174,7 @@ fish_list_set = set(fish_list)
 ss.fish_v = [f for f in ss.fish_v if f in fish_list_set]
 
 
+
 def region_pool(rg):
     """지역 선택값 → (해당 배 목록, 정리된 선택값, 각 단계 선택지)"""
     # 바다는 '전체' 없음. 시·도는 직접 골라야 함(고르기 전에는 조회할 배 없음). 시·군은 첫 번째 자동 선택
@@ -2200,6 +2201,28 @@ def region_text(rg):
         return f"{rg['sea']} › 시·도를 선택하세요"
     parts = [v for v in (rg["sea"], rg["sido"], rg["sgg"], rg["port"]) if v and v != "전체"]
     return " › ".join(parts)
+
+
+# ----- 물때 시계에서 '예약조회' 버튼으로 넘어온 경우: 그 날짜·지역을 골라 두고 바로 조회
+#       (이 파일의 다른 이름과 겹치지 않게 변수는 _jmp_ 로 시작)
+_jmp = ss.pop("jump_from_mulddae", None)
+if _jmp:
+    try:
+        _jmp_day = date.fromisoformat(str(_jmp.get("date", ""))[:10])
+        ss.sel_days, ss.cal_ym = {_jmp_day}, (_jmp_day.year, _jmp_day.month)
+    except ValueError:
+        pass
+    _jmp_sea_name = _jmp.get("sea") if _jmp.get("sea") in SEAS.values() else "서해"
+    _jmp_sido_name = _jmp.get("sido")
+    _jmp_sgg_set = {s_["sigungu"] for s_ in catalog if s_["sido"] == _jmp_sido_name}
+    _jmp_sgg_name = _jmp.get("sgg")
+    if _jmp_sgg_name not in _jmp_sgg_set and f"{_jmp_sgg_name}구" in _jmp_sgg_set:   # 물때 시계 '영도' = 예약조회 '영도구'
+        _jmp_sgg_name = f"{_jmp_sgg_name}구"
+    _, ss.region, _ = region_pool({"sea": _jmp_sea_name, "sido": _jmp_sido_name, "sgg": _jmp_sgg_name,
+                                   "port": _jmp.get("port") or "전체"})
+    ss.w_sea = ss.w_prev_sea = ss.region["sea"]          # PC 화면 선택 칸도 같은 지역으로
+    ss.w_sido, ss.w_sgg, ss.w_port = ss.region["sido"], ss.region["sgg"], ss.region["port"]
+    ss.auto_go = bool(ss.region.get("sido"))
 
 
 LOW_FLOW_PCT = 20                                         # 조류세기 이 값 이하면 달력에 파란 테두리(물살 약한 날)
@@ -2449,7 +2472,7 @@ month_days = [d for wk in calendar.Calendar(6).monthdatescalendar(*ss.cal_ym) fo
 # ----- 조회
 targets = {(s["site"], s["id"]): s for s in pool + manual}
 go_click = st.button(f"조회 (배 {len(targets)}척)", type="primary", width="stretch")
-go = go_click and bool(days and targets)
+go = (go_click or ss.pop("auto_go", False)) and bool(days and targets)
 if go_click and not go:                                  # 누를 수는 있지만, 빠진 선택을 알려 줌
     if not ss.region.get("sido") and not manual:
         st.error("시·도를 선택하세요.")
