@@ -20,7 +20,8 @@ OUT = Path(__file__).parent / "data" / "ports.json"
 SEEDS = {"서해": 356, "남해": 41, "동해": 195, "제주": 67}
 UA = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
       "Accept-Language": "ko-KR,ko;q=0.9", "Referer": "https://www.badatime.com/"}
-LINK_RE = re.compile(r"^(?:https?://(?:www\.)?badatime\.com)?/?(\d{1,5})\.html$")
+LINK_RE = re.compile(r"^(?:(?:https?:)?//(?:www\.)?badatime\.com)?/?(\d{1,5})\.html$")
+MAP_RE = re.compile(r"LatLng\(\s*(3[2-9]\.\d+)\s*,\s*(12[4-9]\.\d+|13[01]\.\d+)\s*\)")
 COORD_RE = re.compile(r"동경\s*(\d{2,3})\s*[:：]\s*(\d{1,2})(?:\s*[:：]\s*(\d{1,2}))?\s*북위\s*(\d{2})\s*[:：]\s*(\d{1,2})(?:\s*[:：]\s*(\d{1,2}))?")
 SIDO_RE = re.compile(r"(서울특별시|부산광역시|대구광역시|인천광역시|광주광역시|대전광역시|울산광역시|세종특별자치시|경기도|강원특별자치도|강원도|"
                      r"충청북도|충청남도|전북특별자치도|전라북도|전라남도|경상북도|경상남도|제주특별자치도)\s+([가-힣]+(?:시|군|구))?")
@@ -40,32 +41,42 @@ def get(url: str, tries: int = 3) -> str:
     raise RuntimeError(f"{url}: {last}")
 
 
-def menu_links(html: str) -> list[tuple[int, str]]:
+def menu_links(html: str) -> list[tuple[int, str, str]]:
+    """왼쪽 지역 메뉴(gw-submenu) → [(지점 번호, 이름, 메뉴 지역 제목)]"""
     soup = BeautifulSoup(html, "html.parser")
     out = []
-    for a in soup.find_all("a", href=True):
-        m = LINK_RE.match(a["href"].strip())
-        name = a.get_text(" ", strip=True)
-        if m and name and not SKIP_NAME.search(name) and len(name) <= 15 and re.search(r"[가-힣]", name):
-            out.append((int(m.group(1)), name))
+    for ul in soup.select("ul.gw-submenu"):
+        head = ul.find_previous("span", class_="gw-menu-text")
+        region = head.get_text(" ", strip=True) if head else ""
+        for a in ul.find_all("a", href=True):
+            m = LINK_RE.match(a["href"].strip())
+            name = a.get_text(" ", strip=True)
+            if m and name and not SKIP_NAME.search(name) and len(name) <= 15 and re.search(r"[가-힣]", name):
+                out.append((int(m.group(1)), name, region))
     return out
 
 
-def station(pid: int) -> dict:
-    text = re.sub(r"\s+", " ", BeautifulSoup(get(f"https://www.badatime.com/{pid}.html"), "html.parser").get_text(" "))
-    if pid in SEEDS.values() and Path("ports-log").is_dir():
-        (Path("ports-log") / f"text_{pid}.txt").write_text(text[:6000], encoding="utf-8")
+def parse_station(pid: int, html: str) -> dict:
+    """지점 페이지 → 위치(지도 좌표, 없으면 머리글 '동경/북위')와 주소(시·도, 시·군·구)"""
     info: dict = {"id": pid}
+    mp = MAP_RE.search(html)
+    text = re.sub(r"\s+", " ", BeautifulSoup(html, "html.parser").get_text(" "))
     c = COORD_RE.search(text)
-    if c:
+    if mp:
+        info.update(lat=round(float(mp.group(1)), 4), lon=round(float(mp.group(2)), 4))
+    elif c:
         lon = int(c.group(1)) + int(c.group(2)) / 60 + int(c.group(3) or 0) / 3600
         lat = int(c.group(4)) + int(c.group(5)) / 60 + int(c.group(6) or 0) / 3600
         info.update(lat=round(lat, 4), lon=round(lon, 4))
-        head = text[max(0, c.start() - 250): c.start()]
-        addr = list(SIDO_RE.finditer(head))
+    if c:
+        addr = list(SIDO_RE.finditer(text[max(0, c.start() - 250): c.start()]))
         if addr:
             info.update(sido=addr[-1].group(1), sigungu=addr[-1].group(2) or "")
     return info
+
+
+def station(pid: int) -> dict:
+    return parse_station(pid, get(f"https://www.badatime.com/{pid}.html"))
 
 
 def main() -> None:
@@ -77,8 +88,8 @@ def main() -> None:
             (dbg / f"seed_{seed}.html").write_text(html, encoding="utf-8")
         links = menu_links(html)
         print(f"[{area}] 메뉴 링크 {len(links)}개", flush=True)
-        for pid, name in links:
-            found.setdefault(pid, {"id": pid, "name": name, "area": area})
+        for pid, name, region in links:
+            found.setdefault(pid, {"id": pid, "name": name, "area": area, "menu": region})
         time.sleep(1)
     print(f"지점 {len(found)}곳 — 위치 읽는 중", flush=True)
 
@@ -96,6 +107,12 @@ def main() -> None:
             if i % 100 == 0:
                 print(f"  {i}/{len(found)}", flush=True)
 
+    for p in found.values():
+        if not p.get("sido") and p.get("menu"):
+            m = SIDO_RE.search(p["menu"] + " ")
+            if m:
+                p["sido"], p["sigungu"] = m.group(1), m.group(2) or ""
+        p.pop("menu", None)
     ports = [p for p in found.values() if "lat" in p]
     miss = [p for p in found.values() if "lat" not in p]
     ports.sort(key=lambda p: (list(SEEDS).index(p["area"]), p.get("sido", ""), p.get("sigungu", ""), p["name"]))
