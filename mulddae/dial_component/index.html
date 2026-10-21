@@ -180,7 +180,7 @@ svg text{font-family:var(--sans)}
   <div class="navinfo" id="navinfo"></div>
 
   <div class="dialwrap">
-    <svg id="dial" viewBox="-34 -34 468 468" role="img" aria-label="24시간 물때 시계"></svg>
+    <svg id="dial" viewBox="-48 -46 496 492" role="img" aria-label="24시간 물때 시계"></svg>
     <div class="cal" id="cal" hidden></div>
   </div>
 
@@ -295,6 +295,9 @@ function draw(){
     const[tx,ty]=pt(h*60+30,213);txt(tx,ty,h,{"font-size":h%3?11:14.5,"font-weight":h%3?500:700,fill:h%3?"#7f95ab":"#eef4fa","font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif"})}
   el("circle",{cx:C,cy:C,r:198,fill:"none",stroke:"rgba(150,180,208,.45)","stroke-width":1.2});
 
+  // 3시간마다 기온: 굵은 시간 숫자(0·3·6…21시) 바로 바깥에
+  if(W)for(let h=0;h<24;h+=3){const t=W[h].temp;if(t==null)continue;const[x,y]=pt(h*60+30,234);
+    txt(x,y,t+"°",{"font-size":11,"font-weight":700,fill:"#ffcf9a","font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif"})}
   // 원 안 맨 바깥: 풍속 숫자 (m/s)
   if(W)for(let h=0;h<24;h++){const[x,y]=pt(h*60+30,180),v=W[h].wspd;
     txt(x,y,Math.round(v),{class:v>=12?"warn":"","font-size":13,"font-weight":700,fill:windCol(v),"font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif",stroke:"#0b1825","stroke-width":3,"paint-order":"stroke"})}
