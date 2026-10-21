@@ -1,0 +1,62 @@
+name: 데이터 출처 비교 테스트 (해양조사원·기상청)
+
+# 인증키: 저장소 Settings → Secrets and variables → Actions → New repository secret
+#   이름 DATA_GO_KR_KEY / 값 = 공공데이터포털 '일반 인증키(Decoding)'
+# 결과: sourcetest/out/report.md
+# 기상청 단기예보는 지난 예보를 주지 않아 하루 2번(06:20·18:20) 예보를 쌓아 비교합니다. 11월 5일이 지나면 자동으로 쉽니다.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 21 * * *"    # 한국시간 06:20
+    - cron: "20 9 * * *"     # 한국시간 18:20
+
+permissions:
+  contents: write
+
+concurrency:
+  group: source-test
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 기간 확인
+        id: when
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$(TZ=Asia/Seoul date +%Y%m%d)" -gt 20261105 ]; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"; echo "테스트 기간이 끝나 쉽니다"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.when.outputs.skip != '1'
+
+      - uses: actions/setup-python@v5
+        if: steps.when.outputs.skip != '1'
+        with:
+          python-version: "3.12"
+
+      - name: 패키지 설치
+        if: steps.when.outputs.skip != '1'
+        run: pip install requests beautifulsoup4 lxml streamlit
+
+      - name: 비교 테스트
+        if: steps.when.outputs.skip != '1'
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+        run: |
+          python sourcetest/source_test.py
+          cat sourcetest/out/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 결과 저장 (main 브랜치)
+        if: steps.when.outputs.skip != '1'
+        run: |
+          git config user.name "source-test-bot"
+          git config user.email "source-test-bot@users.noreply.github.com"
+          git add sourcetest/out
+          if git diff --cached --quiet; then echo "바뀐 내용 없음"; exit 0; fi
+          git commit -m "출처 비교 테스트 결과 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+          git pull --rebase origin main
+          git push origin HEAD:main
