@@ -19,9 +19,10 @@ import lamar_sun as sun      # noqa: E402
 import lamar_forecast as lf  # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v43"
+APP_VERSION = "v44"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v44", "2026 예상: 9월 1일부터 지난 날도 선택 가능, 지난 날은 저장된 예상 vs 실제 조과 표시"),
     ("v43", "예상 vs 실제 추이 그래프에서 '보정 전' 회색 선 삭제"),
     ("v42", "예상 vs 실제 그래프: 실제·예상 주꾸미/갑오징어를 4가지 색으로 구분"),
     ("v41", "🎯 예상 vs 실제 탭: 매일 7일 예상 저장·실제 블로그 마릿수와 비교, 최근 오차로 2026 예상 자동 보정, 지정한 날짜부터 7일 예상"),
@@ -1033,12 +1034,12 @@ def all_predictions(stamp, bt_keys, lunch, start_iso, end_iso, gg_boost=""):
     return pd.DataFrame(rows)
 
 
-def forecast_tab(year, start, end, prefix, state_key):
+def forecast_tab(year, start, end, prefix, state_key, default_day=None):
     """예상 탭 한 개: 버튼 달력 + 선택한 날 상세 + 전체 예상표 (같은 달 과거 기록으로 분석)"""
     days = day_range(start, end)
     months = sorted({d.month for d in days})
     if state_key not in st.session_state:
-        st.session_state[state_key] = start
+        st.session_state[state_key] = default_day or start
     try:                                               # 그 기간 물때표 받아두기 (없으면 과거 평균으로 추정)
         BT.update(badatime_days(tuple(bt.months_for(days)))[0])
     except Exception:
@@ -1060,6 +1061,28 @@ def forecast_tab(year, start, end, prefix, state_key):
     c = pred_conditions(dsel)
     p_ = predict(c)
     st.divider()
+    today_k = dt.datetime.now(KST_TZ).date()
+    if year == 2026 and dsel < today_k:                # 지난 날: 그날 전에 저장된 예상과 실제 조과를 먼저 보여줌
+        f = (lf.best_per_target(FC) if FC else {}).get(dsel.isoformat())
+        a = ACTUAL.get(dsel.isoformat()) or {}
+        src = ("저장된 예상 (" + f["made"] + "에 만듦)" if f and f["kind"] == "예상"
+               else "백테스트 (그 전날까지의 기록만으로 예상)" if f else "저장된 예상 없음 → 지금 계산한 값")
+        fj = f["jj"] if f else p_["jj"]
+        fg = f["gg"] if f else p_["gg"]
+        fs = f["score"] if f else p_["score"]
+        st.markdown(f"<div style='background:#fff3bf;color:#000;padding:8px 12px;border-radius:8px;margin-bottom:6px'>"
+                    f"📌 <b>지난 날이에요</b> · 예상 근거: {src}</div>", unsafe_allow_html=True)
+        q1, q2, q3 = st.columns(3)
+
+        def _vs(lbl, pv, av, nd=0):
+            ptxt = "-" if pv is None else f"{pv:.{nd}f}"
+            atxt = "기록 없음" if av is None or (isinstance(av, float) and av != av) else f"{av:.{nd}f}"
+            return lbl, f"예상 {ptxt} → 실제 {atxt}"
+
+        q1.metric(*_vs("분위기 %", fs, a.get("score")))
+        q2.metric(*_vs("주꾸미 중앙값(마리)", fj, a.get("jj_med")))
+        q3.metric(*_vs("갑오징어 중앙값(마리)", fg, a.get("gg_med"), 1))
+        st.caption("아래는 같은 날을 지금 데이터로 다시 계산한 예상이에요 (그날 실제 기록이 섞일 수 있어 위의 저장된 예상이 더 공정해요).")
     st.markdown(
         f"<h3 style='margin-bottom:0.3rem'>{dsel:%Y-%m-%d} ({WD[dsel.weekday()]}) 예상 · 음력 {c['lunar']} · "
         f"{c['mul']} : <span style='background:#ffe066;color:#000;padding:2px 10px;border-radius:6px;"
@@ -1104,6 +1127,9 @@ def forecast_tab(year, start, end, prefix, state_key):
 
     st.markdown(f"**{year}년 {period} 전체 예상표**")
     P_show = P_.drop(columns=["주", "일"]).rename(columns={"date": "날짜"})
+    if year == 2026:
+        P_show["실제 주꾸미"] = P_show["날짜"].map(lambda x: (ACTUAL.get(x) or {}).get("jj_med"))
+        P_show["실제 갑오징어"] = P_show["날짜"].map(lambda x: (ACTUAL.get(x) or {}).get("gg_med"))
     P_show.insert(4, "물세기 30% 이하", P_["물세기"].apply(lambda v: "🔵" if pd.notna(v) and v <= 30 else ""))
     st.dataframe(P_show, hide_index=True, width="stretch",
                  height=360, column_config={
@@ -1124,7 +1150,7 @@ with tab5:
 
 with tab8:
     TODAY = min(max(dt.datetime.now(KST_TZ).date(), dt.date(2026, 9, 1)), dt.date(2026, 12, 31))
-    forecast_tab(2026, TODAY, dt.date(2026, 12, 31), "c26", "pred_day26")
+    forecast_tab(2026, dt.date(2026, 9, 1), dt.date(2026, 12, 31), "c26", "pred_day26", default_day=TODAY)
 
 # ---------------- 탭9: 예상 vs 실제
 with tab9:
