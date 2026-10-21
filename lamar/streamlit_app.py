@@ -19,9 +19,10 @@ import lamar_sun as sun      # noqa: E402
 import lamar_forecast as lf  # noqa: E402
 import lamar_tide as hm      # noqa: E402  (바다타임 조회가 안 될 때 쓰는 조화상수 계산)
 
-APP_VERSION = "v44"
+APP_VERSION = "v45"
 APP_DATE = "2026-10-17"
 CHANGELOG = [
+    ("v45", "2026 갑오징어 배율을 물세기별로: 30% 미만 적용 안 함 · 30~70% ×1.15 · 70% 이상 월별 배율"),
     ("v44", "2026 예상: 9월 1일부터 지난 날도 선택 가능, 지난 날은 저장된 예상 vs 실제 조과 표시"),
     ("v43", "예상 vs 실제 추이 그래프에서 '보정 전' 회색 선 삭제"),
     ("v42", "예상 vs 실제 그래프: 실제·예상 주꾸미/갑오징어를 4가지 색으로 구분"),
@@ -320,7 +321,8 @@ with st.sidebar.expander("🦑 2026 갑오징어 가중치", expanded=False):
     else:
         mval = st.slider("2026 예상 갑오징어 배율", 1.0, 4.0, round(GG26_ALL, 1), step=0.1, key="gg26_manual")
         GG26 = {m: mval for m in (9, 10, 11, 12)}
-    st.caption("2026 예상의 갑오징어 마릿수에만 적용되고, 2027 예상에는 적용되지 않아요.")
+    st.caption(f"물세기별 적용: {lf.GG26_LOW}% 미만 적용 안 함 · {lf.GG26_LOW}~{lf.GG26_HIGH}% ×{lf.GG26_MID_FACTOR} · "
+               f"{lf.GG26_HIGH}% 이상 위 표의 월별 배율. 2026 예상에만 적용되고 2027 예상에는 적용되지 않아요.")
 with st.sidebar.expander("🔴 추천일 기준 (2026·2027 예상)", expanded=False):
     st.radio("고르는 범위", ["기간 전체에서", "달마다"], index=0, key="rec_scope", horizontal=True)
     st.slider("추천일 수", 3, 20, 10, key="rec_n")
@@ -819,8 +821,8 @@ def predict(c):
             same = near[near[col_flow].apply(flow_kind) == kind]
             if same[seg].notna().sum() >= 5:
                 out[seg] = _wmean(same, seg)
-    if d.year == 2026:                                 # 2026년만 갑오징어 가중치
-        f = GG26.get(d.month, 1.0)
+    if d.year == 2026:                                 # 2026년만 갑오징어 가중치 — 물세기 30% 미만 ×1 · 30~70% ×1.15 · 70%↑ 월별
+        f = lf.gg26_multiplier(c.get("pct"), GG26.get(d.month, 1.0))
         for k in ("gg", "gg_max"):
             if out.get(k) is not None:
                 out[k] = out[k] * f

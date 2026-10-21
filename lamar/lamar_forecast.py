@@ -21,6 +21,17 @@ KST = dt.timezone(dt.timedelta(hours=9))
 WEIGHTS = {9: (0.60, 0.30, 0.10), 10: (0.50, 0.30, 0.20), 11: (0.40, 0.40, 0.20), 12: (0.30, 0.50, 0.20)}
 # 2026년 갑오징어 배율 (지정값). 9월은 데이터로 계산
 GG26_FIXED = {10: 2.7, 11: 2.0, 12: 2.0}
+# 갑오징어 배율은 물세기(조류세기)에 따라 다르게: 30% 미만 ×1.0 · 30~70% ×1.15 · 70% 이상 월별 배율
+GG26_LOW, GG26_HIGH, GG26_MID_FACTOR = 30, 70, 1.15
+
+
+def gg26_multiplier(pct, month_factor):
+    """물세기별 2026 갑오징어 배율 (물세기를 모르면 적용 안 함)"""
+    if pct is None or pct < GG26_LOW:
+        return 1.0
+    if pct < GG26_HIGH:
+        return GG26_MID_FACTOR
+    return month_factor
 TIDE_CYCLE = ["7물", "8물", "9물", "10물", "11물", "12물", "13물", "조금", "무시",
               "1물", "2물", "3물", "4물", "5물", "6물"]
 CAL_WINDOW = 14          # 보정에 쓰는 최근 비교일 수
@@ -90,7 +101,7 @@ def predict_one(target, rows, tide):
         items = [(r, 1 - abs(int(r["date"][8:10]) - target.day) / 40) for r in hist]
     out = {k: _wmean(items, k) for k in ("score", "jj_med", "gg_med", "jj_max", "gg_max", "am", "pm")}
     if target.year == 2026:
-        f = gg26_factor(rows, target.month)
+        f = gg26_multiplier(pct, gg26_factor(rows, target.month))
         for k in ("gg_med", "gg_max"):
             if out[k] is not None:
                 out[k] *= f
