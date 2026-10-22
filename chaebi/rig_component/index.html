@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&family=IBM+Plex+Sans+KR:wght@500;600;700&display=swap">
+<style>
+/* 물때 시계와 같은 '밤바다 계기판' 톤 — 나중에 쭈갑물때 앱에 합칠 때 그대로 맞도록 같은 색 이름을 씀
+   색의 뜻: 청록=물/조류, 보라=갑오징어, 주황=쭈꾸미, 노랑=주의, 빨강=경고 */
+:root{
+  --bg:#08131d; --app:#0d1a26; --panel:#122230; --panel2:#172a3a; --line:rgba(150,180,208,.16); --line2:rgba(150,180,208,.3);
+  --ink:#eef4fa; --sub:#a3b6c8; --faint:#6f869c;
+  --sea:#4cc3e6; --warn:#ffc857; --bad:#ff5b5b; --good:#7fe0a6;
+  --gg:#a596ff; --jj:#ff8a5b;
+  --sans:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --num:"IBM Plex Sans KR","Noto Sans KR",sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg)}
+body{font-family:var(--sans);color:var(--ink);padding:4px 4px 14px;-webkit-font-smoothing:antialiased}
+button,input{font-family:var(--sans)}
+.app{--sp:var(--gg);container-type:inline-size;max-width:440px;margin:0 auto;background:var(--app);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}
+.app.jju{--sp:var(--jj)}
+.num{font-family:var(--num);font-variant-numeric:tabular-nums}
+
+/* 머리줄 */
+.bar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 14px 12px;background:linear-gradient(180deg,#142a3c,#0d1a26);border-bottom:1px solid var(--line)}
+.bar b{font-size:20px;font-weight:900;letter-spacing:-.02em}
+.seg{display:flex;background:rgba(0,0,0,.28);border:1px solid var(--line2);border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;color:var(--sub);font-weight:700;font-size:13.5px;padding:7px 12px;border-radius:999px;cursor:pointer;min-height:36px}
+.seg button.on{background:var(--sp);color:#0b1520}
+.seg.wide{width:100%}
+.seg.wide button{flex:1;padding:8px 4px;font-size:13px}
+.seg.wide button.on{background:var(--sea);color:#06202b}
+
+.card{margin:10px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+.card h3{margin:0 0 10px;font-size:13px;font-weight:700;color:var(--sub);letter-spacing:.01em;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.card h3 small{font-weight:500;color:var(--faint);font-size:11.5px}
+
+/* 추천 결과 */
+.hero{background:linear-gradient(160deg,#18304a,#122230 60%);border-color:var(--line2)}
+.rec{display:flex;align-items:flex-end;gap:14px}
+.rec .it{flex:1;min-width:0}
+.rec .k{font-size:12px;color:var(--sub);font-weight:700}
+.rec .v{font-family:var(--num);font-size:clamp(34px,12cqw,46px);font-weight:700;line-height:1.05;letter-spacing:-.02em}
+.rec .v small{font-size:.42em;font-weight:600;color:var(--sub);margin-left:2px}
+.rec .it.drop .v{color:var(--sp)}
+.tgt{margin-top:6px;font-size:12.5px;color:var(--sub)}
+.tgt b{color:var(--ink)}
+.alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.alts button{border:1px solid var(--line2);background:rgba(0,0,0,.2);color:var(--ink);border-radius:999px;padding:6px 10px;font-size:12.5px;font-weight:700;cursor:pointer;font-family:var(--num)}
+.alts button.on{border-color:var(--sp);color:var(--sp)}
+.alts span{font-size:11.5px;color:var(--faint);align-self:center}
+svg text{font-family:var(--sans)}
+.diag{display:block;width:100%;height:auto;margin-top:8px;border-radius:12px;background:#0a1824}
+.verdict{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:13.5px;line-height:1.5;background:rgba(0,0,0,.22);border:1px solid var(--line)}
+.verdict b{font-weight:900}
+.verdict.good{border-color:rgba(127,224,166,.45)} .verdict.good b{color:var(--good)}
+.verdict.warn{border-color:rgba(255,200,87,.45)} .verdict.warn b{color:var(--warn)}
+.verdict.bad{border-color:rgba(255,91,91,.5)} .verdict.bad b{color:var(--bad)}
+
+/* 입력 */
+.row{margin-top:14px}
+.row:first-of-type{margin-top:0}
+.lab{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:7px}
+.lab span{font-size:13px;font-weight:700}
+.lab output{font-family:var(--num);font-size:20px;font-weight:700;color:var(--ink)}
+.lab output small{font-size:12px;color:var(--sub);font-weight:600;margin-left:2px}
+.hint{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.45}
+input[type=range]{width:100%;height:34px;margin:0;background:transparent;-webkit-appearance:none;appearance:none}
+input[type=range]::-webkit-slider-runnable-track{height:6px;border-radius:999px;background:linear-gradient(90deg,var(--sea) var(--p,50%),rgba(150,180,208,.22) var(--p,50%))}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:26px;border-radius:50%;background:#fff;border:3px solid var(--sea);margin-top:-10px;box-shadow:0 2px 8px rgba(0,0,0,.5)}
+input[type=range]::-moz-range-track{height:6px;border-radius:999px;background:rgba(150,180,208,.22)}
+input[type=range]::-moz-range-progress{height:6px;border-radius:999px;background:var(--sea)}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;background:#fff;border:3px solid var(--sea)}
+input[type=range]:disabled::-webkit-slider-thumb{border-color:var(--good)}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips button{flex:1 0 auto;min-width:44px;min-height:38px;border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:10px;font-family:var(--num);font-weight:700;font-size:14px;cursor:pointer;padding:0 8px}
+.chips button.on{background:var(--sea);border-color:var(--sea);color:#06202b}
+.chips.small button{min-height:32px;font-size:12.5px}
+.step{display:flex;align-items:center;gap:8px}
+.step button{width:44px;height:44px;flex:none;border-radius:12px;border:1px solid var(--line2);background:var(--panel2);color:var(--ink);font-size:22px;font-weight:700;cursor:pointer;line-height:1}
+.step .val{flex:1;text-align:center;font-family:var(--num);font-size:24px;font-weight:700}
+.step .val small{font-size:13px;color:var(--sub);margin-left:2px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.two .lab{margin-bottom:6px}
+button:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+
+/* GPS */
+.gps{display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:9px 10px;border-radius:12px;background:rgba(0,0,0,.22);border:1px solid var(--line)}
+.gps .dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:none}
+.gps.on .dot{background:var(--good);box-shadow:0 0 0 4px rgba(127,224,166,.18)}
+.gps.err .dot{background:var(--bad)}
+.gps .t{flex:1;min-width:0;font-size:12.5px;color:var(--sub);line-height:1.35}
+.gps .t b{color:var(--ink);font-family:var(--num)}
+.gps button{flex:none;border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;font-weight:700;font-size:12.5px;padding:8px 12px;cursor:pointer}
+.gps.on button{border-color:var(--good);color:var(--good)}
+
+/* 원줄 */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.stat{background:rgba(0,0,0,.2);border:1px solid var(--line);border-radius:12px;padding:9px 8px;text-align:center}
+.stat .k{font-size:11px;color:var(--sub);font-weight:700}
+.stat .v{font-family:var(--num);font-size:21px;font-weight:700;margin-top:2px}
+.stat .v small{font-size:11.5px;color:var(--sub);margin-left:1px}
+.stat.warn .v{color:var(--warn)} .stat.bad .v{color:var(--bad)} .stat.good .v{color:var(--good)}
+
+/* 포인트 */
+.pts{list-style:none;margin:8px 0 0;padding:0}
+.pts li{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);font-size:12.5px}
+.pts li .m{flex:1;min-width:0;color:var(--sub);line-height:1.4}
+.pts li .m b{color:var(--ink);font-family:var(--num)}
+.pts a{color:var(--sea);font-weight:700;text-decoration:none;flex:none}
+.pts .x{flex:none;border:0;background:transparent;color:var(--faint);font-size:18px;cursor:pointer;width:32px;height:32px}
+.btn{width:100%;min-height:44px;border-radius:12px;border:1px solid var(--sea);background:rgba(76,195,230,.12);color:var(--sea);font-weight:700;font-size:14px;cursor:pointer}
+.btn:disabled{opacity:.45;cursor:default}
+.empty{font-size:12.5px;color:var(--faint);margin-top:8px}
+
+details{margin:10px 10px 4px}
+details summary{cursor:pointer;font-size:12.5px;color:var(--sub);font-weight:700;padding:8px 4px}
+details .body{font-size:12px;color:var(--sub);line-height:1.6;padding:2px 6px 8px}
+details .body b{color:var(--ink)}
+</style></head>
+<body>
+<div class="app" id="app">
+  <div class="bar">
+    <b>채비 계산기</b>
+    <div class="seg" id="spSeg"><button data-v="gab">갑오징어</button><button data-v="jju">쭈꾸미</button></div>
+  </div>
+
+  <!-- 추천 -->
+  <div class="card hero">
+    <h3>추천 채비 <small id="tgtLab"></small></h3>
+    <div class="rec">
+      <div class="it drop"><div class="k">봉돌 단차</div><div class="v" id="recH">–</div></div>
+      <div class="it"><div class="k">가짓줄 길이</div><div class="v" id="recL">–</div></div>
+    </div>
+    <div class="tgt" id="recNote"></div>
+    <div class="alts" id="alts"></div>
+    <svg class="diag" id="rigSvg" viewBox="0 0 340 210" role="img" aria-label="바닥 근처 채비 모양"></svg>
+    <div class="verdict" id="verdict"></div>
+  </div>
+
+  <!-- 조건 -->
+  <div class="card">
+    <h3>오늘 조건</h3>
+    <div class="row">
+      <div class="lab"><span>조류 속도 <small style="color:var(--faint);font-weight:500">(수심 평균)</small></span><output><span id="curV" class="num"></span><small>노트</small></output></div>
+      <input type="range" id="cur" min="0" max="2.5" step="0.05">
+      <div class="chips small" id="curChips">
+        <button data-v="0.5">0.5 약</button><button data-v="0.75">0.75</button><button data-v="1">1.0 보통</button><button data-v="1.25">1.25</button><button data-v="1.5">1.5 강</button>
+      </div>
+      <div class="hint" id="curHint"></div>
+    </div>
+    <div class="row">
+      <div class="gps" id="gpsBox"><span class="dot"></span><div class="t" id="gpsTxt">GPS를 켜면 배가 흘러가는 속도를 자동으로 넣습니다</div><button id="gpsBtn">GPS 켜기</button></div>
+      <div class="lab"><span>선속 <small style="color:var(--faint);font-weight:500">(배가 흘러가는 속도)</small></span><output><span id="sogV" class="num"></span><small>노트</small></output></div>
+      <input type="range" id="sog" min="0" max="3" step="0.05">
+    </div>
+    <div class="row" id="relRow">
+      <div class="lab"><span>배가 흐르는 방향</span></div>
+      <div class="seg wide" id="relSeg">
+        <button data-v="0">조류 따라</button><button data-v="45">비스듬히</button><button data-v="90">옆으로</button><button data-v="180">거슬러</button>
+      </div>
+      <div class="hint">바람이 없으면 보통 '조류 따라'. 바람에 밀려 옆으로 가면 '옆으로', 엔진으로 버티며 조금씩 밀리면 '거슬러'.</div>
+    </div>
+    <div class="row">
+      <div class="lab"><span>수심</span></div>
+      <div class="step" data-k="H" data-step="1" data-min="3" data-max="60" data-unit="m"><button>−</button><div class="val"></div><button>+</button></div>
+    </div>
+    <div class="row">
+      <div class="lab"><span>봉돌</span><output><span id="skV" class="num"></span><small>호</small></output></div>
+      <div class="chips" id="skChips"></div>
+    </div>
+    <div class="two row">
+      <div><div class="lab"><span>원줄 PE</span></div><div class="chips small" id="peChips"></div></div>
+      <div><div class="lab"><span>에기</span></div><div class="chips small" id="egiChips"></div></div>
+    </div>
+  </div>
+
+  <!-- 내 채비 -->
+  <div class="card">
+    <h3>지금 내 채비 <small>쓰는 채비를 넣으면 에기 위치를 봐 줍니다</small></h3>
+    <div class="two">
+      <div><div class="lab"><span>단차</span></div><div class="step" data-k="myH" data-step="5" data-min="0" data-max="60" data-unit="cm"><button>−</button><div class="val"></div><button>+</button></div></div>
+      <div><div class="lab"><span>가짓줄</span></div><div class="step" data-k="myL" data-step="5" data-min="0" data-max="80" data-unit="cm"><button>−</button><div class="val"></div><button>+</button></div></div>
+    </div>
+    <div class="verdict" id="myVerdict"></div>
+    <div class="hint" id="keepNote"></div>
+    <div class="row">
+      <div class="lab"><span>가짓줄 에스테르</span></div>
+      <div class="chips small" id="esChips"></div>
+    </div>
+  </div>
+
+  <!-- 원줄 -->
+  <div class="card">
+    <h3>원줄과 봉돌 <small id="flowNote"></small></h3>
+    <div class="stats">
+      <div class="stat" id="stAng"><div class="k">원줄 각도</div><div class="v"></div></div>
+      <div class="stat"><div class="k">풀린 줄</div><div class="v" id="stLine"></div></div>
+      <div class="stat"><div class="k">배와 봉돌 거리</div><div class="v" id="stOff"></div></div>
+    </div>
+    <svg class="diag" id="lineSvg" viewBox="0 0 340 150" role="img" aria-label="배에서 봉돌까지 원줄 모양"></svg>
+    <div class="verdict" id="skVerdict"></div>
+  </div>
+
+  <!-- 수심 역산 -->
+  <div class="card">
+    <h3>풀린 줄로 수심 짐작 <small>GPS로는 수심을 못 잽니다</small></h3>
+    <div class="lab"><span>봉돌이 바닥에 닿을 때까지 풀린 PE</span></div>
+    <div class="step" data-k="lineOut" data-step="1" data-min="3" data-max="100" data-unit="m"><button>−</button><div class="val"></div><button>+</button></div>
+    <div class="verdict" id="depthOut"></div>
+    <div class="hint">PE는 보통 10m마다 색이 바뀝니다. 지금 조류·선속·봉돌 조건으로 줄이 누운 만큼을 빼서 실제 수심을 계산합니다. 선장님이 알려주는 어탐 수심이 있으면 그 값을 위 '수심'에 넣는 게 가장 정확합니다.</div>
+    <button class="btn" id="useDepth" style="margin-top:10px">이 수심을 위 '수심'에 넣기</button>
+  </div>
+
+  <!-- 포인트 -->
+  <div class="card">
+    <h3>포인트 기록 <small>이 휴대폰에만 저장</small></h3>
+    <button class="btn" id="savePt">📍 지금 위치 저장</button>
+    <ul class="pts" id="pts"></ul>
+  </div>
+
+  <details>
+    <summary>계산 근거와 한계</summary>
+    <div class="body">
+      궁디피싱 채비 과학 영상 3편의 계산 방식과 수치를 바탕으로 한 <b>정적 모델</b>입니다. 정확한 값이 아니라 경향을 보는 용도입니다.<br>
+      · 조류는 수심 평균값이고, 바닥 근처 유속은 1/7 법칙으로 줄어듭니다(바닥 15cm는 평균의 약 60%).<br>
+      · 원줄이 눕는 정도는 <b>조류 − 배 이동</b>의 상대속도로 계산합니다. 수심 10m·PE 0.8호·20호·1노트에서 약 38°, 0.5노트·16~18호에서 13~15°가 나오도록 맞췄습니다.<br>
+      · 단차는 높이, 가짓줄은 반경입니다. 에기 높이 = 단차 − 가짓줄 × cos(가짓줄이 기운 각도).<br>
+      · 고패질·흔들기로 에기가 들리는 움직임, 바닥 굴곡, 파도에 배가 오르내리는 것은 넣지 않았습니다. 1노트에서 단차 15·가짓줄 30 채비의 에기는 가만히 두면 바닥에 눕고, 고패질할 때 뜹니다.<br>
+      · 목표 높이: 갑오징어 바닥 위 5~15cm, 쭈꾸미 바닥에 닿게. 같은 높이가 나오는 조합 중 많이 쓰는 채비(가짓줄 30~40·단차 10~15)에 가까운 것을 먼저 추천합니다.
+    </div>
+  </details>
+</div>
+
+<script src="model.js"></script>
+<script>
+"use strict";
+const M = window.RigModel;
+const $ = id => document.getElementById(id);
+const KEY = "chaebi_v1", PKEY = "chaebi_points";
+const DEF = { sp: "gab", cur: 1, sog: 0, rel: 0, H: 12, sinker: 20, pe: 0.8, egi: 2.5, es: 4, myH: 15, myL: 30, lineOut: 13 };
+let S = Object.assign({}, DEF);
+try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+let pick = 0;                 // 추천 조합 중 그림에 보이는 것
+let gps = { on: false, id: null, sog: null, fix: null, buf: [], err: "" };
+
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+const f1 = v => (Math.round(v * 10) / 10).toFixed(1);
+const f2 = v => (Math.round(v * 100) / 100).toFixed(2);
+const P = () => ({ H: S.H, cur: S.cur, sog: S.sog, rel: S.rel, pe: S.pe, sinker: S.sinker, egi: S.egi, es: S.es });
+
+// ---------- 입력 위젯
+function chips(el, list, key, fmt) {
+  el.innerHTML = list.map(v => `<button data-v="${v}">${fmt ? fmt(v) : v}</button>`).join("");
+  el.onclick = e => { const b = e.target.closest("button"); if (!b) return; S[key] = +b.dataset.v; pick = 0; update(); };
+}
+chips($("skChips"), M.SINKERS, "sinker");
+chips($("peChips"), [0.4, 0.6, 0.8, 1, 1.2, 1.5], "pe");
+chips($("egiChips"), M.EGIS, "egi", v => v.toFixed(1));
+chips($("esChips"), [2, 2.5, 3, 4, 5], "es");
+$("curChips").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.cur = +b.dataset.v; pick = 0; update(); };
+$("spSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.sp = b.dataset.v; pick = 0; update(); };
+$("relSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.rel = +b.dataset.v; pick = 0; update(); };
+for (const id of ["cur", "sog"]) $(id).addEventListener("input", e => { S[id] = +e.target.value; pick = 0; update(); });
+document.querySelectorAll(".step").forEach(st => {
+  const k = st.dataset.k, step = +st.dataset.step, lo = +st.dataset.min, hi = +st.dataset.max;
+  const [minus, plus] = st.querySelectorAll("button");
+  const go = d => { S[k] = Math.min(hi, Math.max(lo, Math.round((S[k] + d) / step) * step)); pick = 0; update(); };
+  minus.onclick = () => go(-step); plus.onclick = () => go(step);
+});
+function markOn(el, v) { el.querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === v || b.dataset.v === v)); }
+function rangePct(el) { el.style.setProperty("--p", ((el.value - el.min) / (el.max - el.min) * 100) + "%"); }
+
+// ---------- 그림: 바닥 근처 채비 (조류는 오른쪽으로 흐른다고 그림)
+function drawRig(hCm, LCm, br, t) {
+  const svg = $("rigSvg"), W = 340, Y0 = 176, X0 = 130;
+  const top = Math.max(28, hCm + 10, t.hi + 8);
+  const s = Math.min(150 / top, 190 / Math.max(LCm, 20), 6.5);                      // 1cm = s px
+  const y = cm => Y0 - cm * s;
+  const flowX = M.relFlow(P(), 0.15)[0];
+  const dir = flowX >= 0 ? 1 : -1;                           // 상대유속이 거꾸로면(배가 더 빨리 흐름) 에기가 반대로 밀림
+  const a = br.alpha * Math.PI / 180;
+  const kx = X0, ky = y(hCm);
+  let ex = kx + dir * LCm * Math.sin(a) * s, ey = y(br.rawCm), lie = "";
+  if (br.rawCm < 0) {                                         // 바닥에 닿는 점까지 기울고, 나머지는 바닥을 따라 누움
+    const reach = hCm / Math.max(Math.cos(a), 0.05);
+    const bx = kx + dir * Math.min(reach, LCm) * Math.sin(a) * s;
+    ex = bx + dir * Math.max(LCm - reach, 0) * s; ey = Y0;
+    lie = `M${kx},${ky} L${bx},${Y0} L${ex},${Y0}`;
+  }
+  const egiAng = br.rawCm < 0 ? 0 : (dir > 0 ? -12 : 12);
+  const band = `<rect x="0" y="${y(t.hi)}" width="${W}" height="${Math.max(y(t.lo) - y(t.hi), 2)}" fill="var(--sp)" opacity=".13"/>
+    <text x="${W - 8}" y="14" text-anchor="end" font-size="10.5" fill="var(--sp)" font-weight="700">▒ 목표 높이 ${t.lo}~${t.hi}cm</text>`;
+  const fk = Math.abs(br.egiFlow);
+  const arrows = [0.25, 0.55, 0.85].map((f, i) => {
+    const yy = y(top * f * 0.9), ln = 18 + 22 * Math.min(fk / 1.2, 1) * (0.8 + f * 0.4);
+    const x1 = 18, x2 = x1 + dir * ln;
+    return dir > 0 ? `<path d="M${x1},${yy} L${x2},${yy} M${x2 - 5},${yy - 4} L${x2},${yy} L${x2 - 5},${yy + 4}" stroke="var(--sea)" stroke-width="2" fill="none" opacity="${.45 + i * .15}"/>`
+                   : `<path d="M${x1 + 40},${yy} L${x1 + 40 - ln},${yy} M${x1 + 45 - ln},${yy - 4} L${x1 + 40 - ln},${yy} L${x1 + 45 - ln},${yy + 4}" stroke="var(--sea)" stroke-width="2" fill="none" opacity="${.45 + i * .15}"/>`;
+  }).join("");
+  const branchPath = lie || `M${kx},${ky} L${ex},${ey}`;
+  svg.innerHTML = `
+    ${band}
+    <rect x="0" y="${Y0}" width="${W}" height="${210 - Y0}" fill="#3a2f22"/>
+    <path d="M0,${Y0} Q60,${Y0 - 3} 120,${Y0} T240,${Y0} T340,${Y0}" stroke="#7a6146" stroke-width="2" fill="none"/>
+    ${arrows}
+    <text x="14" y="${y(top * 0.95)}" font-size="10.5" fill="var(--sea)" font-weight="700">물살 ${f2(fk)}노트</text>
+    <line x1="${X0}" y1="${Y0 - 8}" x2="${X0 - 6}" y2="6" stroke="#e8eef5" stroke-width="1.6"/>
+    <rect x="${X0 - 6}" y="${Y0 - 13}" width="12" height="13" rx="4" fill="#9aa6b2"/>
+    <text x="${X0 - 12}" y="${Y0 + 22}" font-size="10.5" fill="var(--sub)" text-anchor="middle">봉돌 ${S.sinker}호</text>
+    <line x1="${X0 - 26}" y1="${Y0}" x2="${X0 - 26}" y2="${ky}" stroke="var(--sp)" stroke-width="1.2" stroke-dasharray="3 3"/>
+    <text x="${X0 - 30}" y="${(Y0 + ky) / 2 + 4}" font-size="11" fill="var(--sp)" text-anchor="end" font-weight="700">단차 ${hCm}</text>
+    <path d="${branchPath}" stroke="#ffd9a0" stroke-width="1.5" fill="none"/>
+    <circle cx="${kx}" cy="${ky}" r="3.2" fill="var(--sp)"/>
+    <g transform="translate(${ex},${ey - (br.rawCm < 0 ? 5 : 0)}) rotate(${egiAng})">
+      <path d="M${dir * 2},0 C${dir * 8},-6 ${dir * 22},-6 ${dir * 30},-1 L${dir * 34},-5 L${dir * 34},5 L${dir * 30},1 C${dir * 22},6 ${dir * 8},6 ${dir * 2},0Z" fill="var(--sp)" stroke="#0b1520" stroke-width="1"/>
+    </g>
+    <text x="${(kx + ex) / 2 + dir * 16}" y="${(ky + Math.min(ey, Y0)) / 2 - 8}" font-size="11" fill="#ffd9a0" font-weight="700" text-anchor="middle">가짓줄 ${LCm}</text>
+    <text x="${Math.min(Math.max(ex + dir * 52, 44), W - 44)}" y="${br.rawCm < 0 ? Y0 - 12 : Math.min(ey - 12, Y0 - 12)}" font-size="12" font-weight="900" text-anchor="middle" fill="${br.rawCm < 0 ? "var(--warn)" : "var(--ink)"}">${br.rawCm < 0 ? "바닥에 누움" : "에기 " + f1(br.rawCm) + "cm"}</text>`;
+}
+
+// ---------- 그림: 배에서 봉돌까지 원줄
+function drawLine(ml) {
+  const svg = $("lineSvg"), W = 340, top = 26, bot = 128;
+  const s = Math.min((bot - top) / S.H, (W - 100) / Math.max(ml.offset, 0.1));
+  const sx = 60 + ml.offset * s;                              // 봉돌 위치, 배는 왼쪽
+  const pts = ml.shape.map(([x, z]) => [sx - x * s, bot - z * s]);
+  const d = "M" + pts.map(p => p.map(v => v.toFixed(1)).join(",")).join(" L");
+  const bx = pts[pts.length - 1][0];
+  svg.innerHTML = `
+    <rect x="0" y="0" width="${W}" height="${top}" fill="#0f2233"/>
+    <path d="M0,${top} Q40,${top - 3} 80,${top} T160,${top} T240,${top} T340,${top}" stroke="var(--sea)" stroke-width="1.5" fill="none" opacity=".6"/>
+    <rect x="0" y="${bot}" width="${W}" height="${150 - bot}" fill="#3a2f22"/>
+    <path d="M${bx - 22},${top - 2} L${bx + 22},${top - 2} L${bx + 14},${top + 6} L${bx - 14},${top + 6} Z" fill="#dfe7ee"/>
+    <path d="${d}" stroke="#e8eef5" stroke-width="1.6" fill="none"/>
+    <rect x="${sx - 5}" y="${bot - 10}" width="10" height="10" rx="3" fill="#9aa6b2"/>
+    <text x="${W - 8}" y="${bot + 16}" text-anchor="end" font-size="10.5" fill="var(--sub)">수심 ${S.H}m · 배와 봉돌 ${f1(ml.offset)}m</text>
+    <text x="${bx + 28}" y="${top + 18}" font-size="11.5" font-weight="900" fill="var(--ink)">${Math.round(ml.angleTop)}°</text>`;
+}
+
+// ---------- 화면 갱신
+function update() {
+  save();
+  const app = $("app"), p = P(), t = M.TARGET[S.sp];
+  app.classList.toggle("jju", S.sp === "jju");
+  markOn($("spSeg"), S.sp); markOn($("relSeg"), S.rel); markOn($("skChips"), S.sinker);
+  markOn($("peChips"), S.pe); markOn($("egiChips"), S.egi); markOn($("esChips"), S.es); markOn($("curChips"), S.cur);
+  $("cur").value = S.cur; $("sog").value = S.sog; rangePct($("cur")); rangePct($("sog"));
+  $("sog").disabled = gps.on && gps.sog != null;
+  $("curV").textContent = f2(S.cur); $("sogV").textContent = f2(S.sog); $("skV").textContent = S.sinker;
+  $("relRow").style.opacity = S.sog < 0.05 ? .45 : 1;
+  document.querySelectorAll(".step").forEach(st => {
+    st.querySelector(".val").innerHTML = `${S[st.dataset.k]}<small>${st.dataset.unit}</small>`;
+  });
+  $("curHint").textContent = S.sp === "gab"
+    ? "궁디피싱 기록: 갑오징어는 조류 0.75~1노트일 때 가장 많았고, 1.25노트 넘는 중들물엔 줄었습니다."
+    : "궁디피싱 기록: 쭈꾸미는 조류 0.3~0.6노트일 때 가장 많았습니다.";
+
+  // 추천
+  $("tgtLab").textContent = "목표: " + t.label;
+  const recs = M.recommend(p, S.sp);
+  if (pick >= recs.length) pick = 0;
+  const r = recs[pick];
+  $("recH").innerHTML = `${r.h}<small>cm</small>`;
+  $("recL").innerHTML = `${r.L}<small>cm</small>`;
+  $("recNote").innerHTML = r.inRange
+    ? `가만히 두면 에기가 <b>바닥 위 ${f1(Math.max(r.r.rawCm, 0))}cm</b>에 있습니다 (가짓줄 ${Math.round(r.r.alpha)}° 기움)`
+    : `목표 높이에 딱 맞는 조합이 없어 가장 가까운 것입니다 (에기 ${f1(r.r.rawCm)}cm)`;
+  $("alts").innerHTML = `<span>다른 조합</span>` + recs.map((c, i) =>
+    `<button data-i="${i}" class="${i === pick ? "on" : ""}">${c.h} / ${c.L}</button>`).join("");
+  $("alts").onclick = e => { const b = e.target.closest("button"); if (!b) return; pick = +b.dataset.i; update(); };
+  drawRig(r.h, r.L, r.r, t);
+  const v = $("verdict");
+  const bf = M.relFlow(p, 0.15), bfk = Math.hypot(bf[0], bf[1]) / M.KN;
+  v.className = "verdict";
+  v.innerHTML = bfk < 0.15
+    ? `<b>물이 거의 안 갑니다.</b> 가짓줄이 수직으로 처지므로 <b>가짓줄 &lt; 단차</b>로 짧게 쓰거나 직결이 유리합니다.`
+    : `바닥 15cm 물살 <b class="num">${f2(bfk)}노트</b>(배 기준). ${S.cur >= 1.25 ? "조류가 세서 가짓줄이 많이 누우므로 길게 써야 원하는 높이가 나옵니다." : S.cur <= 0.5 ? "조류가 약해 가짓줄이 처지므로 짧게 써야 합니다." : ""}`;
+
+  // 내 채비
+  const mb = M.branch(p, S.myH, S.myL), mv = $("myVerdict");
+  const okGab = mb.rawCm >= t.lo && mb.rawCm <= t.hi;
+  const okJju = mb.rawCm >= -10 && mb.rawCm <= 3;
+  const ok = S.sp === "gab" ? okGab : okJju;
+  let msg;
+  if (S.myL === 0) msg = `직결 — 에기가 단차 높이 <b class="num">${S.myH}cm</b>에 붙어 있습니다.`;
+  else if (mb.rawCm < 0) msg = `에기가 <b>바닥에 누워</b> 약 ${Math.round(mb.lyingCm)}cm 끌립니다. 고패질할 때만 뜹니다.`;
+  else msg = `에기가 <b class="num">바닥 위 ${f1(mb.rawCm)}cm</b>에 있습니다 (가짓줄 ${Math.round(mb.alpha)}° 기움).`;
+  const tip = ok ? (S.sp === "gab" ? " 갑오징어 노리기 좋은 높이입니다." : " 쭈꾸미 노리기 좋습니다.")
+    : S.sp === "gab" ? (mb.rawCm < t.lo ? " 갑오징어엔 조금 낮습니다." : " 바닥에서 너무 멉니다.")
+    : " 쭈꾸미엔 바닥에서 떠 있습니다 — 단차를 줄이세요.";
+  mv.className = "verdict " + (ok ? "good" : "warn");
+  mv.innerHTML = msg + tip;
+  const keep = M.branchForDrop(p, S.myH, S.sp);
+  $("keepNote").innerHTML = S.myH > 0
+    ? (keep.L < 10 ? `단차 ${S.myH}cm 그대로라면 가짓줄을 ${keep.L}cm까지 줄여야 해서, <b>직결이나 단차를 낮춘 채비</b>가 낫습니다.`
+                   : `단차 ${S.myH}cm 그대로 쓰면 가짓줄은 <b class="num">${keep.L}cm</b> 정도가 맞습니다.`)
+    : "";
+
+  // 원줄
+  const ml = M.mainLine(p), ang = ml.angleTop;
+  const sa = $("stAng"); sa.className = "stat " + (ang <= 25 ? "good" : ang <= 35 ? "" : ang <= 45 ? "warn" : "bad");
+  sa.querySelector(".v").innerHTML = `${Math.round(ang)}<small>°</small>`;
+  $("stLine").innerHTML = `${f1(ml.lineOut)}<small>m</small>`;
+  $("stOff").innerHTML = `${f1(ml.offset)}<small>m</small>`;
+  $("flowNote").textContent = S.sog >= 0.05 ? `수면 상대유속 ${f2(ml.surfaceFlow)}노트` : "배가 버티는 상태";
+  drawLine(ml);
+  const need = M.sinkerFor(p, 30), sv = $("skVerdict");
+  if (ang <= 25) { sv.className = "verdict good"; sv.innerHTML = `<b>좋습니다.</b> 원줄이 서 있어 바닥 감이 잘 옵니다.` + (need && need < S.sinker ? ` ${need}호까지 가볍게 써도 됩니다.` : ""); }
+  else if (ang <= 35) { sv.className = "verdict"; sv.innerHTML = `원줄이 조금 눕습니다. 바닥 찍기에 무리는 없습니다.` + (need && need > S.sinker ? ` 더 세우려면 <b>${need}호</b>.` : ""); }
+  else if (need) { sv.className = "verdict warn"; sv.innerHTML = `<b>원줄이 많이 눕습니다.</b> 봉돌을 <b class="num">${need}호</b>로 올리면 30° 안쪽으로 섭니다.` + (ang > 45 ? " 지금은 봉돌이 바닥을 못 잡고 끌릴 수 있습니다." : ""); }
+  else { sv.className = "verdict bad"; sv.innerHTML = `<b>60호로도 30° 안쪽으로 안 섭니다.</b> 선속을 줄이거나(엔진으로 버티기) 원줄을 가늘게 하세요.`; }
+
+  // 수심 역산
+  const dep = M.depthFromLine(p, S.lineOut);
+  $("depthOut").className = "verdict";
+  $("depthOut").innerHTML = `실제 수심 약 <b class="num">${f1(dep)}m</b> — 줄이 누워서 ${f1(S.lineOut - dep)}m 더 풀렸습니다.`;
+  $("useDepth").onclick = () => { S.H = Math.max(3, Math.round(dep)); update(); };
+
+  renderPts();
+  setHeight();
+}
+
+// ---------- GPS: 선속(대지속도) — 기기가 주는 속도가 없으면 최근 10초 이동거리로 계산
+function hav(a, b) {
+  const R = 6371000, r = Math.PI / 180, dLa = (b.lat - a.lat) * r, dLo = (b.lon - a.lon) * r;
+  const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function gpsUI() {
+  const box = $("gpsBox");
+  box.classList.toggle("on", gps.on && !gps.err); box.classList.toggle("err", !!gps.err);
+  $("gpsBtn").textContent = gps.on ? "GPS 끄기" : "GPS 켜기";
+  $("gpsTxt").innerHTML = gps.err ? gps.err
+    : !gps.on ? "GPS를 켜면 배가 흘러가는 속도를 자동으로 넣습니다"
+    : !gps.fix ? "위치 잡는 중…" : gps.sog == null ? `위치 잡음(±${Math.round(gps.fix.acc)}m) · 선속 계산 중… 몇 초 걸립니다`
+    : `선속 <b>${f2(gps.sog)}노트</b> · 정확도 ±${Math.round(gps.fix.acc)}m${gps.fix.hdg != null ? ` · 방향 ${Math.round(gps.fix.hdg)}°` : ""}`;
+  $("savePt").disabled = !gps.fix;
+  $("savePt").textContent = gps.fix ? "📍 지금 위치 저장" : "📍 지금 위치 저장 (GPS를 켜세요)";
+}
+function onPos(pos) {
+  const c = pos.coords, now = pos.timestamp || Date.now();
+  const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 99, t: now, hdg: (c.heading != null && !isNaN(c.heading)) ? c.heading : null };
+  gps.fix = fix; gps.err = "";
+  gps.buf.push(fix); gps.buf = gps.buf.filter(f => now - f.t <= 12000);
+  let v = null;
+  if (c.speed != null && !isNaN(c.speed) && c.speed >= 0) v = c.speed / M.KN;
+  else if (gps.buf.length >= 2) {
+    const a = gps.buf[0], dt = (now - a.t) / 1000;
+    if (dt >= 4) v = hav(a, fix) / dt / M.KN;
+  }
+  if (v != null) {
+    gps.sog = gps.sog == null ? v : gps.sog * 0.6 + v * 0.4;      // 출렁임을 줄이려고 부드럽게
+    S.sog = Math.min(3, Math.round(gps.sog * 20) / 20);
+    update();
+  }
+  gpsUI();
+}
+function onErr(e) {
+  gps.err = e.code === 1 ? "위치 권한이 꺼져 있습니다. 브라우저 주소창 왼쪽 자물쇠 → 위치 허용 후 다시 켜세요."
+          : e.code === 3 ? "위치를 잡지 못했습니다(시간 초과). 하늘이 트인 곳에서 다시 켜세요."
+          : "위치를 가져오지 못했습니다.";
+  gpsUI(); setHeight();
+}
+$("gpsBtn").onclick = () => {
+  if (gps.on) {
+    if (gps.id != null) navigator.geolocation.clearWatch(gps.id);
+    gps = { on: false, id: null, sog: null, fix: null, buf: [], err: "" };
+    update(); gpsUI(); return;
+  }
+  if (!navigator.geolocation) { gps.err = "이 브라우저는 위치를 지원하지 않습니다."; gpsUI(); return; }
+  gps.on = true; gps.err = "";
+  try { gps.id = navigator.geolocation.watchPosition(onPos, onErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }); }
+  catch (e) { onErr({ code: 2 }); }
+  gpsUI();
+};
+
+// ---------- 포인트 기록
+function loadPts() { try { return JSON.parse(localStorage.getItem(PKEY) || "[]"); } catch (e) { return []; } }
+function savePts(a) { try { localStorage.setItem(PKEY, JSON.stringify(a.slice(0, 30))); } catch (e) {} }
+function renderPts() {
+  const a = loadPts();
+  $("pts").innerHTML = a.length ? a.map((q, i) => {
+    const d = new Date(q.t);
+    const when = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    return `<li><div class="m"><b>${when}</b> · 선속 ${f2(q.sog)} · 조류 ${f2(q.cur)} · 수심 ${q.H}m<br>${q.lat.toFixed(5)}, ${q.lon.toFixed(5)} · 추천 ${q.rec}</div>
+      <a href="https://www.google.com/maps?q=${q.lat},${q.lon}" target="_blank" rel="noopener">지도</a>
+      <button class="x" data-i="${i}" aria-label="삭제">×</button></li>`;
+  }).join("") : "";
+  if (!a.length) $("pts").innerHTML = `<li style="border:0;padding:0"><div class="empty">GPS를 켜고 입질 온 자리를 저장해 두면 다음 출조 때 참고할 수 있습니다.</div></li>`;
+}
+$("pts").onclick = e => { const b = e.target.closest(".x"); if (!b) return; const a = loadPts(); a.splice(+b.dataset.i, 1); savePts(a); renderPts(); setHeight(); };
+$("savePt").onclick = () => {
+  if (!gps.fix) return;
+  const r = M.recommend(P(), S.sp)[0];
+  const a = loadPts();
+  a.unshift({ t: Date.now(), lat: gps.fix.lat, lon: gps.fix.lon, sog: S.sog, cur: S.cur, H: S.H, rec: `단차 ${r.h}·가짓줄 ${r.L}` });
+  savePts(a); renderPts(); setHeight();
+};
+
+// ---------- Streamlit 연결 (높이 맞추기). 나중에 쭈갑물때에 합치면 조류값을 여기로 받음
+function send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data || {}), "*"); }
+function setHeight() { send("streamlit:setFrameHeight", { height: Math.ceil(document.documentElement.getBoundingClientRect().height) + 4 }); }
+window.addEventListener("message", e => {
+  const m = e.data; if (!m || m.type !== "streamlit:render") return;
+  const a = (m.args && m.args.data) || {};
+  if (typeof a.cur === "number" && a.cur !== S._extCur) { S.cur = a.cur; S._extCur = a.cur; }   // 물때 앱에서 넘겨준 조류
+  update();
+});
+if (window.ResizeObserver) new ResizeObserver(setHeight).observe(document.body);
+send("streamlit:componentReady", { apiVersion: 1 });
+update(); gpsUI();
+</script>
+</body></html>
