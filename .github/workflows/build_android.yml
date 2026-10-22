@@ -49,9 +49,13 @@ jobs:
         run: |
           cp android/app/build/outputs/apk/release/app-release.apk mulddae-clock.apk
           gh release delete android-latest --yes --cleanup-tag || true
+          # 예전에 초안으로 남은 릴리스 정리
+          gh api repos/${{ github.repository }}/releases --jq '.[] | select(.draft) | .id' | xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/releases/{} || true
           gh release create android-latest mulddae-clock.apk \
             --title "쭈갑과물때 앱 (최신)" \
             --notes "빌드 #${GITHUB_RUN_NUMBER} · $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')
           변경: $(git log -1 --format=%s)
           (앱이 이 '빌드 #번호'를 읽어 새 버전 알림을 띄웁니다)" \
             --latest
+          # 가끔 초안(draft)으로 남는 경우가 있어 확실히 공개로 바꿔 둠 (그래야 다운로드 주소가 열림)
+          gh release edit android-latest --draft=false --latest
