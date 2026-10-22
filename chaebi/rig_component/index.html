@@ -153,7 +153,6 @@ details .body b{color:var(--ink)}
       <div class="chips small" id="curChips">
         <button data-v="0.5">0.5 약</button><button data-v="0.75">0.75</button><button data-v="1">1.0 보통</button><button data-v="1.25">1.25</button><button data-v="1.5">1.5 강</button>
       </div>
-      <div class="hint" id="curHint"></div>
     </div>
     <div class="row">
       <div class="gps" id="gpsBox"><span class="dot"></span><div class="t" id="gpsTxt">GPS를 켜면 배가 흘러가는 속도를 자동으로 넣습니다</div><button id="gpsBtn">GPS 켜기</button></div>
@@ -165,7 +164,7 @@ details .body b{color:var(--ink)}
       <div class="seg wide" id="relSeg">
         <button data-v="0">조류 따라</button><button data-v="45">비스듬히</button><button data-v="90">옆으로</button><button data-v="180">거슬러</button>
       </div>
-      <div class="hint">바람이 없으면 보통 '조류 따라'. 바람에 밀려 옆으로 가면 '옆으로', 엔진으로 버티며 조금씩 밀리면 '거슬러'.</div>
+      <div class="verdict">바람이 없으면 보통 <b>'조류 따라'</b>. 바람에 밀려 옆으로 가면 <b>'옆으로'</b>, 엔진으로 버티며 조금씩 밀리면 <b>'거슬러'</b>.</div>
     </div>
     <div class="row">
       <div class="lab"><span>수심</span></div>
@@ -228,7 +227,6 @@ details .body b{color:var(--ink)}
   <details>
     <summary>계산 근거와 한계</summary>
     <div class="body">
-      궁디피싱 채비 과학 영상 3편의 계산 방식과 수치를 바탕으로 한 <b>정적 모델</b>입니다. 정확한 값이 아니라 경향을 보는 용도입니다.<br>
       · 조류는 수심 평균값이고, 바닥 근처 유속은 1/7 법칙으로 줄어듭니다(바닥 15cm는 평균의 약 60%).<br>
       · 원줄이 눕는 정도는 <b>조류 − 배 이동</b>의 상대속도로 계산합니다. 수심 10m·PE 0.8호·20호·1노트에서 약 38°, 0.5노트·16~18호에서 13~15°가 나오도록 맞췄습니다.<br>
       · 단차는 높이, 가짓줄은 반경입니다. 에기 높이 = 단차 − 가짓줄 × cos(가짓줄이 기운 각도).<br>
@@ -358,9 +356,6 @@ function update() {
   document.querySelectorAll(".step").forEach(st => {
     st.querySelector(".val").innerHTML = `${S[st.dataset.k]}<small>${st.dataset.unit}</small>`;
   });
-  $("curHint").textContent = S.sp === "gab"
-    ? "궁디피싱 기록: 갑오징어는 조류 0.75~1노트일 때 가장 많았고, 1.25노트 넘는 중들물엔 줄었습니다."
-    : "궁디피싱 기록: 쭈꾸미는 조류 0.3~0.6노트일 때 가장 많았습니다.";
 
   // 추천
   $("tgtLab").textContent = "목표: " + t.label;

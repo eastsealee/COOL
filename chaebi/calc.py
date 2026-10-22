@@ -39,6 +39,3 @@ if st.session_state.get("back_to_mulddae") or _in_app:
         st.switch_page("mulddae/dial.py")
 
 rig(data={}, key="rig", default=None)
-
-st.caption("계산 근거: 궁디피싱 채비 과학 영상(채비 3D 시뮬레이션 · 1,340마리 조과 분석 · 55명 채비 분석). "
-           "정적 모델이라 정확한 값이 아니라 경향을 보는 용도입니다.")
