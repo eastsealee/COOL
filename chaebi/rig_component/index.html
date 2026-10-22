@@ -257,6 +257,7 @@ const KEY = "chaebi_v1", PKEY = "chaebi_points";
 const DEF = { sp: "gab", cur: 1, sog: 0, rel: 0, H: 12, sinker: 20, pe: 0.8, egi: 2.5, es: 4, myH: 15, myL: 30, lineOut: 13 };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+if (!M.SINKERS.includes(S.sinker)) S.sinker = Math.min(40, M.SINKERS.reduce((b, v) => Math.abs(v - S.sinker) < Math.abs(b - S.sinker) ? v : b));
 let pick = 0;                 // 추천 조합 중 그림에 보이는 것
 let gps = { on: false, id: null, sog: null, fix: null, buf: [], err: "" };
 
@@ -376,27 +377,31 @@ function update() {
 
   // 추천
   $("tgtLab").textContent = "목표: " + t.label;
-  const recs = M.recommend(p, S.sp);
+  // 추천 봉돌: 원줄이 30° 안쪽으로 서는 가장 가벼운 호수 (서해 기준 최대 40호). 단차·가짓줄도 이 봉돌로 계산
+  const recSk = M.sinkerFor(p, 30) || M.SINKERS[M.SINKERS.length - 1];
+  const pr = Object.assign({}, p, { sinker: recSk });
+  const recs = M.recommend(pr, S.sp);
   if (pick >= recs.length) pick = 0;
   const r = recs[pick];
   $("recH").innerHTML = `${r.h}<small>cm</small>`;
   $("recL").innerHTML = `${r.L}<small>cm</small>`;
   // 봉돌: 아래 '봉돌'에서 고른 호수를 그대로 보여주고, 그 호수일 때 원줄 각도를 함께 표시
-  const aS = Math.round(M.mainLine(p).angleTop);
-  $("recS").innerHTML = `${S.sinker}<small>호</small>`;
-  $("recSsub").innerHTML = `원줄 ${aS}° · ` + (aS <= 25 ? "잘 섬" : aS <= 35 ? "조금 누움" : aS <= 45 ? "많이 누움" : "바닥 못 잡음");
+  const aS = Math.round(M.mainLine(pr).angleTop);
+  $("recS").innerHTML = `${recSk}<small>호</small>`;
+  $("recSsub").innerHTML = `원줄 ${aS}° · ` + (aS <= 25 ? "잘 섬" : aS <= 35 ? "조금 누움" : aS <= 45 ? "많이 누움" : "바닥 못 잡음")
+    + (recSk !== S.sinker ? `<br><span style="color:var(--faint)">지금 ${S.sinker}호</span>` : "");
   $("recSsub").style.color = aS <= 35 ? "" : aS <= 45 ? "var(--warn)" : "var(--bad)";
   $("recNote").innerHTML = r.inRange
     ? `가만히 두면 에기가 <b>바닥 위 ${f1(Math.max(r.r.rawCm, 0))}cm</b>에 있습니다 (가짓줄 ${Math.round(r.r.alpha)}° 기움)`
     : `목표 높이에 딱 맞는 조합이 없어 가장 가까운 것입니다 (에기 ${f1(r.r.rawCm)}cm)`;
-  const kh = M.knotHeight(p, r.h);
-  if (r.h - kh >= 0.5) $("recNote").innerHTML += `<br><span style="color:var(--faint)">수심 ${S.H}m라 원줄이 ${Math.round(M.knotTilt(p))}° 누워 단차 ${r.h}cm 매듭이 실제로는 바닥 위 <b class="num">${f1(kh)}cm</b> — 이만큼 반영했습니다</span>`;
+  const kh = M.knotHeight(pr, r.h);
+  if (r.h - kh >= 0.5) $("recNote").innerHTML += `<br><span style="color:var(--faint)">수심 ${S.H}m라 원줄이 ${Math.round(M.knotTilt(pr))}° 누워 단차 ${r.h}cm 매듭이 실제로는 바닥 위 <b class="num">${f1(kh)}cm</b> — 이만큼 반영했습니다</span>`;
   $("alts").innerHTML = `<span>다른 조합</span>` + recs.map((c, i) =>
     `<button data-i="${i}" class="${i === pick ? "on" : ""}">${c.h} / ${c.L}</button>`).join("");
   $("alts").onclick = e => { const b = e.target.closest("button"); if (!b) return; pick = +b.dataset.i; update(); };
   drawRig(r.h, r.L, r.r, t);
   const v = $("verdict");
-  const bf = M.relFlow(p, 0.15), bfk = Math.hypot(bf[0], bf[1]) / M.KN;
+  const bf = M.relFlow(pr, 0.15), bfk = Math.hypot(bf[0], bf[1]) / M.KN;
   v.className = "verdict";
   v.innerHTML = bfk < 0.15
     ? `<b>물이 거의 안 갑니다.</b> 가짓줄이 수직으로 처지므로 <b>가짓줄 &lt; 단차</b>로 짧게 쓰거나 직결이 유리합니다.`
@@ -434,7 +439,7 @@ function update() {
   if (ang <= 25) { sv.className = "verdict good"; sv.innerHTML = `<b>좋습니다.</b> 원줄이 서 있어 바닥 감이 잘 옵니다.` + (need && need < S.sinker ? ` ${need}호까지 가볍게 써도 됩니다.` : ""); }
   else if (ang <= 35) { sv.className = "verdict"; sv.innerHTML = `원줄이 조금 눕습니다. 바닥 찍기에 무리는 없습니다.` + (need && need > S.sinker ? ` 더 세우려면 <b>${need}호</b>.` : ""); }
   else if (need) { sv.className = "verdict warn"; sv.innerHTML = `<b>원줄이 많이 눕습니다.</b> 봉돌을 <b class="num">${need}호</b>로 올리면 30° 안쪽으로 섭니다.` + (ang > 45 ? " 지금은 봉돌이 바닥을 못 잡고 끌릴 수 있습니다." : ""); }
-  else { sv.className = "verdict bad"; sv.innerHTML = `<b>60호로도 30° 안쪽으로 안 섭니다.</b> 선속을 줄이거나(엔진으로 버티기) 원줄을 가늘게 하세요.`; }
+  else { sv.className = "verdict bad"; sv.innerHTML = `<b>40호로도 30° 안쪽으로 안 섭니다.</b> 선속을 줄이거나(엔진으로 버티기) 원줄을 가늘게 하세요.`; }
 
   // 수심 역산
   const dep = M.depthFromLine(p, S.lineOut);
