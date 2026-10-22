@@ -213,8 +213,7 @@ details .body b{color:var(--ink)}
     <div class="lab"><span>봉돌이 바닥에 닿을 때까지 풀린 PE</span></div>
     <div class="step" data-k="lineOut" data-step="1" data-min="3" data-max="100" data-unit="m"><button>−</button><div class="val"></div><button>+</button></div>
     <div class="verdict" id="depthOut"></div>
-    <div class="hint">PE는 보통 10m마다 색이 바뀝니다. 지금 조류·선속·봉돌 조건으로 줄이 누운 만큼을 빼서 실제 수심을 계산합니다. 선장님이 알려주는 어탐 수심이 있으면 그 값을 위 '수심'에 넣는 게 가장 정확합니다.</div>
-    <button class="btn" id="useDepth" style="margin-top:10px">이 수심을 위 '수심'에 넣기</button>
+    <div class="hint">PE는 보통 10m마다 색이 바뀝니다. 지금 조류·선속·봉돌 조건으로 줄이 누운 만큼을 빼서 실제 수심을 계산하고, −/+를 누르면 위 '수심'에 바로 들어갑니다. 선장님이 알려주는 어탐 수심이 있으면 그 값을 위 '수심'에 직접 넣는 게 가장 정확합니다.</div>
   </div>
 
   <!-- 포인트 -->
@@ -269,7 +268,12 @@ for (const id of ["cur", "sog"]) $(id).addEventListener("input", e => { S[id] = 
 document.querySelectorAll(".step").forEach(st => {
   const k = st.dataset.k, step = +st.dataset.step, lo = +st.dataset.min, hi = +st.dataset.max;
   const [minus, plus] = st.querySelectorAll("button");
-  const go = d => { S[k] = Math.min(hi, Math.max(lo, Math.round((S[k] + d) / step) * step)); pick = 0; update(); };
+  const go = d => {
+    S[k] = Math.min(hi, Math.max(lo, Math.round((S[k] + d) / step) * step)); pick = 0;
+    // 풀린 줄(lineOut)을 바꾸면 계산한 실제 수심을 위 '수심'에 바로 넣음
+    if (k === "lineOut") for (let i = 0; i < 4; i++) S.H = Math.max(3, Math.round(M.depthFromLine(P(), S.lineOut)));   // 수심이 바뀌면 누운 정도도 바뀌어 몇 번 맞춤
+    update();
+  };
   minus.onclick = () => go(-step); plus.onclick = () => go(step);
 });
 function markOn(el, v) { el.querySelectorAll("button").forEach(b => b.classList.toggle("on", +b.dataset.v === v || b.dataset.v === v)); }
@@ -421,7 +425,6 @@ function update() {
   const dep = M.depthFromLine(p, S.lineOut);
   $("depthOut").className = "verdict";
   $("depthOut").innerHTML = `실제 수심 약 <b class="num">${f1(dep)}m</b> — 줄이 누워서 ${f1(S.lineOut - dep)}m 더 풀렸습니다.`;
-  $("useDepth").onclick = () => { S.H = Math.max(3, Math.round(dep)); update(); };
 
   renderPts();
   setHeight();
