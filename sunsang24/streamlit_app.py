@@ -2066,8 +2066,13 @@ if ss.get("app_ver") != APP_VERSION:
         st.toast(f"새 버전({APP_VERSION})이 적용되어 이전 조회 결과를 지웠습니다. 다시 조회해 주세요.")
 ss.setdefault("cal_ym", (today.year, today.month))
 
-# ----- 물때 시계에서 넘어왔으면 맨 위에 '돌아가기' (보던 날짜·항구로 돌아감)
-if ss.get("back_to_mulddae"):
+# ----- 물때 시계에서 넘어왔거나 '물때 시계' 안드로이드 앱 안이면 맨 위에 '돌아가기'
+#       (앱에서는 왼쪽 메뉴가 숨겨져 있어 이 버튼이 유일한 돌아가는 길)
+try:
+    _in_mulddae_app = "MulddaeApp" in (st.context.headers.get("User-Agent", "") or "")
+except Exception:
+    _in_mulddae_app = False
+if ss.get("back_to_mulddae") or _in_mulddae_app:
     st.markdown("""<style>
     /* 돌아가기 버튼: 흐르는 빛 + 맥박처럼 커졌다 작아짐 + 퍼지는 물결 + 화살표가 왼쪽으로 톡톡 */
     .st-key-back_mulddae button{position:relative;overflow:visible !important;

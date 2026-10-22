@@ -100,11 +100,18 @@ class MainActivity : Activity() {
         if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(startUrl())
     }
 
-    /** 마지막으로 보던 화면이 있으면 그 주소, 없으면 물때 시계 */
+    /** 앱은 항상 물때 시계로 시작 — 마지막으로 보던 물때 시계(항구 포함)가 있으면 그 주소 */
     private fun startUrl(): String {
         val last = prefs.getString("last_url", null)
-        if (last != null && isAppUrl(Uri.parse(last))) return withEmbed(last)
+        if (last != null && isDialUrl(Uri.parse(last))) return withEmbed(last)
         return withEmbed(BuildConfig.APP_URL)
+    }
+
+    private fun isDialUrl(u: Uri): Boolean =
+        isAppUrl(u) && (u.path ?: "").trimEnd('/') == (Uri.parse(BuildConfig.APP_URL).path ?: "").trimEnd('/')
+
+    private fun rememberDial(url: String) {
+        if (isDialUrl(Uri.parse(url))) prefs.edit().putString("last_url", url).apply()
     }
 
     /** Streamlit 머리줄·메뉴를 숨겨 앱처럼 보이게 (?embed=true) */
@@ -137,7 +144,12 @@ class MainActivity : Activity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             view.evaluateJavascript(TIDY_JS, null)
-            if (isAppUrl(Uri.parse(url))) prefs.edit().putString("last_url", url).apply()
+            rememberDial(url)
+        }
+
+        // Streamlit은 화면을 바꿀 때 주소만 바꾸므로 여기서도 기억 (예약조회 등 다른 화면은 기억하지 않음)
+        override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
+            rememberDial(url)
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
