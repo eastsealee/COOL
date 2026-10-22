@@ -389,6 +389,8 @@ function update() {
   $("recNote").innerHTML = r.inRange
     ? `가만히 두면 에기가 <b>바닥 위 ${f1(Math.max(r.r.rawCm, 0))}cm</b>에 있습니다 (가짓줄 ${Math.round(r.r.alpha)}° 기움)`
     : `목표 높이에 딱 맞는 조합이 없어 가장 가까운 것입니다 (에기 ${f1(r.r.rawCm)}cm)`;
+  const kh = M.knotHeight(p, r.h);
+  if (r.h - kh >= 0.5) $("recNote").innerHTML += `<br><span style="color:var(--faint)">수심 ${S.H}m라 원줄이 ${Math.round(M.knotTilt(p))}° 누워 단차 ${r.h}cm 매듭이 실제로는 바닥 위 <b class="num">${f1(kh)}cm</b> — 이만큼 반영했습니다</span>`;
   $("alts").innerHTML = `<span>다른 조합</span>` + recs.map((c, i) =>
     `<button data-i="${i}" class="${i === pick ? "on" : ""}">${c.h} / ${c.L}</button>`).join("");
   $("alts").onclick = e => { const b = e.target.closest("button"); if (!b) return; pick = +b.dataset.i; update(); };

@@ -7,6 +7,7 @@
    - 보정: 수심 10m · PE 0.8호 · 봉돌 20호 · 1노트(배가 조류를 향해 버팀) → 원줄 약 38° 가 되게 원줄 항력계수를 맞춤
            (같은 계산으로 0.5노트 · 16~18호 → 13~15° 도 맞음)
            1노트에서 단차 15 · 가짓줄 30 · 에기 2.5호는 바닥에 누움 (영상 결론과 같음)
+   - 수심: 바닥 근처 물살(1/7 법칙) + 원줄이 누운 만큼 단차 매듭이 낮아지는 것(knotTilt)을 함께 반영
 */
 (function (root) {
   "use strict";
@@ -80,8 +81,22 @@
   }
 
   // ---- 가짓줄 + 에기: 단차 h(cm) 매듭에 매단 진자. 바닥 근처 상대유속에 밀려 각도 α 로 기움
+  // ---- 수심 반영: 바닥을 찍고 기다리면 원줄이 기운 채로 봉돌에서 올라가므로 단차 매듭이 그만큼 낮아짐
+  //  봉돌 바로 위 원줄 각도 ≈ 수면 쪽 원줄 각도의 절반으로 봄 (원줄은 아래로 갈수록 덜 누움)
+  //  수심이 깊을수록 원줄이 많이 누워 같은 단차라도 매듭(=에기 매단 곳)이 낮아짐
+  const _tilt = new Map();
+  function knotTilt(p) {
+    const k = [p.H, p.cur, p.sog, p.rel, p.pe, p.sinker].join("|");
+    if (!_tilt.has(k)) {
+      if (_tilt.size > 300) _tilt.clear();
+      _tilt.set(k, 0.5 * mainLine(p).angleTop);
+    }
+    return _tilt.get(k);
+  }
+  function knotHeight(p, hCm) { return hCm * Math.cos(knotTilt(p) * Math.PI / 180); }
+
   function branch(p, hCm, LCm) {
-    const h = hCm / 100, L = LCm / 100;
+    const h = knotHeight(p, hCm) / 100, L = LCm / 100;
     const We = egiWet(p.egi), CdA = egiCdA(p.egi);
     const db = (ES_D[p.es] || 0.33) / 1000;
     let a = 0;
@@ -168,7 +183,7 @@
   }
 
   const api = { KN, PE_D, ES_D, SINKERS, EGIS, TARGET, MEDIAN, profile, relFlow, mainLine, branch,
-                branchForDrop, recommend, sinkerFor, depthFromLine };
+                branchForDrop, recommend, sinkerFor, depthFromLine, knotTilt, knotHeight };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.RigModel = api;
 })(this);
