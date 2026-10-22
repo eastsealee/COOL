@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 108x108 아이콘 앞면: 시계 테두리 + 물결 + 만조 점 (안쪽 66dp만 항상 보임) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:strokeColor="#8FA6C2" android:strokeWidth="2.5" android:fillColor="#00000000"
+        android:pathData="M54,25a29,29 0 1,1 -0.01,0z" />
+    <path android:strokeColor="#4CC3E6" android:strokeWidth="5" android:fillColor="#00000000" android:strokeLineCap="round"
+        android:pathData="M32,60 Q38,50 44,60 T56,60 T68,60 T76,58" />
+    <path android:strokeColor="#2B7FA3" android:strokeWidth="4" android:fillColor="#00000000" android:strokeLineCap="round"
+        android:pathData="M35,70 Q41,62 47,70 T59,70 T71,70" />
+    <path android:fillColor="#FF5B5B" android:pathData="M54,30.5a4.5,4.5 0 1,1 -0.01,0z" />
+    <path android:fillColor="#FFC857" android:pathData="M54,38v10" android:strokeColor="#FFC857" android:strokeWidth="2.5" android:strokeLineCap="round" />
+</vector>
