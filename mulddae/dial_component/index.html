@@ -112,10 +112,10 @@ svg text{font-family:var(--sans)}
 #dial .warn{animation:windBlink .9s steps(2,jump-none) infinite;filter:drop-shadow(0 0 3px rgba(255,77,77,.9))}
 @keyframes windBlink{0%{opacity:1}100%{opacity:.15}}
 @media (prefers-reduced-motion:reduce){#dial .warn{animation:none}}
-.wedge:focus,#calBtn:focus,#rsvBtn:focus{outline:none}
+.wedge:focus,#calBtn:focus,#rsvBtn:focus,#rigDial:focus{outline:none}
 .wedge:focus-visible{stroke:var(--sea);stroke-width:2}
-#calBtn,#rsvBtn{cursor:pointer}
-#calBtn:focus-visible rect.face,#rsvBtn:focus-visible rect.face{stroke:var(--sea);stroke-width:2.5}
+#calBtn,#rsvBtn,#rigDial{cursor:pointer}
+#calBtn:focus-visible rect.face,#rsvBtn:focus-visible rect.face,#rigDial:focus-visible rect.face{stroke:var(--sea);stroke-width:2.5}
 
 /* 달력 */
 .cal{position:absolute;left:8px;top:8px;width:min(310px,calc(100% - 16px));background:var(--pop);border:1px solid var(--line2);border-radius:16px;padding:12px;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:5}
@@ -380,6 +380,19 @@ function draw(){
   el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
   txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},rb);
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  // 14시 방향 채비계산 버튼: 보던 날짜로 '쭈갑 채비 계산기'를 엶 (오늘 카드의 버튼과 같은 동작)
+  const[gx,gy]=pt(14*60+30,255);const gb=el("g",{id:"rigDial",tabindex:0,role:"button","aria-label":"쭈갑 채비 계산기 열기",transform:`translate(${gx} ${gy})`});
+  el("rect",{class:"face",x:-20,y:-21,width:40,height:44,rx:8,fill:"#eef3f8",stroke:"rgba(150,180,208,.5)","stroke-width":1},gb);
+  el("rect",{x:-20,y:-21,width:40,height:13,rx:7,fill:"#1f9d6b"},gb);el("rect",{x:-20,y:-13,width:40,height:5,fill:"#1f9d6b"},gb);
+  txt(0,-14.5,"채비",{"font-size":8.5,"font-weight":900,fill:"#fff"},gb);
+  el("line",{x1:-8,y1:-6,x2:-8,y2:15,stroke:"#14304b","stroke-width":1.3},gb);                    // 원줄
+  el("path",{d:"M-10.5 13h5l-1 5h-3z",fill:"#5d646e"},gb);                                            // 봉돌
+  el("path",{d:"M-8 4L6 10",stroke:"#14304b","stroke-width":1,fill:"none"},gb);                      // 가짓줄
+  el("path",{d:"M4 7.5q8 -1 11 3.5q-6 3 -11 1.5z",fill:"#e0443e"},gb);el("path",{d:"M4 12l-3 2.5M4 8.5l-3 -2",stroke:"#e0443e","stroke-width":1},gb); // 에기
+  el("path",{d:"M-15 19h30",stroke:"#8a6a45","stroke-width":1.6,"stroke-dasharray":"2 1.5"},gb);     // 바닥
+  txt(0,32,"채비계산",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},gb);
+  const goRig=()=>{loadEl.hidden=false;loadEl.textContent="채비 계산기 여는 중…";send("streamlit:setComponentValue",{value:{goto:"chaebi",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  gb.addEventListener("click",goRig);gb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goRig()}});
   rb.addEventListener("click",goRsv);rb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goRsv()}});cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
 }
 
