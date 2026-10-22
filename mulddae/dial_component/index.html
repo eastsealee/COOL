@@ -189,12 +189,24 @@ body.inapp .bar{padding-top:12px}
 .rvInfo{margin-top:6px;padding:10px 12px;border-radius:12px;background:rgba(76,195,230,.07);border:1px solid rgba(76,195,230,.25);font-size:13.5px;line-height:1.6;color:#d8e4ef}
 .rvInfo b{color:#ffd84d}.rvInfo .c{color:#4cc3e6;font-weight:800}.rvInfo .o{color:#ff9d4d;font-weight:800}.rvInfo small{color:#8a99a8}
 @media (prefers-reduced-motion:reduce){#rvBack{animation:none}}
+#nearBtn{margin-left:auto;flex:none;display:flex;align-items:center;gap:4px;font-weight:800;font-size:12px;color:#06202b;cursor:pointer;
+  border:1px solid #7fe0f5;border-radius:999px;padding:5px 10px 5px 7px;
+  background:linear-gradient(180deg,#9eeefc 0%,#4cc3e6 55%,#2a9fc4 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 0 #17708f,0 3px 6px rgba(0,0,0,.35);transform:translateY(-1px)}
+#nearBtn:active{transform:translateY(1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 0 #17708f}
+#nearBtn svg{width:15px;height:15px}
+#nearBtn.busy svg{animation:nearSpin 1s linear infinite}
+@keyframes nearSpin{to{transform:rotate(360deg)}}
+#nearBtn:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+.bar .pl{justify-content:flex-start !important}
+.toast{position:fixed;left:50%;top:70px;transform:translateX(-50%);z-index:50;max-width:88%;padding:10px 14px;border-radius:12px;
+  background:rgba(8,22,34,.96);border:1px solid var(--sea);color:#e6f4fb;font-size:13.5px;font-weight:600;line-height:1.5;box-shadow:0 8px 24px rgba(0,0,0,.5);text-align:center}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
 <div class="app">
   <div class="loading" id="loading" hidden>물때 불러오는 중…</div>
-  <div class="bar"><div class="pl"><b id="portName"></b><button id="portBtn" aria-haspopup="dialog">항구 선택 <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></div><label class="hq"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#ead9cf" stroke-width="2.4"/><path d="M15 15l6 6" stroke="#ead9cf" stroke-width="2.6" stroke-linecap="round"/></svg><input id="hdrQ" type="search" placeholder="항 이름으로 찾기" aria-label="항구 이름으로 찾기" autocomplete="off" enterkeyhint="search"></label></div>
+  <div class="bar"><div class="pl"><b id="portName"></b><button id="nearBtn" aria-label="내 위치에서 가장 가까운 항구 찾기" title="내 위치에서 가장 가까운 항구"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M12 1.8v4M12 18.2v4M1.8 12h4M18.2 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>내 근처</button><button id="portBtn" aria-haspopup="dialog">항구 선택 <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></div><label class="hq"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#ead9cf" stroke-width="2.4"/><path d="M15 15l6 6" stroke="#ead9cf" stroke-width="2.6" stroke-linecap="round"/></svg><input id="hdrQ" type="search" placeholder="항 이름으로 찾기" aria-label="항구 이름으로 찾기" autocomplete="off" enterkeyhint="search"></label></div>
   <div class="ports" id="ports" role="dialog" aria-label="항구 선택" hidden><div class="top"><input id="portQ" type="search" placeholder="항구·지역 검색 (예: 오천, 여수, 제주)" autocomplete="off"><button id="portClose">닫기</button></div><div class="list" id="portList"></div></div>
 
   <div class="day">
@@ -733,6 +745,28 @@ function buildPorts(){
   }
   list.querySelectorAll("button[data-p]").forEach(b=>b.onclick=()=>{portsEl.hidden=true;hdrQ.value="";
     if(b.dataset.p!==D.portFull){loadEl.hidden=false;send("streamlit:setComponentValue",{value:{port:b.dataset.p,n:Date.now()},dataType:"json"})}})}
+
+/* 내 근처: GPS로 지금 위치에서 가장 가까운 항구를 찾아 자동으로 고름 */
+function toast(msg,ms){let t=document.getElementById("toast");if(!t){t=document.createElement("div");t.id="toast";t.className="toast";t.setAttribute("role","status");document.body.appendChild(t)}
+  t.innerHTML=msg;t.hidden=false;clearTimeout(t._h);t._h=setTimeout(()=>{t.hidden=true},ms||3500)}
+document.getElementById("nearBtn").onclick=()=>{const btn=document.getElementById("nearBtn");
+  if(btn.classList.contains("busy"))return;
+  if(!navigator.geolocation){toast("이 기기는 위치를 지원하지 않습니다");return}
+  btn.classList.add("busy");toast("내 위치 찾는 중…",20000);
+  navigator.geolocation.getCurrentPosition(pos=>{btn.classList.remove("busy");
+    const la=pos.coords.latitude,lo=pos.coords.longitude,r=Math.PI/180;let best=null;
+    for(const p of (D.ports||[])){if(p[4]==null)continue;const x=(p[5]-lo)*r*Math.cos((p[4]+la)/2*r),y=(p[4]-la)*r,km=6371*Math.hypot(x,y);
+      if(!best||km<best.km)best={p,km}}
+    if(!best){toast("항구 위치 자료가 없습니다");return}
+    const km=best.km<10?best.km.toFixed(1):Math.round(best.km);
+    if(best.p[0]===D.portFull){toast(`지금 보고 있는 <b>${esc(pname(best.p[0]))}</b>이 가장 가깝습니다 (${km}km)`);return}
+    toast(`가장 가까운 항구: <b>${esc(pname(best.p[0]))}</b> (${km}km) — 불러오는 중…`,4000);
+    portsEl.hidden=true;calEl.hidden=true;loadEl.hidden=false;
+    send("streamlit:setComponentValue",{value:{port:best.p[0],n:Date.now()},dataType:"json"})},
+  e=>{btn.classList.remove("busy");
+    toast(e.code===1?(/MulddaeApp/.test(navigator.userAgent)?"위치 권한이 꺼져 있습니다.<br>휴대폰 설정 → 애플리케이션 → 쭈갑과물때 → 권한 → 위치 → '앱 사용 중에만 허용'"
+      :"위치 권한이 꺼져 있습니다.<br>주소창 왼쪽 아이콘 → 권한 → 위치 허용"):"위치를 잡지 못했습니다. 잠시 후 다시 눌러 주세요",6000)},
+  {enableHighAccuracy:true,timeout:15000,maximumAge:60000})};
 function openPorts(){const me=(D.ports||[]).find(p=>p[0]===D.portFull);if(me){pArea=me[1];pSg=me[2]+"|"+me[3]}}
 const placePorts=()=>{portsEl.style.top=(document.querySelector(".bar").offsetHeight+6)+"px"};
 document.getElementById("portBtn").onclick=()=>{placePorts();if(portsEl.hidden){calEl.hidden=true;portQ.value="";openPorts();buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
