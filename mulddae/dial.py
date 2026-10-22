@@ -86,6 +86,10 @@ val = dial(data=data, key="dial", default=None)
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴
 if isinstance(val, dict) and val.get("n") != st.session_state.get("dial_n"):
     st.session_state["dial_n"] = val.get("n")
+    if val.get("goto") == "chaebi":                     # 오늘 카드 '쭈갑 채비계산' → 채비 계산기
+        st.session_state["dial_center"] = str(val.get("date", ""))[:10] or center_s
+        st.session_state["back_to_mulddae"] = True
+        st.switch_page("chaebi/calc.py")
     if val.get("goto") == "sunsang24":                  # 2시 방향 '예약조회' → 보던 날짜·지역으로 예약조회 열기
         area, sido, sgg = PORT_META.get(port, ("서해", "", ""))
         st.session_state["jump_from_mulddae"] = {"date": str(val.get("date", ""))[:10], "sea": area, "sido": sido,

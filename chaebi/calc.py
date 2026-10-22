@@ -16,6 +16,28 @@ st.set_page_config(page_title="채비 계산기", layout="centered")
 st.markdown("<style>.block-container{padding-top:3.6rem;padding-bottom:1rem;max-width:560px}</style>",
             unsafe_allow_html=True)
 
+# ----- 물때 시계에서 넘어왔거나 '쭈갑과물때' 앱 안이면 맨 위에 '물때 시계로 돌아가기'
+try:
+    _in_app = "MulddaeApp" in (st.context.headers.get("User-Agent", "") or "")
+except Exception:
+    _in_app = False
+if st.session_state.get("back_to_mulddae") or _in_app:
+    st.markdown("""<style>
+    .st-key-back_mulddae_rig button{border:2px solid #bff1ff !important;border-radius:999px !important;padding:0.55rem 1.4rem !important;
+      background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%) !important;
+      background-size:250% 100% !important;color:#fff !important;
+      animation:rShine 2.2s linear infinite, rPulse 1.1s ease-in-out infinite, rRing 1.6s ease-out infinite}
+    .st-key-back_mulddae_rig button p{font-size:1.05rem !important;font-weight:800 !important;color:#fff !important;
+      text-shadow:0 1px 3px rgba(0,40,60,.8)}
+    @keyframes rShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+    @keyframes rPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+    @keyframes rRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.75)}100%{box-shadow:0 0 0 16px rgba(76,195,230,0)}}
+    @media (prefers-reduced-motion:reduce){.st-key-back_mulddae_rig button{animation:none}}
+    </style>""", unsafe_allow_html=True)
+    if st.button("← 물때 시계로 돌아가기", key="back_mulddae_rig"):
+        st.session_state.pop("back_to_mulddae", None)
+        st.switch_page("mulddae/dial.py")
+
 rig(data={}, key="rig", default=None)
 
 st.caption("계산 근거: 궁디피싱 채비 과학 영상(채비 3D 시뮬레이션 · 1,340마리 조과 분석 · 55명 채비 분석). "
