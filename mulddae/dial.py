@@ -30,6 +30,50 @@ st.set_page_config(page_title="물때 시계", layout="centered")
 st.markdown("<style>.block-container{padding-top:3.6rem;padding-bottom:1rem;max-width:560px}</style>",
             unsafe_allow_html=True)
 
+# ----- 웹 첫 화면: 앱과 같은 시작 화면(쭈꾸미·갑오징어)을 물때 시계가 그려질 때까지 덮어 둠
+#  앱(MulddaeApp)은 자체 시작 화면이 있어 건너뜀. 세션당 처음 한 번만.
+SPLASH = HERE.parent / "android" / "app" / "src" / "main" / "assets" / "splash.html"
+
+
+@st.cache_resource(show_spinner=False)
+def splash_html(stamp: float) -> str:
+    import re
+    t = SPLASH.read_text(encoding="utf-8")
+    import base64
+    svg = re.search(r"(<svg.*?</svg>)", t, re.S).group(1)
+    keys = "".join(re.findall(r"@keyframes (?:bob|rise|shine|flow|fadein)\{.*?\}\}", t, re.S))
+    rules = (".bob{transform-box:view-box;animation:bob 3s ease-in-out infinite}.jj{animation-duration:2.6s}"
+             ".gg{animation-duration:3.3s;animation-delay:-1.1s}.bub{transform-box:fill-box;animation:rise 8s linear infinite}"
+             ".ray{animation:shine 7s ease-in-out infinite}.wave{animation:flow 4s linear infinite}"
+             ".title{animation:fadein .9s ease-out both}"
+             "text{font-family:'Noto Sans KR','Noto Sans CJK KR','Samsung Sans','Apple SD Gothic Neo',sans-serif}")
+    # 스트림릿 글상자는 svg를 지우므로, 애니메이션까지 담은 svg 그림 파일(img)로 넣음
+    svg = re.sub(r"(<svg[^>]*>)", lambda m: m.group(1) + f"<style>{keys}{rules}</style>", svg, count=1)
+    src = "data:image/svg+xml;base64," + base64.b64encode(svg.encode()).decode()
+    css = ""
+    return f"""<style>{css}
+#mdSplash{{position:fixed;inset:0;z-index:1000000;background:#071520;pointer-events:none;
+  animation:mdOut .6s ease 25s forwards}}
+#mdSplash img{{position:absolute;inset:0;width:100%;height:100%;display:block;object-fit:cover;max-width:none}}
+#mdSplash .wt{{position:absolute;left:0;right:0;bottom:4%;text-align:center;color:#bfe6f2;font:500 14px 'Noto Sans KR',sans-serif;
+  letter-spacing:.06em;opacity:0;animation:mdIn .6s ease 2.5s forwards}}
+body:has(iframe[title*="mulddae_dial"]) #mdSplash{{animation:mdOut .6s ease 1.8s forwards}}
+@keyframes mdOut{{to{{opacity:0;visibility:hidden}}}}
+@keyframes mdIn{{to{{opacity:.85}}}}
+</style><div id="mdSplash"><img src="{src}" alt=""><div class="wt">물때 불러오는 중…</div></div>"""
+
+
+try:
+    _ua = st.context.headers.get("User-Agent", "") or ""
+except Exception:
+    _ua = ""
+if "MulddaeApp" not in _ua and not st.session_state.get("splash_done") and SPLASH.exists():
+    st.session_state["splash_done"] = True
+    try:
+        st.markdown(splash_html(SPLASH.stat().st_mtime), unsafe_allow_html=True)
+    except Exception:  # noqa: BLE001  시작 화면은 없어도 됨
+        pass
+
 # 항구: 화면 안 '항구 선택' 버튼으로 고름 (주소의 ?port= 로 기억)
 names = list(PORTS)
 port = st.session_state.get("dial_port") or st.query_params.get("port")
