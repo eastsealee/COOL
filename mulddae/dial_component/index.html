@@ -172,8 +172,19 @@ body.inapp .bar{padding-top:12px}
   text-shadow:0 1px 3px rgba(0,40,60,.8);animation:rvShine 2.2s linear infinite,rvRing 1.6s ease-out infinite}
 @keyframes rvShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
 @keyframes rvRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.7)}100%{box-shadow:0 0 0 12px rgba(76,195,230,0)}}
-#rvGps{border:1px solid #2f8f6a;border-radius:999px;padding:6px 12px;background:transparent;color:#7fe0a6;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
-#rvGps.off{color:#a3b6c8;border-color:#4a5d70}
+/* GPS 버튼: 켜짐 = 입체 녹색(위 하이라이트·아래 그림자·깜빡이는 불빛), 꺼짐 = 회색 */
+#rvGps{display:inline-flex;align-items:center;gap:7px;border:1px solid #1d7a43;border-radius:999px;padding:8px 15px 9px;cursor:pointer;
+  font:900 13.5px inherit;font-family:inherit;color:#fff;letter-spacing:.02em;text-shadow:0 1px 1px rgba(0,50,20,.7);
+  background:linear-gradient(180deg,#7ef0a8 0%,#33c46c 45%,#1e9a4f 55%,#17803f 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.75),inset 0 -2px 3px rgba(0,60,25,.45),0 4px 0 #0e5c2c,0 6px 10px rgba(0,0,0,.45),0 0 14px rgba(70,230,130,.35);
+  transform:translateY(-2px);transition:transform .08s,box-shadow .08s}
+#rvGps:active{transform:translateY(2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.6),inset 0 -1px 2px rgba(0,60,25,.45),0 0 0 #0e5c2c,0 2px 4px rgba(0,0,0,.45)}
+#rvGps i{width:9px;height:9px;border-radius:50%;background:#eaffef;box-shadow:0 0 6px #b6ffcc,0 0 2px #fff;animation:gpsLed 1.2s ease-in-out infinite}
+@keyframes gpsLed{0%,100%{opacity:1}50%{opacity:.35}}
+#rvGps.off{border-color:#3d4b59;color:#c4d0dc;text-shadow:none;
+  background:linear-gradient(180deg,#5b6b7b 0%,#3c4a58 50%,#313d49 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.25),inset 0 -2px 3px rgba(0,0,0,.35),0 4px 0 #1f2831,0 6px 10px rgba(0,0,0,.4)}
+#rvGps.off i{background:#6b7885;box-shadow:none;animation:none}
 #bigRadar{width:100%;height:auto;display:block;margin-top:6px}
 .rvInfo{margin-top:6px;padding:10px 12px;border-radius:12px;background:rgba(76,195,230,.07);border:1px solid rgba(76,195,230,.25);font-size:13.5px;line-height:1.6;color:#d8e4ef}
 .rvInfo b{color:#ffd84d}.rvInfo .c{color:#4cc3e6;font-weight:800}.rvInfo .o{color:#ff9d4d;font-weight:800}.rvInfo small{color:#8a99a8}
@@ -220,7 +231,7 @@ body.inapp .bar{padding-top:12px}
     <svg id="dial" viewBox="-48 -46 496 492" role="img" aria-label="24시간 물때 시계"></svg>
     <div class="cal" id="cal" hidden></div>
     <div id="radarView" hidden>
-      <div class="rvTop"><button id="rvBack">← 물때 시계로 돌아가기</button><button id="rvGps">GPS 끄기</button></div>
+      <div class="rvTop"><button id="rvBack">← 물때 시계로 돌아가기</button><button id="rvGps"><i></i>GPS 켜짐</button></div>
       <svg id="bigRadar" viewBox="-64 -64 128 128" role="img" aria-label="조류·배 방향 레이더"></svg>
       <div class="rvInfo" id="rvInfo"></div>
     </div>
@@ -497,7 +508,7 @@ function drawBig(){const sv=document.getElementById("bigRadar");if(!sv||!RVOPEN)
   else{const tr=c.trend>3?" · 세지는 중 ↑":c.trend<-3?" · 약해지는 중 ↓":"";
     t+=`<span class="c">●</span> 조류 <span class="c">${c.kn.toFixed(2)}노트 ${c.dir!=null?dn(c.dir)+"쪽으로":""}</span>${c.kn<0.15?" · 정조 무렵":tr}<br>`
       +`<small>${cc.name} 예보점(${cc.km}km) · ${DAYS[cur].date.slice(5).replace("-","/")} ${hm(Math.round(c.m/5)*5%1440)}${c.live?"(지금)":""} 해양조사원 예보</small><br>`}
-  if(!RG.on)t+=`<b>●</b> GPS 꺼짐 — 'GPS 켜기'를 누르면 배가 흐르는 방향을 같이 보여줍니다`;
+  if(!RG.on)t+=`<b>●</b> GPS 꺼짐 — 오른쪽 위 회색 GPS 버튼을 누르면 배가 흐르는 방향을 같이 보여줍니다`;
   else if(RG.err)t+=`<b>●</b> ${RG.err}`;
   else if(!RG.fix)t+=`<b>●</b> 위치 잡는 중…`;
   else if(!boat)t+=`<b>●</b> 배 ${(RG.sog||0).toFixed(1)}노트 — 0.3노트 이상 움직이면 진행 방향을 보여줍니다`;
@@ -506,7 +517,7 @@ function drawBig(){const sv=document.getElementById("bigRadar");if(!sv||!RVOPEN)
       t+=`<br><span class="o">●</span> 차이 <span class="o">${Math.round(diff)}°</span> → 채비 계산기 '배가 흐르는 방향'은 <b>'${name[pk]}'</b>`;
       if(diff>=45)t+=`<br><small>조류와 어긋나게 흐릅니다 — 바람에 밀리거나 엔진으로 버티는 중일 수 있습니다.</small>`}}
   document.getElementById("rvInfo").innerHTML=t;
-  const gbt=document.getElementById("rvGps");gbt.textContent=RG.on?"GPS 끄기":"GPS 켜기";gbt.classList.toggle("off",!RG.on);
+  const gbt=document.getElementById("rvGps");gbt.innerHTML=RG.on?"<i></i>GPS 켜짐":"<i></i>GPS 꺼짐";gbt.title=RG.on?"누르면 GPS를 끕니다":"누르면 GPS를 켭니다";gbt.classList.toggle("off",!RG.on);
   setHeight()}
 function updateRadar(){const g=document.getElementById("radarDyn"),lb=document.getElementById("radarLbl");if(!g)return;
   const h=selH!=null?selH:0,c=curAt(h),R=23,P=(deg,r)=>[Math.sin(deg*Math.PI/180)*r,-Math.cos(deg*Math.PI/180)*r];
