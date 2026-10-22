@@ -39,6 +39,9 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var bar: ProgressBar
     private lateinit var errorView: LinearLayout
+    private var splash: WebView? = null                 // 시작화면 (assets/splash.html)
+    private val splashStart = System.currentTimeMillis()
+    private var splashClosing = false
     private val prefs by lazy { getSharedPreferences("mulddae", MODE_PRIVATE) }
 
     private val bg = Color.parseColor("#08131D")
@@ -107,6 +110,20 @@ class MainActivity : Activity() {
         root.addView(web, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         root.addView(bar, FrameLayout.LayoutParams(MATCH_PARENT, dp(3)).apply { gravity = Gravity.TOP })
         root.addView(errorView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+
+        // 시작화면: 물속에서 주꾸미·갑오징어가 둥실거리는 그림. 물때 시계가 다 뜨면 서서히 사라짐
+        if (savedInstanceState == null) {
+            splash = WebView(this).apply {
+                setBackgroundColor(Color.parseColor("#071520"))
+                settings.javaScriptEnabled = true
+                isVerticalScrollBarEnabled = false
+                isHorizontalScrollBarEnabled = false
+                setOnTouchListener { _, _ -> true }    // 시작화면 동안은 터치 막기
+                loadUrl("file:///android_asset/splash.html")
+            }
+            root.addView(splash, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+            root.postDelayed({ closeSplash() }, 25_000)   // 서버가 너무 늦어도 25초 뒤엔 닫음
+        }
         setContentView(root)
 
         // 안드로이드 15(갤럭시 S25)는 화면 끝까지 그리므로, 상태바·내비게이션바·키보드 높이만큼 비워 둠
@@ -165,6 +182,7 @@ class MainActivity : Activity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             view.evaluateJavascript(TIDY_JS, null)
+            if (isAppUrl(Uri.parse(url))) waitForDialThenCloseSplash()
             rememberDial(url)
         }
 
@@ -174,8 +192,38 @@ class MainActivity : Activity() {
         }
 
         override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
-            if (request.isForMainFrame) errorView.visibility = View.VISIBLE
+            if (request.isForMainFrame) { errorView.visibility = View.VISIBLE; closeSplash() }
         }
+    }
+
+    /** 물때 시계(원) 화면이 실제로 그려질 때까지 기다렸다가 시작화면을 닫음 — 최소 2.2초는 보여줌 */
+    private fun waitForDialThenCloseSplash() {
+        if (splash == null || splashClosing) return
+        val check = object : Runnable {
+            var tries = 0
+            override fun run() {
+                if (splash == null || splashClosing) return
+                web.evaluateJavascript(READY_JS) { v ->
+                    tries++
+                    if (v == "true" || tries > 40) {
+                        val wait = (2200 - (System.currentTimeMillis() - splashStart)).coerceAtLeast(0)
+                        web.postDelayed({ closeSplash() }, wait + 300)
+                    } else web.postDelayed(this, 500)
+                }
+            }
+        }
+        web.post(check)
+    }
+
+    private fun closeSplash() {
+        val s = splash ?: return
+        if (splashClosing) return
+        splashClosing = true
+        s.animate().alpha(0f).setDuration(450).withEndAction {
+            (s.parent as? android.view.ViewGroup)?.removeView(s)
+            s.destroy()
+            splash = null
+        }.start()
     }
 
     private fun buildErrorView(): LinearLayout = LinearLayout(this).apply {
@@ -210,6 +258,7 @@ class MainActivity : Activity() {
 
     @Deprecated("뒤로 가기: 앱 안 이전 화면 → 없으면 앱 닫기")
     override fun onBackPressed() {
+        if (splash != null) { closeSplash(); return }
         if (errorView.visibility == View.VISIBLE) { errorView.visibility = View.GONE; web.reload(); return }
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
@@ -226,6 +275,17 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {
+        /** 물때 시계 원 그림(#dial)이 Streamlit 화면 안 iframe에 그려졌는지 확인 */
+        private const val READY_JS = """
+(function(){
+  function has(doc,d){ if(!doc||d>3) return false;
+    try{ if(doc.querySelector('#dial circle')) return true;
+      var fs=doc.querySelectorAll('iframe'); for(var i=0;i<fs.length;i++){ try{ if(has(fs[i].contentDocument,d+1)) return true; }catch(e){} } }catch(e){}
+    return false; }
+  return has(document,0);
+})()
+"""
+
         /** Streamlit 머리줄·메뉴 버튼·'Built with Streamlit' 띠를 숨기고 위아래 여백을 줄여 앱처럼 보이게.
          *  앱 화면은 같은 주소 안의 iframe이라 1.5초마다 새로 생긴 화면에도 다시 적용 */
         private const val TIDY_JS = """
