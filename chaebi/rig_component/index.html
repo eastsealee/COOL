@@ -131,6 +131,20 @@ details .body b{color:var(--ink)}
 .cursrc button{border:1px solid rgba(76,195,230,.6);background:transparent;color:inherit;border-radius:999px;padding:4px 12px;font:inherit;font-weight:700;cursor:pointer}
 .cursrc button.on{background:rgba(76,195,230,.25)}
 .cursrc.manual{opacity:.75}
+.radarbox{display:grid;grid-template-columns:132px 1fr;gap:4px 12px;align-items:center}
+.radarbox .ctl{grid-column:1/-1}
+.radar{width:132px;height:132px;display:block;overflow:visible}
+.radar .sweep{transform-origin:0 0;animation:rSweep 2.8s linear infinite}
+@keyframes rSweep{to{transform:rotate(360deg)}}
+.radar .blip{transform-box:fill-box;transform-origin:center;animation:rBlip 1.4s ease-out infinite}
+@keyframes rBlip{0%{transform:scale(.6);opacity:1}100%{transform:scale(2.6);opacity:0}}
+.radar .cur{animation:rCur 1.6s ease-in-out infinite}
+@keyframes rCur{0%,100%{opacity:.65}50%{opacity:1}}
+.radar .ring0{animation:rRing 2.8s linear infinite;transform-origin:0 0}
+@keyframes rRing{0%{transform:scale(.1);opacity:.7}100%{transform:scale(1);opacity:0}}
+.lg{display:inline-block;width:10px;height:3px;border-radius:2px;vertical-align:middle;margin:0 4px 2px 0}
+@media (prefers-reduced-motion:reduce){.radar .sweep,.radar .blip,.radar .cur,.radar .ring0{animation:none}}
+@media (max-width:360px){.radarbox{grid-template-columns:1fr}.radar{margin:0 auto}}
 </style></head>
 <body>
 <div class="app" id="app">
@@ -177,6 +191,10 @@ details .body b{color:var(--ink)}
       <div class="seg wide" id="relSeg">
         <button data-v="0">조류 따라</button><button data-v="45">비스듬히</button><button data-v="90">옆으로</button><button data-v="180">거슬러</button>
       </div>
+      <div class="cursrc radarbox" id="relSrc" hidden>
+        <svg class="radar" id="radar" viewBox="-60 -60 120 120" aria-label="배 진행 방향과 조류 방향 레이더"></svg>
+        <div class="t" id="relSrcTxt"></div>
+        <div class="ctl"><span></span><button id="relAuto">자동으로</button></div></div>
       <div class="verdict hl" style="color:var(--ink,#eef4fa)">바람이 없으면 보통 <b>'조류 따라'</b>. 바람에 밀려 옆으로 가면 <b>'옆으로'</b>, 엔진으로 버티며 조금씩 밀리면 <b>'거슬러'</b>.</div>
     </div>
     <div class="row">
@@ -277,7 +295,7 @@ chips($("egiChips"), M.EGIS, "egi", v => v.toFixed(1));
 chips($("esChips"), [2, 2.5, 3, 4, 5], "es");
 $("curChips").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.cur = +b.dataset.v; CUR.auto = false; pick = 0; update(); curUI(); };
 $("spSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.sp = b.dataset.v; pick = 0; update(); };
-$("relSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.rel = +b.dataset.v; pick = 0; update(); };
+$("relSeg").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.rel = +b.dataset.v; REL.auto = false; pick = 0; update(); relUI(); };
 for (const id of ["cur", "sog"]) $(id).addEventListener("input", e => { S[id] = +e.target.value; if (id === "cur") { CUR.auto = false; curUI(); } pick = 0; update(); });
 document.querySelectorAll(".step").forEach(st => {
   const k = st.dataset.k, step = +st.dataset.step, lo = +st.dataset.min, hi = +st.dataset.max;
@@ -468,7 +486,7 @@ function gpsUI() {
   $("savePt").textContent = gps.fix ? "📍 지금 위치 저장" : "📍 지금 위치 저장 (GPS를 켜세요)";
 }
 function onPos(pos) {
-  setTimeout(autoCur, 0);
+  setTimeout(() => { autoCur(); autoRel(); }, 0);
   const c = pos.coords, now = pos.timestamp || Date.now();
   const fix = { lat: c.latitude, lon: c.longitude, acc: c.accuracy || 99, t: now, hdg: (c.heading != null && !isNaN(c.heading)) ? c.heading : null };
   gps.fix = fix; gps.err = "";
@@ -478,6 +496,16 @@ function onPos(pos) {
   else if (gps.buf.length >= 2) {
     const a = gps.buf[0], dt = (now - a.t) / 1000;
     if (dt >= 4) v = hav(a, fix) / dt / M.KN;
+  }
+  // 배가 움직이는 방향(진행 방향): 12초 안 가장 오래된 위치 → 지금 위치. 너무 짧게 움직였으면 휴대폰이 준 방향
+  const a0 = gps.buf[0];
+  let cog = null;
+  if (a0 && a0 !== fix && hav(a0, fix) >= Math.max(6, fix.acc * 0.5)) cog = bearing(a0, fix);
+  else if (fix.hdg != null && (v || 0) >= 0.3) cog = fix.hdg;
+  if (cog != null) {
+    const r = cog * Math.PI / 180;
+    gps.cv = gps.cv ? [gps.cv[0] * 0.6 + Math.sin(r) * 0.4, gps.cv[1] * 0.6 + Math.cos(r) * 0.4] : [Math.sin(r), Math.cos(r)];
+    gps.cog = (Math.atan2(gps.cv[0], gps.cv[1]) * 180 / Math.PI + 360) % 360;
   }
   if (v != null) {
     gps.sog = gps.sog == null ? v : gps.sog * 0.6 + v * 0.4;      // 출렁임을 줄이려고 부드럽게
@@ -496,7 +524,7 @@ $("gpsBtn").onclick = () => {
   if (gps.on) {
     if (gps.id != null) navigator.geolocation.clearWatch(gps.id);
     gps = { on: false, id: null, sog: null, fix: null, buf: [], err: "" };
-    update(); gpsUI(); return;
+    update(); gpsUI(); relUI(); return;
   }
   if (!navigator.geolocation) { gps.err = "이 브라우저는 위치를 지원하지 않습니다."; gpsUI(); return; }
   gps.on = true; gps.err = "";
@@ -601,7 +629,90 @@ function curUI() {
 }
 $("curAuto").onclick = () => { CUR.auto = true; if (CUR.day === CUR.today) CUR.time = ""; autoCur(); };
 $("curTime").addEventListener("change", e => { CUR.time = e.target.value; CUR.auto = true; autoCur(); });
-setInterval(() => { if (!CUR.time) autoCur(); }, 60000);
+setInterval(() => { if (!CUR.time) autoCur(); autoRel(); }, 60000);
+
+// ---------- 배가 흐르는 방향 자동 선택: GPS 진행 방향 ↔ 예보 조류 방향의 차이
+// 배가 0.3노트 이상 움직이고, 조류가 0.2노트 이상(정조 무렵은 방향이 의미 없음)일 때만
+const REL = { auto: true, res: null };
+function bearing(a, b) {
+  const r = Math.PI / 180, y = Math.sin((b.lon - a.lon) * r) * Math.cos(b.lat * r);
+  const x = Math.cos(a.lat * r) * Math.sin(b.lat * r) - Math.sin(a.lat * r) * Math.cos(b.lat * r) * Math.cos((b.lon - a.lon) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+const DIR16 = ["북", "북북동", "북동", "동북동", "동", "동남동", "남동", "남남동", "남", "남남서", "남서", "서남서", "서", "서북서", "북서", "북북서"];
+const d16 = deg => DIR16[Math.round(deg / 22.5) % 16];
+function autoRel() {
+  const r = CUR.res;
+  REL.res = null;
+  if (!gps.on) { relUI(); return; }
+  const cdOk = r && !r.need && !r.none && r.dir != null ? r.dir * 22.5 : null;
+  if (gps.cog == null || (gps.sog || 0) < 0.3) REL.res = { wait: true, cd: cdOk };
+  else if (!r || r.need || r.none || r.dir == null) REL.res = { nocur: true, cog: gps.cog };
+  else if (r.kn < 0.2) REL.res = { slack: true, cog: gps.cog, cd: cdOk };
+  else {
+    const cd = r.dir * 22.5;
+    let diff = Math.abs(gps.cog - cd) % 360; if (diff > 180) diff = 360 - diff;
+    const pickV = diff < 22.5 ? 0 : diff < 67.5 ? 45 : diff < 135 ? 90 : 180;
+    REL.res = { cog: gps.cog, cd, diff, pick: pickV };
+    if (REL.auto && S.rel !== pickV) { S.rel = pickV; pick = 0; update(); }
+  }
+  relUI();
+}
+function relUI() {
+  const box = $("relSrc"), x = REL.res;
+  if (!gps.on || !x) { box.hidden = true; return; }
+  box.hidden = false;
+  box.classList.toggle("manual", !REL.auto);
+  $("relAuto").classList.toggle("on", REL.auto);
+  $("relAuto").textContent = REL.auto ? "자동 선택 중" : "자동으로";
+  const name = { 0: "조류 따라", 45: "비스듬히", 90: "옆으로", 180: "거슬러" };
+  let t;
+  if (x.wait) t = "배가 0.3노트 이상 움직이면 진행 방향을 재서 자동으로 고릅니다";
+  else if (x.nocur) t = `배 진행 방향 <b>${d16(x.cog)}</b>(${Math.round(x.cog)}°) · 조류 예보 방향이 없어 자동으로 고르지 않았습니다`;
+  else if (x.slack) t = `배 진행 방향 <b>${d16(x.cog)}</b>(${Math.round(x.cog)}°) · 정조 무렵이라 조류 방향이 의미 없어 그대로 둡니다`;
+  else {
+    t = `배 진행 방향 <b>${d16(x.cog)}</b>(${Math.round(x.cog)}°) · 예보 조류 <b>${d16(x.cd)}쪽</b> → 차이 ${Math.round(x.diff)}° = <b>'${name[x.pick]}'</b>`;
+    if (x.diff >= 45) t += `<br>조류와 ${Math.round(x.diff)}° 어긋나게 흐릅니다 — 바람에 밀리거나 엔진으로 버티는 중일 수 있습니다.`;
+    if (!REL.auto) t += `<br>손으로 고른 값을 쓰는 중 — '자동으로'를 누르면 다시 따라갑니다.`;
+  }
+  $("relSrcTxt").innerHTML = t + (x.cog != null ? `<br><span style="color:var(--faint)"><i class="lg" style="background:#ffd84d"></i>배 진행 <i class="lg" style="background:#4cc3e6;margin-left:8px"></i>예보 조류</span>` : "");
+  drawRadar(x);
+  setHeight();
+}
+// 레이더: 위가 북쪽. 노란 화살표 = 배 진행 방향(GPS), 파란 화살표 = 예보 조류 방향, 그 사이 호 = 차이
+function drawRadar(x) {
+  const R = 50, P = (deg, r) => [Math.sin(deg * Math.PI / 180) * r, -Math.cos(deg * Math.PI / 180) * r];
+  const arrow = (deg, col, cls, w) => {
+    const [x2, y2] = P(deg, R - 4), [l1, l2] = [P(deg - 16, R - 15), P(deg + 16, R - 15)];
+    return `<g class="${cls}"><line x1="0" y1="0" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/>
+      <path d="M${x2} ${y2} L${l1[0]} ${l1[1]} L${l2[0]} ${l2[1]}Z" fill="${col}"/></g>`;
+  };
+  let g = `<defs><radialGradient id="rbg"><stop offset="0" stop-color="#0d3a2c"/><stop offset="1" stop-color="#051a14"/></radialGradient>
+    <linearGradient id="rsw" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#58ffb0" stop-opacity="0"/><stop offset="1" stop-color="#58ffb0" stop-opacity=".55"/></linearGradient></defs>
+    <circle r="${R}" fill="url(#rbg)" stroke="#2f8f6a" stroke-width="1.2"/>
+    ${[R * 2 / 3, R / 3].map(r => `<circle r="${r}" fill="none" stroke="#2f8f6a" stroke-opacity=".55" stroke-width=".7"/>`).join("")}
+    <line x1="${-R}" y1="0" x2="${R}" y2="0" stroke="#2f8f6a" stroke-opacity=".45" stroke-width=".6"/>
+    <line x1="0" y1="${-R}" x2="0" y2="${R}" stroke="#2f8f6a" stroke-opacity=".45" stroke-width=".6"/>
+    <circle class="ring0" r="${R}" fill="none" stroke="#58ffb0" stroke-width="1"/>
+    <g class="sweep"><path d="M0 0 L${R} 0 A${R} ${R} 0 0 0 ${P(60, R)[0]} ${P(60, R)[1]}Z" fill="url(#rsw)" transform="rotate(-90)"/>
+      <line x1="0" y1="0" x2="${R}" y2="0" stroke="#7dffc4" stroke-width="1.4" transform="rotate(-90)"/></g>
+    ${[["북", 0], ["동", 90], ["남", 180], ["서", 270]].map(([n, d]) => { const [a, b] = P(d, R + 8); return `<text x="${a}" y="${b + 3}" text-anchor="middle" font-size="8.5" font-weight="800" fill="${d ? "#8fc9b4" : "#ff6b6b"}">${n}</text>`; }).join("")}`;
+  if (x && x.cd != null && x.cog != null) {             // 두 방향 사이 차이 호
+    let a = x.cd, b = x.cog, d = ((b - a) % 360 + 540) % 360 - 180;
+    const [sx, sy] = P(a, 20), [ex, ey] = P(a + d, 20);
+    g += `<path d="M${sx} ${sy} A20 20 0 0 ${d > 0 ? 1 : 0} ${ex} ${ey}" fill="none" stroke="#ff9d4d" stroke-width="2" stroke-dasharray="3 2"/>`;
+  }
+  if (x && x.cd != null) g += arrow(x.cd, "#4cc3e6", "cur", 3);
+  if (x && x.cog != null) {
+    g += arrow(x.cog, "#ffd84d", "", 3.4);
+    const [bx, by] = P(x.cog, R - 4);
+    g += `<circle cx="${bx}" cy="${by}" r="3" fill="#ffd84d"/><circle class="blip" cx="${bx}" cy="${by}" r="3" fill="none" stroke="#ffd84d" stroke-width="1.5"/>`;
+  }
+  g += `<circle r="3.2" fill="#eef4fa"/>`;
+  if (x && x.diff != null) g += `<text x="0" y="${R + 0}" dy="-6" text-anchor="middle" font-size="9" font-weight="900" fill="#ff9d4d" stroke="#051a14" stroke-width="2.5" paint-order="stroke">${Math.round(x.diff)}°</text>`;
+  $("radar").innerHTML = g;
+}
+$("relAuto").onclick = () => { REL.auto = true; autoRel(); };
 
 // ---------- Streamlit 연결 (높이 맞추기). 나중에 쭈갑물때에 합치면 조류값을 여기로 받음
 function send(type, data) { window.parent.postMessage(Object.assign({ isStreamlitMessage: true, type }, data || {}), "*"); }
