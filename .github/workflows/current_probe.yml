@@ -1,0 +1,27 @@
+name: 조류예보 API 확인 (한 번 실행)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 조류예보 불러 보기
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+        run: python sourcetest/current_probe.py || true
+      - name: 결과를 probe-log 브랜치에 저장 (키는 가려짐)
+        run: |
+          cd probe-out && git init -q && git config user.name probe-bot && git config user.email probe-bot@users.noreply.github.com
+          git checkout -q -b probe-log && git add -A && git commit -q -m "current probe $(TZ=Asia/Seoul date '+%F %T')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" probe-log
