@@ -20,12 +20,12 @@ st.set_page_config(page_title="채비 계산기", layout="centered")
 st.markdown("<style>.block-container{padding-top:3.6rem;padding-bottom:1rem;max-width:560px}</style>",
             unsafe_allow_html=True)
 
-# ----- 물때 시계에서 넘어왔거나 '쭈갑과물때' 앱 안이면 맨 위에 '물때 시계로 돌아가기'
+# ----- 맨 위에 '쭈갑과물때로 돌아가기' (웹·앱 모두 항상 표시)
 try:
     _in_app = "MulddaeApp" in (st.context.headers.get("User-Agent", "") or "")
 except Exception:
     _in_app = False
-if st.session_state.get("back_to_mulddae") or _in_app:
+if True:                                                # 웹에서 메뉴로 들어와도 항상 돌아갈 수 있게
     st.markdown("""<style>
     .st-key-back_mulddae_rig button{border:2px solid #bff1ff !important;border-radius:999px !important;padding:0.55rem 1.4rem !important;
       background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%) !important;
@@ -38,7 +38,7 @@ if st.session_state.get("back_to_mulddae") or _in_app:
     @keyframes rRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.75)}100%{box-shadow:0 0 0 16px rgba(76,195,230,0)}}
     @media (prefers-reduced-motion:reduce){.st-key-back_mulddae_rig button{animation:none}}
     </style>""", unsafe_allow_html=True)
-    if st.button("← 물때 시계로 돌아가기", key="back_mulddae_rig"):
+    if st.button("← 쭈갑과물때로 돌아가기", key="back_mulddae_rig"):
         st.session_state.pop("back_to_mulddae", None)
         st.switch_page("mulddae/dial.py")
 
