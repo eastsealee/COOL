@@ -51,5 +51,7 @@ jobs:
           gh release delete android-latest --yes --cleanup-tag || true
           gh release create android-latest mulddae-clock.apk \
             --title "쭈갑과물때 앱 (최신)" \
-            --notes "갤럭시 등 안드로이드 폰에서 mulddae-clock.apk 를 받아 설치하세요. 빌드 #${GITHUB_RUN_NUMBER} · $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" \
+            --notes "빌드 #${GITHUB_RUN_NUMBER} · $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')
+          변경: $(git log -1 --format=%s)
+          (앱이 이 '빌드 #번호'를 읽어 새 버전 알림을 띄웁니다)" \
             --latest

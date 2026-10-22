@@ -2,6 +2,7 @@ package com.eastsealee.mulddae
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -148,7 +149,10 @@ class MainActivity : Activity() {
             }
         }
 
-        if (savedInstanceState != null) web.restoreState(savedInstanceState) else web.loadUrl(startUrl())
+        if (savedInstanceState != null) web.restoreState(savedInstanceState) else {
+            web.loadUrl(startUrl())
+            root.postDelayed({ checkUpdate() }, 4000)       // 시작화면이 끝날 즈음 새 버전 확인
+        }
     }
 
     /** 앱은 항상 물때 시계로 시작 — 마지막으로 보던 물때 시계(항구 포함)가 있으면 그 주소 */
@@ -276,6 +280,38 @@ class MainActivity : Activity() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
+    /** GitHub Releases 'android-latest'의 '빌드 #번호'가 지금 앱보다 크면 업데이트 안내 */
+    private fun checkUpdate() {
+        Thread {
+            try {
+                val c = java.net.URL(RELEASE_API).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 8000; c.readTimeout = 8000
+                c.setRequestProperty("Accept", "application/vnd.github+json")
+                val body = org.json.JSONObject(c.inputStream.bufferedReader().readText()).optString("body")
+                val latest = Regex("빌드 #(\\d+)").find(body)?.groupValues?.get(1)?.toIntOrNull() ?: return@Thread
+                val change = Regex("변경: (.+)").find(body)?.groupValues?.get(1)?.trim().orEmpty()
+                if (latest <= BuildConfig.VERSION_CODE || latest == prefs.getInt("skip_ver", 0)) return@Thread
+                runOnUiThread { showUpdate(latest, change) }
+            } catch (_: Exception) { }
+        }.start()
+    }
+
+    private fun showUpdate(latest: Int, change: String) {
+        if (isFinishing) return
+        val msg = "지금 버전 1.0.${BuildConfig.VERSION_CODE} → 새 버전 1.0.$latest" +
+            (if (change.isNotEmpty()) "\n\n바뀐 점: $change" else "") +
+            "\n\n'업데이트'를 누르면 새 앱 파일을 받습니다. 받은 뒤 알림에서 열고 '업데이트'를 눌러 주세요."
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("쭈갑과물때 새 버전이 있습니다")
+            .setMessage(msg)
+            .setPositiveButton("업데이트") { _, _ ->
+                try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(APK_URL))) } catch (_: Exception) { }
+            }
+            .setNegativeButton("나중에", null)
+            .setNeutralButton("이 버전 건너뛰기") { _, _ -> prefs.edit().putInt("skip_ver", latest).apply() }
+            .show()
+    }
+
     private fun hasLocation() =
         checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
             checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -301,6 +337,8 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_LOCATION = 7
+        private const val RELEASE_API = "https://api.github.com/repos/eastsealee/COOL/releases/tags/android-latest"
+        private const val APK_URL = "https://github.com/eastsealee/COOL/releases/download/android-latest/mulddae-clock.apk"
         /** 물때 시계 원 그림(#dial)이 Streamlit 화면 안 iframe에 그려졌는지 확인 */
         private const val READY_JS = """
 (function(){
