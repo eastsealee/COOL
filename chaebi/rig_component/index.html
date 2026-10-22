@@ -39,12 +39,15 @@ button,input{font-family:var(--sans)}
 
 /* 추천 결과 */
 .hero{background:linear-gradient(160deg,#18304a,#122230 60%);border-color:var(--line2)}
-.rec{display:flex;align-items:flex-end;gap:14px}
+.rec{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 .rec .it{flex:1;min-width:0}
 .rec .k{font-size:12px;color:var(--sub);font-weight:700}
-.rec .v{font-family:var(--num);font-size:clamp(34px,12cqw,46px);font-weight:700;line-height:1.05;letter-spacing:-.02em}
+.rec .v{font-family:var(--num);font-size:clamp(28px,10cqw,40px);font-weight:700;line-height:1.05;letter-spacing:-.02em}
 .rec .v small{font-size:.42em;font-weight:600;color:var(--sub);margin-left:2px}
 .rec .it.drop .v{color:var(--sp)}
+.rec .it.sk .v{color:var(--sea)}
+.rec .sub2{font-size:11px;color:var(--faint);margin-top:2px;line-height:1.3}
+.rec .sub2 button{border:0;background:none;color:var(--sea);font-weight:700;font-size:11px;padding:0;cursor:pointer;text-decoration:underline}
 .tgt{margin-top:6px;font-size:12.5px;color:var(--sub)}
 .tgt b{color:var(--ink)}
 .alts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
@@ -133,6 +136,7 @@ details .body b{color:var(--ink)}
     <div class="rec">
       <div class="it drop"><div class="k">봉돌 단차</div><div class="v" id="recH">–</div></div>
       <div class="it"><div class="k">가짓줄 길이</div><div class="v" id="recL">–</div></div>
+      <div class="it sk"><div class="k">봉돌</div><div class="v" id="recS">–</div><div class="sub2" id="recSsub"></div></div>
     </div>
     <div class="tgt" id="recNote"></div>
     <div class="alts" id="alts"></div>
@@ -365,6 +369,20 @@ function update() {
   const r = recs[pick];
   $("recH").innerHTML = `${r.h}<small>cm</small>`;
   $("recL").innerHTML = `${r.L}<small>cm</small>`;
+  // 추천 봉돌: 원줄이 30° 안쪽으로 서는 가장 가벼운 호수
+  // 30°가 안 되는 센 물살이면 35·40·45° 순으로 기준을 낮춰 현실적인 호수를 추천
+  let needS = null, lim = 30;
+  for (const L of [30, 35, 40, 45]) { needS = M.sinkerFor(p, L); lim = L; if (needS && needS <= 40) break; }
+  if (needS) {
+    const a = Math.round(M.mainLine({ ...p, sinker: needS }).angleTop);
+    $("recS").innerHTML = `${needS}<small>호</small>`;
+    $("recSsub").innerHTML = (lim > 30 ? `물살이 세서 ${lim}° 기준 · ` : "") + (needS === S.sinker ? `원줄 ${a}° · 지금 사용 중`
+      : `원줄 ${a}° · 지금 ${S.sinker}호 <button id="useS">바꾸기</button>`);
+  } else {
+    $("recS").innerHTML = `60<small>호+</small>`;
+    $("recSsub").textContent = "60호로도 45° 넘음 — 선속을 줄이세요";
+  }
+  const us = $("useS"); if (us) us.onclick = () => { S.sinker = needS; update(); };
   $("recNote").innerHTML = r.inRange
     ? `가만히 두면 에기가 <b>바닥 위 ${f1(Math.max(r.r.rawCm, 0))}cm</b>에 있습니다 (가짓줄 ${Math.round(r.r.alpha)}° 기움)`
     : `목표 높이에 딱 맞는 조합이 없어 가장 가까운 것입니다 (에기 ${f1(r.r.rawCm)}cm)`;
