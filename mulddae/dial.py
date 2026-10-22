@@ -141,6 +141,11 @@ if isinstance(val, dict) and val.get("n") != st.session_state.get("dial_n"):
         st.session_state["chaebi_ctx"] = {"date": st.session_state["dial_center"], "port": port.split(" (")[0],
                                           "lat": _pi[1], "lon": _pi[2]}
         st.switch_page("chaebi/calc.py")
+    if val.get("goto") == "lamar":                      # 8시 방향 '라마르 예상분석' → 보던 날짜로 라마르호 예상 조과 분석
+        st.session_state["dial_center"] = str(val.get("date", ""))[:10] or center_s   # 돌아오면 그 날짜로
+        st.session_state["lamar_from_mulddae"] = st.session_state["dial_center"]
+        st.session_state["back_to_mulddae"] = True        # 라마르 맨 위에 '물때 시계로 돌아가기' 표시
+        st.switch_page("lamar/streamlit_app.py")
     if val.get("goto") == "sunsang24":                  # 2시 방향 '예약조회' → 보던 날짜·지역으로 예약조회 열기
         area, sido, sgg = PORT_META.get(port, ("서해", "", ""))
         st.session_state["jump_from_mulddae"] = {"date": str(val.get("date", ""))[:10], "sea": area, "sido": sido,

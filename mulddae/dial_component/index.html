@@ -112,10 +112,10 @@ svg text{font-family:var(--sans)}
 #dial .warn{animation:windBlink .9s steps(2,jump-none) infinite;filter:drop-shadow(0 0 3px rgba(255,77,77,.9))}
 @keyframes windBlink{0%{opacity:1}100%{opacity:.15}}
 @media (prefers-reduced-motion:reduce){#dial .warn{animation:none}}
-.wedge:focus,#calBtn:focus,#rsvBtn:focus,#radarBtn:focus{outline:none}
+.wedge:focus,#calBtn:focus,#rsvBtn:focus,#radarBtn:focus,#lamarBtn:focus{outline:none}
 .wedge:focus-visible{stroke:var(--sea);stroke-width:2}
-#calBtn,#rsvBtn,#radarBtn{cursor:pointer}
-#calBtn:focus-visible rect.face,#rsvBtn:focus-visible rect.face,#rigDial:focus-visible rect.face{stroke:var(--sea);stroke-width:2.5}
+#calBtn,#rsvBtn,#radarBtn,#lamarBtn{cursor:pointer}
+#calBtn:focus-visible rect.face,#rsvBtn:focus-visible rect.face,#lamarBtn:focus-visible rect.face,#rigDial:focus-visible rect.face{stroke:var(--sea);stroke-width:2.5}
 
 /* 달력 */
 .cal{position:absolute;left:8px;top:8px;width:min(310px,calc(100% - 16px));background:var(--pop);border:1px solid var(--line2);border-radius:16px;padding:12px;box-shadow:0 20px 40px rgba(0,0,0,.6);z-index:5}
@@ -411,6 +411,16 @@ function draw(){
   el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
   txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},rb);
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  // 8시 방향 라마르호 예상분석 버튼: 보던 날짜로 '라마르호 예상 조과 분석'을 엶
+  const[lx,ly]=pt(8*60+30,252);const lb=el("g",{id:"lamarBtn",tabindex:0,role:"button","aria-label":"이 날짜로 라마르호 예상 조과 분석 열기",transform:`translate(${lx} ${ly})`});
+  el("rect",{class:"face",x:-20,y:-21,width:40,height:44,rx:8,fill:"#eef3f8",stroke:"rgba(150,180,208,.5)","stroke-width":1},lb);
+  el("rect",{x:-20,y:-21,width:40,height:13,rx:7,fill:"#8a5cf0"},lb);el("rect",{x:-20,y:-13,width:40,height:5,fill:"#8a5cf0"},lb);
+  txt(0,-14.5,"라마르",{"font-size":8.5,"font-weight":900,fill:"#fff"},lb);
+  [[-12,10,"#ff8a5b"],[-4,15,"#a596ff"],[4,8,"#ff8a5b"],[12,19,"#a596ff"]].forEach(([x,h,c])=>el("rect",{x:x-3,y:17-h,width:6,height:h,rx:1.2,fill:c},lb));
+  el("line",{x1:-16,y1:17.5,x2:16,y2:17.5,stroke:"#14304b","stroke-width":1.2},lb);
+  txt(0,32,"예상분석",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},lb);
+  const goLamar=()=>{loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  lb.addEventListener("click",goLamar);lb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goLamar()}});
   // 14시 방향 조류 레이더: 파란 화살표 = 고른 시각의 예보 조류 방향(항구 근처 해양조사원 예보점),
   // 누르면 GPS를 켜서 노란 화살표 = 배 진행 방향, 그 사이 각도 표시 (채비 계산기 레이더와 같은 모양)
   const[gx,gy]=pt(14*60+30,252);const gb=el("g",{id:"radarBtn",tabindex:0,role:"button","aria-label":"조류 레이더 크게 보기",transform:`translate(${gx} ${gy})`});

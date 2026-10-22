@@ -71,6 +71,41 @@ CHANGELOG = [
 
 st.set_page_config(page_title=f"라마르호 예상 조과 분석 : {APP_VERSION}", page_icon="🦑", layout="wide")
 
+# ----- 물때 시계 8시 방향 버튼으로 왔거나 '물때 시계' 안드로이드 앱 안이면 맨 위에 '돌아가기'
+#       (앱에서는 왼쪽 메뉴가 숨겨져 있어 이 버튼이 유일한 돌아가는 길). 넘겨받은 날짜는 '2026 예상' 탭에서 선택
+try:
+    _in_mulddae_app = "MulddaeApp" in (st.context.headers.get("User-Agent", "") or "")
+except Exception:
+    _in_mulddae_app = False
+_from_dial = st.session_state.pop("lamar_from_mulddae", None)
+if _from_dial:
+    try:
+        _d = dt.date.fromisoformat(_from_dial)
+        if dt.date(2026, 9, 1) <= _d <= dt.date(2026, 12, 31):
+            st.session_state["pred_day26"] = st.session_state["pred_day26_input"] = _d
+            st.session_state["sel_day_from_dial"] = _d
+    except ValueError:
+        pass
+if st.session_state.get("back_to_mulddae") or _in_mulddae_app:
+    st.markdown("""<style>
+    .st-key-back_mulddae_lamar button{border:2px solid #bff1ff !important;border-radius:999px !important;padding:0.55rem 1.4rem !important;
+      background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%) !important;
+      background-size:250% 100% !important;color:#fff !important;
+      animation:lShine 2.2s linear infinite, lPulse 1.1s ease-in-out infinite, lRing 1.6s ease-out infinite}
+    .st-key-back_mulddae_lamar button p{font-size:1.05rem !important;font-weight:800 !important;color:#fff !important;
+      text-shadow:0 1px 3px rgba(0,40,60,.8)}
+    @keyframes lShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+    @keyframes lPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+    @keyframes lRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.75)}100%{box-shadow:0 0 0 16px rgba(76,195,230,0)}}
+    @media (prefers-reduced-motion:reduce){.st-key-back_mulddae_lamar button{animation:none}}
+    </style>""", unsafe_allow_html=True)
+    if st.button("← 물때 시계로 돌아가기", key="back_mulddae_lamar"):
+        st.session_state.pop("back_to_mulddae", None)
+        st.switch_page("mulddae/dial.py")
+    _d = st.session_state.pop("sel_day_from_dial", None)       # 넘어온 직후 한 번만 안내
+    if _d:
+        st.info(f"물때 시계에서 고른 {_d.month}월 {_d.day}일 예상은 **🔮 2026 예상** 탭에 선택되어 있습니다.")
+
 
 MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9물",
              "10물", "11물", "12물", "13물", "조금", "무시"]
