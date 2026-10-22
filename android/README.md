@@ -1,4 +1,4 @@
-# 물때 시계 안드로이드 앱
+# 쭈갑과물때 안드로이드 앱
 
 Streamlit 물때 시계(`https://kim-sunsang24.streamlit.app/mulddae-clock`)를 전체 화면으로 여는 앱입니다.
 

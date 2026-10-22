@@ -1,4 +1,4 @@
-name: 물때 시계 안드로이드 앱 만들기
+name: 쭈갑과물때 안드로이드 앱 만들기
 
 on:
   push:
@@ -50,6 +50,6 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk mulddae-clock.apk
           gh release delete android-latest --yes --cleanup-tag || true
           gh release create android-latest mulddae-clock.apk \
-            --title "물때 시계 앱 (최신)" \
+            --title "쭈갑과물때 앱 (최신)" \
             --notes "갤럭시 등 안드로이드 폰에서 mulddae-clock.apk 를 받아 설치하세요. 빌드 #${GITHUB_RUN_NUMBER} · $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')" \
             --latest
