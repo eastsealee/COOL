@@ -71,6 +71,23 @@ CHANGELOG = [
 
 st.set_page_config(page_title=f"라마르호 예상 조과 분석 : {APP_VERSION}", page_icon="🦑", layout="wide")
 
+# ----- 휴대폰 화면: 넓은 화면용 숫자 칸(st.metric)이 한 줄에 하나씩 크게 쌓이지 않게 2칸씩, 글자는 작게
+st.markdown("""<style>
+@media (max-width: 640px) {
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]):not(:has([data-testid="stHorizontalBlock"])) {
+    flex-wrap: wrap !important; gap: .5rem .75rem !important; }
+  [data-testid="stHorizontalBlock"]:has([data-testid="stMetric"]):not(:has([data-testid="stHorizontalBlock"])) > [data-testid="stColumn"] {
+    min-width: calc(50% - .4rem) !important; flex: 1 1 calc(50% - .4rem) !important; width: calc(50% - .4rem) !important; }
+  [data-testid="stMetricValue"] { font-size: 1.45rem !important; line-height: 1.25 !important; }
+  [data-testid="stMetricValue"] > div { white-space: normal !important; overflow-wrap: anywhere; }
+  [data-testid="stMetricLabel"] p { font-size: .8rem !important; }
+  [data-testid="stMetricDelta"] { font-size: .78rem !important; }
+  [data-testid="stMetric"] { padding: .35rem .5rem; border-radius: 10px; background: rgba(128,128,128,.08); }
+  h3 { font-size: 1.15rem !important; line-height: 1.35 !important; }
+  .block-container { padding-left: .8rem !important; padding-right: .8rem !important; }
+}
+</style>""", unsafe_allow_html=True)
+
 # ----- 물때 시계 8시 방향 버튼으로 왔거나 '물때 시계' 안드로이드 앱 안이면 맨 위에 '돌아가기'
 #       (앱에서는 왼쪽 메뉴가 숨겨져 있어 이 버튼이 유일한 돌아가는 길). 넘겨받은 날짜는 '2026 예상' 탭에서 선택
 try:
@@ -81,9 +98,10 @@ _from_dial = st.session_state.pop("lamar_from_mulddae", None)
 if _from_dial:
     try:
         _d = dt.date.fromisoformat(_from_dial)
+        st.session_state["lamar_dial_day"] = _d               # '날짜별 조회' 첫 날짜
+        st.session_state["sel_day_from_dial"] = _d
         if dt.date(2026, 9, 1) <= _d <= dt.date(2026, 12, 31):
             st.session_state["pred_day26"] = st.session_state["pred_day26_input"] = _d
-            st.session_state["sel_day_from_dial"] = _d
     except ValueError:
         pass
 if st.session_state.get("back_to_mulddae") or _in_mulddae_app:
@@ -104,7 +122,8 @@ if st.session_state.get("back_to_mulddae") or _in_mulddae_app:
         st.switch_page("mulddae/dial.py")
     _d = st.session_state.pop("sel_day_from_dial", None)       # 넘어온 직후 한 번만 안내
     if _d:
-        st.info(f"물때 시계에서 고른 {_d.month}월 {_d.day}일 예상은 **🔮 2026 예상** 탭에 선택되어 있습니다.")
+        st.info(f"물때 시계에서 고른 {_d.month}월 {_d.day}일입니다. 기록은 아래 '날짜별 조회', "
+                f"예상은 **🔮 2026 예상** 탭에서 볼 수 있습니다.")
 
 
 MUL_ORDER = ["1물", "2물", "3물", "4물", "5물", "6물", "7물", "8물", "9물",
@@ -734,7 +753,8 @@ with tab1:
     dates = sorted(df["날짜"])
     left, right = st.columns([1, 2])
     with left:
-        sel = st.date_input("날짜 선택", value=dates[-1], min_value=dt.date(2018, 1, 1),
+        sel = st.date_input("날짜 선택", value=st.session_state.get("lamar_dial_day") or dates[-1],
+                            min_value=dt.date(2018, 1, 1),
                             max_value=dt.date(2030, 12, 31), format="YYYY-MM-DD")
         if sel.isoformat() not in BT:  # 저장된 달 밖의 날짜(내년 등)는 그 달 물때표를 따로 받음
             try:
