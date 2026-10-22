@@ -261,3 +261,40 @@ def load_days(pid: int, around: datetime, span_days: int = 11) -> tuple[dict[str
     if days:
         add_flow(days, pid)
     return days, errors
+
+
+# ---------------------------------------------------------------- 조류예보 (해양조사원, 30분 간격)
+# '조류예보 받기' Actions가 매일 currents 브랜치에 올린 파일 — 채비 계산기와 같은 자료
+CUR_URL = "https://raw.githubusercontent.com/eastsealee/COOL/currents/currents.json.gz"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_currents() -> dict | None:
+    import gzip
+    try:
+        r = requests.get(CUR_URL, timeout=20)
+        r.raise_for_status()
+        return json.loads(gzip.decompress(r.content))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def port_current(lat: float, lon: float, dates: list[str], max_km: float = 40) -> dict | None:
+    """항구에서 가장 가까운 조류예보점의 날짜별 유속(cm/s)·유향(16방위 번호) — 물때 시계 14시 레이더용"""
+    import math
+    db = load_currents()
+    if not db:
+        return None
+    best = None
+    for code, (name, la, lo) in db.get("st", {}).items():
+        if code not in db.get("sp", {}):
+            continue
+        km = 6371 * math.hypot(math.radians(lo - lon) * math.cos(math.radians((la + lat) / 2)), math.radians(la - lat))
+        if best is None or km < best[1]:
+            best = (code, km, name)
+    if not best or best[1] > max_km:
+        return None
+    code = best[0]
+    return {"name": best[2], "km": round(best[1], 1), "dirs": db.get("dirs"),
+            "sp": {d: db["sp"][code][d] for d in dates if d in db["sp"][code]},
+            "dr": {d: db["dr"][code][d] for d in dates if d in db["dr"].get(code, {})}}

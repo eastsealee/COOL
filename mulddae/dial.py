@@ -20,7 +20,7 @@ import importlib  # noqa: E402
 import tide_data  # noqa: E402
 
 # 앱이 켜진 채로 코드가 바뀌면 예전 tide_data가 메모리에 남아 있을 수 있어, 새 항목이 없으면 다시 읽음
-if not all(hasattr(tide_data, n) for n in ("DEFAULT_PORT", "PORT_META", "load_days")):
+if not all(hasattr(tide_data, n) for n in ("DEFAULT_PORT", "PORT_META", "load_days", "port_current")):
     tide_data = importlib.reload(tide_data)
 from tide_data import DEFAULT_PORT, KST, PORT_META, PORTS, fetch_weather, load_days  # noqa: E402
 from dial_widget import dial  # noqa: E402
@@ -124,7 +124,11 @@ if PORT_META.get(port, ("", "", ""))[1] in bite_mod.REGIONS:
     except Exception:  # noqa: BLE001  예상 계산이 안 되면 보정 없이 모델만
         bite = {"on": True, "pred": {}}
 
-data = {"bite": bite, "port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", ""))] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
+try:
+    cur_fc = tide_data.port_current(lat, lon, sorted(days)) if hasattr(tide_data, "port_current") else None
+except Exception:  # noqa: BLE001
+    cur_fc = None
+data = {"cur": cur_fc, "bite": bite, "port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", ""))] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
 val = dial(data=data, key="dial", default=None)
 
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴
