@@ -9,6 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.Gravity
+import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
@@ -71,6 +73,25 @@ class MainActivity : Activity() {
                 }
             }
         }
+        // 두 손가락 확대 예비 장치: 화면이 스스로 확대되지 않으면 손가락 벌린 만큼 직접 확대
+        val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            var startScale = 1f
+            var factor = 1f
+            override fun onScaleBegin(d: ScaleGestureDetector): Boolean {
+                @Suppress("DEPRECATION") startScale = web.scale
+                factor = 1f
+                return true
+            }
+            override fun onScale(d: ScaleGestureDetector): Boolean { factor *= d.scaleFactor; return true }
+            override fun onScaleEnd(d: ScaleGestureDetector) {
+                @Suppress("DEPRECATION") val now = web.scale
+                if (kotlin.math.abs(now - startScale) < 0.01f && kotlin.math.abs(factor - 1f) > 0.05f) {
+                    web.zoomBy(factor.coerceIn(0.2f, 5f))
+                }
+            }
+        })
+        web.setOnTouchListener { _, e: MotionEvent -> pinch.onTouchEvent(e); false }
+
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(web, true)
@@ -227,8 +248,18 @@ class MainActivity : Activity() {
       doc.querySelectorAll('iframe').forEach(function(f){try{tidy(f.contentDocument)}catch(e){}});
     }catch(e){}
   }
-  tidy(document);
-  if(!window.__mulddaeTidy){window.__mulddaeTidy=setInterval(function(){tidy(document)},1500);}
+  // 두 손가락 확대: Streamlit 화면이 확대를 막아 두는 경우(maximum-scale=1 등)가 있어 맨 바깥 화면 설정을 '확대 허용'으로 바꿈
+  function zoomable(){
+    try{
+      var c='width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=5, user-scalable=yes';
+      var ms=document.querySelectorAll('meta[name="viewport"]');
+      if(!ms.length){var m=document.createElement('meta');m.name='viewport';m.content=c;document.head.appendChild(m);}
+      ms.forEach(function(m){if(m.content!==c)m.content=c;});
+      ['html','body'].forEach(function(t){var e=document.querySelector(t);if(e)e.style.setProperty('touch-action','manipulation','important');});
+    }catch(e){}
+  }
+  zoomable(); tidy(document);
+  if(!window.__mulddaeTidy){window.__mulddaeTidy=setInterval(function(){zoomable();tidy(document)},1500);}
 })();
 """
     }
