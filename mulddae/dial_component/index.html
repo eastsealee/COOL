@@ -165,6 +165,19 @@ svg text{font-family:var(--sans)}
 body.inapp{padding:0}
 body.inapp .app{max-width:none;border:0;border-radius:0;box-shadow:none}
 body.inapp .bar{padding-top:12px}
+#radarView{padding:6px 6px 4px}
+.rvTop{display:flex;justify-content:space-between;gap:8px;align-items:center}
+#rvBack{border:2px solid #bff1ff;border-radius:999px;padding:8px 16px;font:800 14px inherit;font-family:inherit;color:#fff;cursor:pointer;
+  background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%);background-size:250% 100%;
+  text-shadow:0 1px 3px rgba(0,40,60,.8);animation:rvShine 2.2s linear infinite,rvRing 1.6s ease-out infinite}
+@keyframes rvShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+@keyframes rvRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.7)}100%{box-shadow:0 0 0 12px rgba(76,195,230,0)}}
+#rvGps{border:1px solid #2f8f6a;border-radius:999px;padding:6px 12px;background:transparent;color:#7fe0a6;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
+#rvGps.off{color:#a3b6c8;border-color:#4a5d70}
+#bigRadar{width:100%;height:auto;display:block;margin-top:6px}
+.rvInfo{margin-top:6px;padding:10px 12px;border-radius:12px;background:rgba(76,195,230,.07);border:1px solid rgba(76,195,230,.25);font-size:13.5px;line-height:1.6;color:#d8e4ef}
+.rvInfo b{color:#ffd84d}.rvInfo .c{color:#4cc3e6;font-weight:800}.rvInfo .o{color:#ff9d4d;font-weight:800}.rvInfo small{color:#8a99a8}
+@media (prefers-reduced-motion:reduce){#rvBack{animation:none}}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
@@ -206,6 +219,11 @@ body.inapp .bar{padding-top:12px}
   <div class="dialwrap">
     <svg id="dial" viewBox="-48 -46 496 492" role="img" aria-label="24시간 물때 시계"></svg>
     <div class="cal" id="cal" hidden></div>
+    <div id="radarView" hidden>
+      <div class="rvTop"><button id="rvBack">← 물때 시계로 돌아가기</button><button id="rvGps">GPS 끄기</button></div>
+      <svg id="bigRadar" viewBox="-64 -64 128 128" role="img" aria-label="조류·배 방향 레이더"></svg>
+      <div class="rvInfo" id="rvInfo"></div>
+    </div>
   </div>
 
 
@@ -384,7 +402,7 @@ function draw(){
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
   // 14시 방향 조류 레이더: 파란 화살표 = 고른 시각의 예보 조류 방향(항구 근처 해양조사원 예보점),
   // 누르면 GPS를 켜서 노란 화살표 = 배 진행 방향, 그 사이 각도 표시 (채비 계산기 레이더와 같은 모양)
-  const[gx,gy]=pt(14*60+30,252);const gb=el("g",{id:"radarBtn",tabindex:0,role:"button","aria-label":"조류 레이더 — 누르면 GPS로 배 진행 방향 표시",transform:`translate(${gx} ${gy})`});
+  const[gx,gy]=pt(14*60+30,252);const gb=el("g",{id:"radarBtn",tabindex:0,role:"button","aria-label":"조류 레이더 크게 보기",transform:`translate(${gx} ${gy})`});
   const RR=23;
   el("circle",{r:RR,fill:"url(#rdBg)",stroke:"#2f8f6a","stroke-width":1.2},gb);
   [RR*2/3,RR/3].forEach(r=>el("circle",{r,fill:"none",stroke:"#2f8f6a","stroke-opacity":.55,"stroke-width":.6},gb));
@@ -399,7 +417,7 @@ function draw(){
   txt(0,-RR-4,"북",{"font-size":7.5,"font-weight":900,fill:"#ff6b6b"},gb);
   el("g",{id:"radarDyn"},gb);
   el("text",{id:"radarLbl",x:0,y:RR+13,"text-anchor":"middle","font-size":9.5,"font-weight":800,fill:"#a3b6c8"},gb);
-  gb.addEventListener("click",toggleRGps);gb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleRGps()}});
+  gb.addEventListener("click",openRadar);gb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openRadar()}});
   rb.addEventListener("click",goRsv);rb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goRsv()}});cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
 }
 
@@ -421,6 +439,75 @@ function toggleRGps(){
     e=>{RG.err=e.code===1?"위치 권한 꺼짐":"위치 못 잡음";updateRadar()},{enableHighAccuracy:true,maximumAge:0,timeout:20000})}
 function curAt(h){const c=D&&D.cur;if(!c||!DAYS[cur])return null;const s=(c.sp||{})[DAYS[cur].date],d=(c.dr||{})[DAYS[cur].date];
   if(!s)return null;const i=Math.min(47,h*2+1),v=s[i];if(v==null)return null;return{kn:v/51.444,dir:d&&d[i]!=null?d[i]*22.5:null}}
+let RVOPEN=false;
+function startRG(){if(RG.on)return;if(!navigator.geolocation){RG.err="이 기기는 위치를 지원하지 않습니다";updateRadar();return}
+  RG.on=true;RG.err="";
+  RG.id=navigator.geolocation.watchPosition(p=>{const c=p.coords,t=p.timestamp||Date.now(),f={lat:c.latitude,lon:c.longitude,acc:c.accuracy||99,t};
+    RG.fix=f;RG.buf.push(f);RG.buf=RG.buf.filter(q=>t-q.t<=12000);const a=RG.buf[0];RG.err="";
+    if(a&&a!==f&&(t-a.t)>=3000){const dm=rdDist(a,f);const v=dm/((t-a.t)/1000)/0.514444;RG.sog=RG.sog==null?v:RG.sog*.6+v*.4;
+      if(dm>=Math.max(6,f.acc*.5)){const r=rdBear(a,f)*Math.PI/180;RG.cv=RG.cv?[RG.cv[0]*.6+Math.sin(r)*.4,RG.cv[1]*.6+Math.cos(r)*.4]:[Math.sin(r),Math.cos(r)];
+        RG.cog=(Math.atan2(RG.cv[0],RG.cv[1])*180/Math.PI+360)%360}}
+    updateRadar()},
+    e=>{RG.err=e.code===1?(/MulddaeApp/.test(navigator.userAgent)?"위치 권한이 꺼져 있습니다. 휴대폰 설정 → 애플리케이션 → 쭈갑과물때 → 권한 → 위치 → '앱 사용 중에만 허용'":"위치 권한이 꺼져 있습니다. 주소창 왼쪽 자물쇠 → 위치 허용"):"위치를 잡지 못했습니다";updateRadar()},
+    {enableHighAccuracy:true,maximumAge:0,timeout:20000});updateRadar()}
+function stopRG(){if(RG.id!=null)navigator.geolocation.clearWatch(RG.id);Object.assign(RG,{on:false,id:null,buf:[],cv:null,cog:null,sog:null,err:"",fix:null});updateRadar()}
+function openRadar(){RVOPEN=true;document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
+  document.getElementById("radarView").hidden=false;startRG();updateRadar();setHeight();
+  document.getElementById("radarView").scrollIntoView({block:"nearest"})}
+function closeRadar(){RVOPEN=false;stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";setHeight()}
+document.getElementById("rvBack").onclick=closeRadar;
+document.getElementById("rvGps").onclick=()=>{RG.on?stopRG():startRG()};
+setInterval(()=>{if(RVOPEN)updateRadar()},60000);
+// 크게 보는 레이더: 오늘이면 지금 시각, 다른 날이면 원에서 고른 시각의 예보
+function curNow(){const c=D&&D.cur;if(!c||!DAYS[cur])return null;const day=DAYS[cur].date;
+  let m;if(cur===TODAY){const t=new Date(Date.now()+9*3600e3);m=t.getUTCHours()*60+t.getUTCMinutes()}else m=(selH!=null?selH:8)*60+30;
+  const sp=(c.sp||{})[day],dr=(c.dr||{})[day];if(!sp)return null;
+  const i=Math.floor(m/30),f=(m%30)/30,a=sp[i],b=sp[Math.min(47,i+1)];if(a==null)return null;
+  const v=b==null?a:a+(b-a)*f,later=sp[Math.min(47,i+2)];
+  return{kn:v/51.444,dir:dr&&dr[f<.5?i:Math.min(47,i+1)]!=null?dr[f<.5?i:Math.min(47,i+1)]*22.5:null,m,trend:later==null?0:later-a,live:cur===TODAY}}
+function drawBig(){const sv=document.getElementById("bigRadar");if(!sv||!RVOPEN)return;
+  const R=50,P=(deg,r)=>[Math.sin(deg*Math.PI/180)*r,-Math.cos(deg*Math.PI/180)*r],c=curNow();
+  const DN=["북","북북동","북동","동북동","동","동남동","남동","남남동","남","남남서","남서","서남서","서","서북서","북서","북북서"],dn=v=>DN[Math.round(v/22.5)%16];
+  const arrow=(deg,col,w)=>{const[x2,y2]=P(deg,R-3),l1=P(deg-12,R-12),l2=P(deg+12,R-12);
+    return`<line x1="0" y1="0" x2="${x2}" y2="${y2}" stroke="${col}" stroke-width="${w}" stroke-linecap="round"/><path d="M${x2} ${y2} L${l1[0]} ${l1[1]} L${l2[0]} ${l2[1]}Z" fill="${col}"/>`};
+  let g=`<circle r="${R+1}" fill="url(#rdBg)" stroke="#2f8f6a" stroke-width="1"/>`;
+  [R*3/4,R/2,R/4].forEach(r=>g+=`<circle r="${r}" fill="none" stroke="#2f8f6a" stroke-opacity=".5" stroke-width=".35"/>`);
+  for(let k=0;k<72;k++){const d=k*5,[a1,b1]=P(d,R),[a2,b2]=P(d,R-(k%18===0?5:k%2===0?2.5:1.2));g+=`<line x1="${a1}" y1="${b1}" x2="${a2}" y2="${b2}" stroke="#58c79a" stroke-opacity=".7" stroke-width="${k%18===0?.7:.35}"/>`}
+  g+=`<line x1="${-R}" y1="0" x2="${R}" y2="0" stroke="#2f8f6a" stroke-opacity=".4" stroke-width=".3"/><line x1="0" y1="${-R}" x2="0" y2="${R}" stroke="#2f8f6a" stroke-opacity=".4" stroke-width=".3"/>`;
+  g+=`<circle r="${R}" fill="none" stroke="#58ffb0" stroke-width=".6"><animate attributeName="r" from="2" to="${R}" dur="3s" repeatCount="indefinite"/><animate attributeName="stroke-opacity" from=".8" to="0" dur="3s" repeatCount="indefinite"/></circle>`;
+  const sx=R*Math.sin(Math.PI/3),sy=-R*Math.cos(Math.PI/3);
+  g+=`<g><path d="M0 0 L0 ${-R} A${R} ${R} 0 0 1 ${sx} ${sy}Z" fill="url(#rdSw)"/><line x1="0" y1="0" x2="${sx}" y2="${sy}" stroke="#7dffc4" stroke-width=".8"/><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="3s" repeatCount="indefinite"/></g>`;
+  [["북",0],["동",90],["남",180],["서",270]].forEach(([n,d])=>{const[a,b]=P(d,R+7);g+=`<text x="${a}" y="${b+2.6}" text-anchor="middle" font-size="7" font-weight="900" fill="${d?"#8fc9b4":"#ff6b6b"}">${n}</text>`});
+  const boat=RG.on&&RG.cog!=null&&(RG.sog||0)>=0.3;let diff=null;
+  if(c&&c.dir!=null&&boat){const d=((RG.cog-c.dir)%360+540)%360-180;diff=Math.abs(d);const[a1,b1]=P(c.dir,16),[a2,b2]=P(c.dir+d,16);
+    g+=`<path d="M${a1} ${b1} A16 16 0 ${Math.abs(d)>180?1:0} ${d>0?1:0} ${a2} ${b2}" fill="none" stroke="#ff9d4d" stroke-width="1.3" stroke-dasharray="2.4 1.6"/>`;
+    const[tx,ty]=P(c.dir+d/2,24);g+=`<text x="${tx}" y="${ty+2.4}" text-anchor="middle" font-size="7" font-weight="900" fill="#ff9d4d" stroke="#051a14" stroke-width="1.6" paint-order="stroke">${Math.round(diff)}°</text>`}
+  if(c&&c.dir!=null&&c.kn>=0.05){g+=`<g>${arrow(c.dir,"#4cc3e6",2.2)}<animate attributeName="opacity" values=".6;1;.6" dur="1.6s" repeatCount="indefinite"/></g>`;
+    const[tx,ty]=P(c.dir,R-19);g+=`<text x="${tx+(Math.sin(c.dir*Math.PI/180)>=0?-1:1)*0}" y="${ty}" dx="${Math.cos(c.dir*Math.PI/180)>=0?5:-5}" text-anchor="middle" font-size="5.5" font-weight="800" fill="#4cc3e6" stroke="#051a14" stroke-width="1.4" paint-order="stroke">조류 ${c.kn.toFixed(1)}kn</text>`}
+  if(boat){const[bx,by]=P(RG.cog,R-3);g+=arrow(RG.cog,"#ffd84d",2.4)+`<circle cx="${bx}" cy="${by}" r="1.8" fill="#ffd84d"/><circle cx="${bx}" cy="${by}" r="2" fill="none" stroke="#ffd84d" stroke-width="1"><animate attributeName="r" from="2" to="8" dur="1.4s" repeatCount="indefinite"/><animate attributeName="opacity" from="1" to="0" dur="1.4s" repeatCount="indefinite"/></circle>`;
+    const[tx,ty]=P(RG.cog,R-19);g+=`<text x="${tx}" y="${ty}" dx="${Math.cos(RG.cog*Math.PI/180)>=0?-5:5}" text-anchor="middle" font-size="5.5" font-weight="800" fill="#ffd84d" stroke="#051a14" stroke-width="1.4" paint-order="stroke">배 ${(RG.sog||0).toFixed(1)}kn</text>`}
+  g+=`<circle r="1.8" fill="#eef4fa"/>`;
+  sv.innerHTML=g;
+  // 아래 설명
+  const cc=D&&D.cur,hm=m=>String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0");
+  const name={0:"조류 따라",45:"비스듬히",90:"옆으로",180:"거슬러"};
+  let t="";
+  if(!cc)t+="이 항구 40km 안에 조류예보점이 없어 조류 방향을 못 보여줍니다.<br>";
+  else if(!c)t+=`<span class="c">${cc.name} 예보점</span> — 이 날짜 예보가 아직 없습니다 (열흘 앞까지).<br>`;
+  else{const tr=c.trend>3?" · 세지는 중 ↑":c.trend<-3?" · 약해지는 중 ↓":"";
+    t+=`<span class="c">●</span> 조류 <span class="c">${c.kn.toFixed(2)}노트 ${c.dir!=null?dn(c.dir)+"쪽으로":""}</span>${c.kn<0.15?" · 정조 무렵":tr}<br>`
+      +`<small>${cc.name} 예보점(${cc.km}km) · ${DAYS[cur].date.slice(5).replace("-","/")} ${hm(Math.round(c.m/5)*5%1440)}${c.live?"(지금)":""} 해양조사원 예보</small><br>`}
+  if(!RG.on)t+=`<b>●</b> GPS 꺼짐 — 'GPS 켜기'를 누르면 배가 흐르는 방향을 같이 보여줍니다`;
+  else if(RG.err)t+=`<b>●</b> ${RG.err}`;
+  else if(!RG.fix)t+=`<b>●</b> 위치 잡는 중…`;
+  else if(!boat)t+=`<b>●</b> 배 ${(RG.sog||0).toFixed(1)}노트 — 0.3노트 이상 움직이면 진행 방향을 보여줍니다`;
+  else{t+=`<b>●</b> 배 진행 <b>${dn(RG.cog)}</b>(${Math.round(RG.cog)}°) · <b>${RG.sog.toFixed(2)}노트</b>`;
+    if(diff!=null){const pk=diff<22.5?0:diff<67.5?45:diff<135?90:180;
+      t+=`<br><span class="o">●</span> 차이 <span class="o">${Math.round(diff)}°</span> → 채비 계산기 '배가 흐르는 방향'은 <b>'${name[pk]}'</b>`;
+      if(diff>=45)t+=`<br><small>조류와 어긋나게 흐릅니다 — 바람에 밀리거나 엔진으로 버티는 중일 수 있습니다.</small>`}}
+  document.getElementById("rvInfo").innerHTML=t;
+  const gbt=document.getElementById("rvGps");gbt.textContent=RG.on?"GPS 끄기":"GPS 켜기";gbt.classList.toggle("off",!RG.on);
+  setHeight()}
 function updateRadar(){const g=document.getElementById("radarDyn"),lb=document.getElementById("radarLbl");if(!g)return;
   const h=selH!=null?selH:0,c=curAt(h),R=23,P=(deg,r)=>[Math.sin(deg*Math.PI/180)*r,-Math.cos(deg*Math.PI/180)*r];
   const arrow=(deg,col,w)=>{const[x2,y2]=P(deg,R-2),l1=P(deg-18,R-9),l2=P(deg+18,R-9);
@@ -441,7 +528,7 @@ function updateRadar(){const g=document.getElementById("radarDyn"),lb=document.g
   else if(RG.on&&!showBoat)t=c?`조류 ${c.kn.toFixed(1)}노트 · 배 정지`:"배 방향 재는 중";
   else if(c)t=c.kn<0.15?"조류 정조 무렵":`조류 ${c.kn.toFixed(1)}노트 ${c.dir!=null?dn(c.dir):""}`;
   else t=D&&D.cur?"조류 예보 없음":"조류 레이더";
-  lb.textContent=t;lb.setAttribute("fill",diff!=null?"#ff9d4d":c?"#8fd8ef":"#a3b6c8");
+  lb.textContent=t;lb.setAttribute("fill",diff!=null?"#ff9d4d":c?"#8fd8ef":"#a3b6c8");drawBig();
 }
 function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
 function select(h){selH=h;if(typeof biteMark==="function")biteMark(h);updateRadar();
