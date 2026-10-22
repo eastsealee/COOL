@@ -56,6 +56,10 @@ class MainActivity : Activity() {
             settings.loadWithOverviewMode = true
             settings.useWideViewPort = true
             settings.textZoom = 100                       // 휴대폰 글자 크기 설정과 상관없이 화면 비율 유지
+            settings.setSupportZoom(true)                 // 두 손가락으로 확대·축소
+            settings.builtInZoomControls = true
+            settings.displayZoomControls = false          // +/- 버튼은 숨김
+            settings.userAgentString = settings.userAgentString + " MulddaeApp/1"   // 물때 시계 화면이 앱 모양으로 바뀌는 표시
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.setSupportMultipleWindows(false)      // 새 창 링크도 아래 규칙으로 처리
             settings.mediaPlaybackRequiresUserGesture = true
@@ -132,6 +136,7 @@ class MainActivity : Activity() {
         }
 
         override fun onPageFinished(view: WebView, url: String) {
+            view.evaluateJavascript(TIDY_JS, null)
             if (isAppUrl(Uri.parse(url))) prefs.edit().putString("last_url", url).apply()
         }
 
@@ -186,4 +191,33 @@ class MainActivity : Activity() {
     override fun onDestroy() { web.destroy(); super.onDestroy() }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
+
+    companion object {
+        /** Streamlit 머리줄·메뉴 버튼·'Built with Streamlit' 띠를 숨기고 위아래 여백을 줄여 앱처럼 보이게.
+         *  앱 화면은 같은 주소 안의 iframe이라 1.5초마다 새로 생긴 화면에도 다시 적용 */
+        private const val TIDY_JS = """
+(function(){
+  var CSS = 'header,[data-testid="stHeader"],[data-testid="stToolbar"],[data-testid="stDecoration"],' +
+    '[data-testid="stSidebarCollapsedControl"],[data-testid="stSidebar"],[data-testid="stStatusWidget"],footer,' +
+    '[class*="viewerBadge"],[class*="ViewerBadge"]{display:none!important}' +
+    '[data-testid="stMainBlockContainer"],.block-container{padding:0.25rem 0 0.5rem!important;max-width:none!important}' +
+    '[data-testid="stAppViewContainer"],[data-testid="stMain"],.stApp,body{background:#08131d!important}' +
+    '[data-testid="stCaptionContainer"]{padding:0 14px!important}';
+  function tidy(doc){
+    try{
+      if(!doc||!doc.head) return;
+      if(!doc.getElementById('mulddae-app-css')){var s=doc.createElement('style');s.id='mulddae-app-css';s.textContent=CSS;doc.head.appendChild(s);}
+      doc.querySelectorAll('a,div,span').forEach(function(el){
+        if(el.childElementCount<6 && /Built with Streamlit|Fullscreen/.test(el.textContent||'')){
+          var n=el; for(var i=0;i<6&&n&&n!==doc.body;i++){var p=getComputedStyle(n).position; if(p==='fixed'||p==='sticky'){n.style.setProperty('display','none','important');break;} n=n.parentElement;}
+        }
+      });
+      doc.querySelectorAll('iframe').forEach(function(f){try{tidy(f.contentDocument)}catch(e){}});
+    }catch(e){}
+  }
+  tidy(document);
+  if(!window.__mulddaeTidy){window.__mulddaeTidy=setInterval(function(){tidy(document)},1500);}
+})();
+"""
+    }
 }

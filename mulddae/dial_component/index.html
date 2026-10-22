@@ -134,8 +134,8 @@ svg text{font-family:var(--sans)}
 
 /* 입질 확률 */
 .bite{border-top:1px solid var(--line);padding:16px 12px 16px;background:linear-gradient(180deg,#0b1722,#0a141e)}
-.bhead{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:0 2px 10px}
-.bhead b{font-size:17px;font-weight:900;letter-spacing:-.02em}.bhead span{font-size:11.5px;color:var(--sub);text-align:right}
+.bhead{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:0 2px 10px}
+.bhead b{font-size:17px;font-weight:900;letter-spacing:-.02em;white-space:nowrap}.bhead span{font-size:11.5px;color:var(--sub)}
 .cards{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .cards>div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 11px;min-width:0;position:relative;overflow:hidden}
 .cards>div::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
@@ -143,7 +143,7 @@ svg text{font-family:var(--sans)}
 .cards .v{font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;background:color-mix(in srgb,var(--vc) 18%,transparent);color:var(--vc);white-space:nowrap}
 .cards .n{font-family:var(--num);font-size:28px;font-weight:700;color:var(--c);font-variant-numeric:tabular-nums;line-height:1.25}
 .cards .n small{font-family:var(--sans);font-size:11px;color:var(--sub);font-weight:500}
-.cards .w{font-size:12px;color:var(--sub)}.cards .w b{color:var(--ink)}
+.cards .w{font-size:12px;color:var(--sub);display:flex;flex-direction:column;gap:1px}.cards .w b{color:var(--ink)}
 #biteChart{width:100%;height:auto;display:block;margin-top:10px}
 .bkey{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:11.5px;color:var(--sub);padding:6px 2px 0}
 .bkey i{display:inline-block;width:16px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}
@@ -151,7 +151,12 @@ svg text{font-family:var(--sans)}
 .bkey i.sl{height:10px;width:8px;background:rgba(224,123,208,.4)}
 .bnote{font-size:11px;color:var(--faint);margin:8px 2px 0;line-height:1.55}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+/* 안드로이드 앱(물때 시계 앱) 안에서는 화면 끝까지 꽉 차게 — 카드 테두리·그림자 없이 앱처럼 */
+body.inapp{padding:0}
+body.inapp .app{max-width:none;border:0;border-radius:0;box-shadow:none}
+body.inapp .bar{padding-top:12px}
 </style></head><body>
+<script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
 <div class="app">
   <div class="loading" id="loading" hidden>물때 불러오는 중…</div>
@@ -446,7 +451,7 @@ function drawBite(){
   const verdict=v=>v>=60?["추천","#4FB97E"]:v>=40?["조건부","#E0A934"]:["비추천","#E06464"];
   document.getElementById("biteCards").innerHTML=sp.map(([k,n,c])=>{const sc=BM.sc[k],[vt,vc]=verdict(sc),bw=BM.bw[k];
     return `<div style="--c:${c};--vc:${vc}"><div class="t">${n}<span class="v">${vt}</span></div><div class="n">${sc}<small> / 100 점수</small></div>
-      <div class="w">${bw?`최적 <b>${String(bw.s).padStart(2,"0")}~${String(bw.e).padStart(2,"0")}시</b> · 최고 ${bw.pk}%`:"시즌 아님"}</div></div>`}).join("");
+      <div class="w">${bw?`<span>최적 <b>${String(bw.s).padStart(2,"0")}~${String(bw.e).padStart(2,"0")}시</b></span><span>최고 <b>${bw.pk}%</b></span>`:"<span>시즌 아님</span>"}</div></div>`}).join("");
   const p=BM.pred;
   document.getElementById("biteSub").textContent=p.am!=null||p.pm!=null?`라마르 예상 오전 ${p.am!=null?Math.round(p.am)+"%":"-"} · 오후 ${p.pm!=null?Math.round(p.pm)+"%":"-"} 반영`:"이 달은 라마르 기록이 없어 보정 없음";
   bsvg.innerHTML="";const E=(t,a)=>el(t,a,bsvg),T=(x,y,s,a)=>txt(x,y,s,a,bsvg);
