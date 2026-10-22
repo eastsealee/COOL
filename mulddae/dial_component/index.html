@@ -463,9 +463,12 @@ function startRG(){if(RG.on)return;if(!navigator.geolocation){RG.err="이 기기
     {enableHighAccuracy:true,maximumAge:0,timeout:20000});updateRadar()}
 function stopRG(){if(RG.id!=null)navigator.geolocation.clearWatch(RG.id);Object.assign(RG,{on:false,id:null,buf:[],cv:null,cog:null,sog:null,err:"",fix:null});updateRadar()}
 function openRadar(){RVOPEN=true;document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
-  document.getElementById("radarView").hidden=false;startRG();updateRadar();setHeight();
-  document.getElementById("radarView").scrollIntoView({block:"nearest"})}
-function closeRadar(){RVOPEN=false;stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";setHeight()}
+  document.getElementById("radarView").hidden=false;startRG();updateRadar();setHeight();setTimeout(setHeight,150)}
+function closeRadar(){RVOPEN=false;stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";
+  // 원래 화면을 처음처럼 다시 그리고(카드·수치·원·입질 확률), 높이를 몇 번 다시 맞춘 뒤 화면 맨 위로
+  try{render()}catch(e){}
+  setHeight();requestAnimationFrame(setHeight);setTimeout(setHeight,150);setTimeout(setHeight,500);
+  const top=document.querySelector(".app")||document.body;try{top.scrollIntoView({block:"start"})}catch(e){}}
 document.getElementById("rvBack").onclick=closeRadar;
 document.getElementById("rvGps").onclick=()=>{RG.on?stopRG():startRG()};
 setInterval(()=>{if(RVOPEN)updateRadar()},60000);
