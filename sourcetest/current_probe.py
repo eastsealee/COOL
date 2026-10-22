@@ -50,7 +50,7 @@ def probe(code):
         return code, its[0] if its else None
     except Exception:
         return code, None
-codes = [f"{a:02d}LTC{b:02d}" for a in range(1, 46) for b in range(1, 13)]
+codes = [f"{a:02d}LTC{b:02d}" for a in range(1, 61) for b in range(1, 41)]
 alive = {}
 with ThreadPoolExecutor(6) as ex:
     for code, it in ex.map(probe, codes):
