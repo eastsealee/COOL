@@ -1,0 +1,45 @@
+name: 조류예보 받기 (채비 계산기 조류 자동 입력)
+
+on:
+  schedule:
+    - cron: "10 18 * * *"     # 매일 한국시간 03:10
+  workflow_dispatch:
+    inputs:
+      rescan:
+        description: "예보점 목록을 새로 찾기 (1=예)"
+        required: false
+        default: "0"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: currents
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: 조류예보 받기
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+          RESCAN: ${{ github.event.inputs.rescan }}
+        run: python mulddae/currents_fetch.py out
+      - name: 예보점 목록이 바뀌었으면 main에 저장
+        run: |
+          if ! git diff --quiet -- mulddae/data/current_stations.json || ! git ls-files --error-unmatch mulddae/data/current_stations.json >/dev/null 2>&1; then
+            git config user.name currents-bot && git config user.email currents-bot@users.noreply.github.com
+            git add mulddae/data/current_stations.json && git commit -m "조류예보점 목록 갱신" && git pull --rebase origin main && git push origin HEAD:main
+          fi
+      - name: currents 브랜치에 저장 (기록을 쌓지 않고 덮어씀)
+        run: |
+          cd out && git init -q && git config user.name currents-bot && git config user.email currents-bot@users.noreply.github.com
+          git checkout -q -b currents && git add -A && git commit -q -m "조류예보 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" currents

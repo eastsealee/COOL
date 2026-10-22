@@ -89,6 +89,9 @@ if isinstance(val, dict) and val.get("n") != st.session_state.get("dial_n"):
     if val.get("goto") == "chaebi":                     # 오늘 카드 '쭈갑 채비계산' → 채비 계산기
         st.session_state["dial_center"] = str(val.get("date", ""))[:10] or center_s
         st.session_state["back_to_mulddae"] = True
+        _pi = PORTS.get(port) or (0, None, None)          # 그 항구 근처 조류예보점을 고르도록 위치·날짜를 넘김
+        st.session_state["chaebi_ctx"] = {"date": st.session_state["dial_center"], "port": port.split(" (")[0],
+                                          "lat": _pi[1], "lon": _pi[2]}
         st.switch_page("chaebi/calc.py")
     if val.get("goto") == "sunsang24":                  # 2시 방향 '예약조회' → 보던 날짜·지역으로 예약조회 열기
         area, sido, sgg = PORT_META.get(port, ("서해", "", ""))
