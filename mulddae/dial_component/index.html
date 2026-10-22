@@ -191,7 +191,7 @@ body.inapp .bar{padding-top:12px}
 
 
   <section class="bite" id="bite" hidden>
-    <div class="bhead"><b>입질 확률</b><span id="biteSub"></span></div>
+    <div class="bhead"><b>입질 확률</b></div>
     <div class="cards" id="biteCards"></div>
     <svg id="biteChart" viewBox="0 0 400 200" role="img" aria-label="24시간 입질 확률 그래프"></svg>
     <div class="bkey"><span><i style="background:#ff8a5b"></i>주꾸미</span><span><i style="background:#a596ff"></i>갑오징어</span><span><i class="nt"></i>야간</span><span><i class="sl"></i>고른 시간</span></div>
@@ -453,7 +453,6 @@ function drawBite(){
     return `<div style="--c:${c};--vc:${vc}"><div class="t">${n}<span class="v">${vt}</span></div><div class="n">${sc}<small> / 100 점수</small></div>
       <div class="w">${bw?`<span>최적 <b>${String(bw.s).padStart(2,"0")}~${String(bw.e).padStart(2,"0")}시</b></span><span>최고 <b>${bw.pk}%</b></span>`:"<span>시즌 아님</span>"}</div></div>`}).join("");
   const p=BM.pred;
-  document.getElementById("biteSub").textContent=p.am!=null||p.pm!=null?`라마르 예상 오전 ${p.am!=null?Math.round(p.am)+"%":"-"} · 오후 ${p.pm!=null?Math.round(p.pm)+"%":"-"} 반영`:"이 달은 라마르 기록이 없어 보정 없음";
   bsvg.innerHTML="";const E=(t,a)=>el(t,a,bsvg),T=(x,y,s,a)=>txt(x,y,s,a,bsvg);
   E("rect",{x:34,y:22,width:356,height:150,rx:4,fill:"#0f1d2a"});
   E("rect",{x:BX(0),y:22,width:BX(BM.sr)-BX(0),height:150,fill:"rgba(0,0,0,.45)"});
@@ -478,7 +477,7 @@ function drawBite(){
   document.getElementById("biteNote").textContent="쭈갑물때 모델(하루 조차·시간별 조류·물돌이 직후·일출일몰·시즌)을 남당항 선상 기준으로 계산하고, 라마르호 블로그 기록으로 예상한 그날 오전·오후 조황으로 ±20% 안에서 보정한 추정치예요. 인천·경기·충남 항구에서만 보여요.";
 }
 function biteMark(h){if(!BM)return;const r=document.getElementById("bSel");if(r)r.setAttribute("x",BX(h));
-  const o=BM.hours[h];if(o)document.getElementById("biteSub").dataset.h=h}
+}
 
 /* ---------- 달력 (모든 연도) ---------- */
 const calEl=document.getElementById("cal");let calMonth=null;
