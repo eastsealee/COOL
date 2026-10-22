@@ -195,7 +195,6 @@ body.inapp .bar{padding-top:12px}
     <div class="cards" id="biteCards"></div>
     <svg id="biteChart" viewBox="0 0 400 200" role="img" aria-label="24시간 입질 확률 그래프"></svg>
     <div class="bkey"><span><i style="background:#ff8a5b"></i>주꾸미</span><span><i style="background:#a596ff"></i>갑오징어</span><span><i class="nt"></i>야간</span><span><i class="sl"></i>고른 시간</span></div>
-    <p class="bnote" id="biteNote"></p>
   </section>
 </div>
 
@@ -474,7 +473,6 @@ function drawBite(){
   if(cur===TODAY){const n=new Date(Date.now()+9*3600e3),h=n.getUTCHours()+n.getUTCMinutes()/60;
     E("line",{x1:BX(h),x2:BX(h),y1:22,y2:172,stroke:"#fff","stroke-dasharray":"4 3","stroke-width":1.2})}
   E("text",{x:6,y:97,"font-size":10,fill:"#8a99a8",transform:"rotate(-90 9 97)","text-anchor":"middle"}).textContent="입질 확률 %";
-  document.getElementById("biteNote").textContent="쭈갑물때 모델(하루 조차·시간별 조류·물돌이 직후·일출일몰·시즌)을 남당항 선상 기준으로 계산하고, 라마르호 블로그 기록으로 예상한 그날 오전·오후 조황으로 ±20% 안에서 보정한 추정치예요. 인천·경기·충남 항구에서만 보여요.";
 }
 function biteMark(h){if(!BM)return;const r=document.getElementById("bSel");if(r)r.setAttribute("x",BX(h));
 }
