@@ -51,6 +51,7 @@ ASOS_ID, ASOS_POS = 235, (36.3272, 126.5574)  # 보령 ASOS
 WONSAN = (36.38, 126.42)
 
 report: list[str] = []
+OBSPRE: list[dict] = []
 log: list[str] = []
 
 
@@ -120,15 +121,11 @@ def result_msg(text):
 
 
 # ------------------------------------------------------------------ 해양조사원 API 주소 찾기
-FALLBACK = {   # 공공데이터포털 상세 페이지에서 못 찾으면 이 주소들로 시도
-    "15156018": ["https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService"],
-    "15156022": ["https://apis.data.go.kr/1192136/tideFcstTime/GetTideFcstTimeApiService"],
-    "15156002": ["https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService",
-                 "https://apis.data.go.kr/1192136/dtRecent/GetDTRecentApiService"],
-    "15142507": ["https://apis.data.go.kr/1192136/tideObsPreTab/GetTideObsPreTabApiService",
-                 "https://apis.data.go.kr/1192136/surveyTideObsPre/GetSurveyTideObsPreApiService"],
-    "15156026": ["https://apis.data.go.kr/1192136/tideBed/GetTideBedApiService",
-                 "https://apis.data.go.kr/1192136/tideBedPre/GetTideBedPreApiService"],
+FALLBACK = {   # 공공데이터포털 영문 상세 페이지에서 확인한 주소 (2026-10-22)
+    "15156018": ["https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService"],   # 조석예보(고·저조)
+    "15142507": ["https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService"],  # 실측·예측 조위
+    "15156002": ["https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService"],  # (같은 것 사용)
+    "15156026": ["https://apis.data.go.kr/1192136/tidebed/GetTidebedApiService"],                 # TideBED
 }
 
 
@@ -140,6 +137,9 @@ def discover(ds_id):
     if ds_id in _DISC:
         return _DISC[ds_id]
     urls = []
+    if ds_id in FALLBACK:
+        _DISC[ds_id] = FALLBACK[ds_id]
+        return FALLBACK[ds_id]
     try:
         for page in (f"https://www.data.go.kr/data/{ds_id}/openapi.do",
                      f"https://www.data.go.kr/catalog/{ds_id}/openapi.json"):
@@ -167,9 +167,8 @@ def discover(ds_id):
 def khoa_call(ds_id, label, extra):
     """후보 주소 × 변수 이름 조합을 차례로 시도해 항목이 나오는 첫 응답을 씀"""
     variants = [
-        {"type": "json", "pageNo": 1, "numOfRows": 2000, **extra},
-        {"resultType": "json", "pageNo": 1, "numOfRows": 2000, **extra},
-        {"dataType": "JSON", "pageNo": 1, "numOfRows": 2000, **extra},
+        {"type": "json", "pageNo": 1, "numOfRows": 300, **extra},   # 한 번에 최대 300건
+        {"type": "json", "pageNo": 1, "numOfRows": 300, **{k: v for k, v in extra.items() if k != "min"}},
     ]
     combos = [(ui, url, vi, v) for ui, url in enumerate(discover(ds_id)) for vi, v in enumerate(variants)]
     if ds_id in _WORKS:                      # 한 번 성공한 조합이 있으면 그것만
@@ -323,14 +322,21 @@ def test_tide():
         if d >= TODAY:
             break
         ds = d.strftime("%Y%m%d")
-        obs_items += khoa_call("15156002", f"obs_{ds}", {"obsCode": KHOA_OBS, "reqDate": ds, "min": 10})
+        got = khoa_call("15142507", f"obs_{ds}", {"obsCode": KHOA_OBS, "reqDate": ds, "min": 10})
+        OBSPRE.extend(got)
+        obs_items += got
         fc_items += khoa_call("15156018", f"hl_{ds}", {"obsCode": KHOA_OBS, "reqDate": ds})
         if k == 0 and not obs_items and not fc_items:
             note("첫날 두 API 모두 응답 없음 → 나머지 날짜 생략")
             break
-    obs = series(obs_items)
+    sp = split_obs_pred(obs_items)
+    obs = [(t, o, None) for t, o, _ in sp] if sp else series(obs_items)
     truth = extremes_from_series(obs)
     khoa_fc = [(t, h, k) for t, h, k in series(fc_items) if k]
+    (OUT / "khoa_boryeong.json").write_text(json.dumps({
+        "truth_extremes": [(t.isoformat(), round(h), k) for t, h, k in truth],
+        "khoa_hl_forecast": [(t.isoformat(), h, k) for t, h, k in khoa_fc],
+        "sample_obs_item": obs_items[:2], "sample_hl_item": fc_items[:2]}, ensure_ascii=False, indent=1), encoding="utf-8")
     try:
         bada = [e for e in badatime_extremes(127) if start <= e[0].date() < TODAY]
     except Exception as e:  # noqa: BLE001
@@ -370,10 +376,10 @@ def test_tide():
     tb = []
     for k in range(7):
         ds = (TODAY + dt.timedelta(days=k)).strftime("%Y%m%d")
-        tb += khoa_call("15156026", f"bed_{ds}", {"lat": NAMDANG[0], "lot": NAMDANG[1], "lon": NAMDANG[1],
-                                                 "reqDate": ds, "min": 10})
+        tb += khoa_call("15156026", f"bed_{ds}", {"lat": NAMDANG[0], "lot": NAMDANG[1], "reqDate": ds, "min": 10})
         if k == 0 and not tb:
             break
+    (OUT / "khoa_tidebed_namdang.json").write_text(json.dumps(tb[:1200], ensure_ascii=False), encoding="utf-8")
     sr = series(tb)
     bed_ex = extremes_from_series(sr) if len(sr) > 20 else [(t, h, k) for t, h, k in sr if k]
     try:
@@ -415,13 +421,8 @@ def split_obs_pred(items):
 
 def test_obs_pred():
     say("## A-2. 해양조사원 실측·예측 동시 조회 — 보령, 지난 7일")
-    rows = []
-    for k in range(7, 0, -1):
-        ds = (TODAY - dt.timedelta(days=k)).strftime("%Y%m%d")
-        its = khoa_call("15142507", f"obspre_{ds}", {"obsCode": KHOA_OBS, "reqDate": ds, "min": 10})
-        if not its and k == 7:
-            break
-        rows += split_obs_pred(its)
+    cut = dt.datetime.combine(TODAY - dt.timedelta(days=7), dt.time())
+    rows = [r for r in split_obs_pred(OBSPRE) if r[0] >= cut]
     if not rows:
         say("받지 못함 (raw/khoa_obspre_*, raw/page_15142507_* 확인)")
         say("")
@@ -510,7 +511,7 @@ def asos_hourly(days=14):
 
 
 def om_previous(lat, lon, days=14):
-    models = "kma_seamless,best_match,gfs_seamless"
+    models = "kma_gdps,kma_ldps,best_match,gfs_seamless"
     r = get("https://previous-runs-api.open-meteo.com/v1/forecast",
             {"latitude": lat, "longitude": lon, "hourly": "wind_speed_10m_previous_day1,wind_direction_10m_previous_day1",
              "models": models, "past_days": days, "forecast_days": 1, "wind_speed_unit": "ms", "timezone": "Asia/Seoul"},
@@ -561,7 +562,7 @@ def test_wind():
         except Exception as e:  # noqa: BLE001
             note(f"단기예보 {label} 실패: {e}")
     try:
-        snap["om_wonsando"] = om_now(*WONSAN)
+        snap["om_asos"] = om_now(*ASOS_POS)
     except Exception as e:  # noqa: BLE001
         note(f"Open-Meteo 현재 예보 실패: {e}")
     (ARC / f"fc_{NOW:%Y%m%d_%H%M}.json").write_text(json.dumps(snap, ensure_ascii=False), encoding="utf-8")
@@ -579,6 +580,20 @@ def test_wind():
             lead = (t - made).total_seconds() / 3600
             if 12 <= lead <= 36 and "WSD" in v and "VEC" in v:
                 kma_fc[t.strftime("%Y-%m-%dT%H")] = (float(v["WSD"]), float(v["VEC"]))
+    om_arc = {m: {} for m in ("kma_seamless", "best_match", "gfs_seamless")}
+    for f in sorted(ARC.glob("fc_*.json")):
+        try:
+            s = json.loads(f.read_text(encoding="utf-8"))
+            made = dt.datetime.fromisoformat(s["made"])
+        except Exception:  # noqa: BLE001
+            continue
+        h = s.get("om_asos") or {}
+        for m in om_arc:
+            sp_, dr_ = h.get(f"wind_speed_10m_{m}") or [], h.get(f"wind_direction_10m_{m}") or []
+            for i, t in enumerate(h.get("time", [])):
+                lead = (dt.datetime.fromisoformat(t).replace(tzinfo=KST) - made).total_seconds() / 3600
+                if 12 <= lead <= 36 and i < len(sp_) and sp_[i] is not None:
+                    om_arc[m][t[:13]] = (sp_[i], dr_[i] if i < len(dr_) else None)
     try:
         om = om_previous(*ASOS_POS)
     except Exception as e:  # noqa: BLE001
@@ -590,12 +605,23 @@ def test_wind():
         return
     say("하루 전에 낸 예보 vs 실제 (방향은 실측 2m/s 이상일 때만, '방향 적중' = 45° 안)")
     say("")
+    say("**바로 비교 (Open-Meteo가 보관한 지난 14일 '하루 전 예보')**")
+    say("")
+    say("| 예보 출처 | 풍속 오차(평균) | 풍속 치우침 | 방향 오차(평균) | 방향 적중 | 비교 시간 |")
+    say("|---|---|---|---|---|---|")
+    say(wind_line("기상청 전구모델 GDPS (Open-Meteo)", om.get("kma_gdps", {}), obs))
+    say(wind_line("기상청 국지모델 LDPS (Open-Meteo)", om.get("kma_ldps", {}), obs))
+    say(wind_line("Open-Meteo 기본 모델 (예전 앱)", om.get("best_match", {}), obs))
+    say(wind_line("GFS (윈드파인더 무료 예보)", om.get("gfs_seamless", {}), obs))
+    say("")
+    say("**매일 쌓은 예보로 비교 (며칠 지나야 숫자가 생김)**")
+    say("")
     say("| 예보 출처 | 풍속 오차(평균) | 풍속 치우침 | 방향 오차(평균) | 방향 적중 | 비교 시간 |")
     say("|---|---|---|---|---|---|")
     say(wind_line("기상청 단기예보 API (직접)", kma_fc, obs))
-    say(wind_line("Open-Meteo 기상청 모델 (지금 앱 v10.21)", om.get("kma_seamless", {}), obs))
-    say(wind_line("Open-Meteo 기본 모델 (예전 앱)", om.get("best_match", {}), obs))
-    say(wind_line("GFS (윈드파인더 무료 예보)", om.get("gfs_seamless", {}), obs))
+    say(wind_line("Open-Meteo 기상청 모델 (지금 앱 v10.21)", om_arc["kma_seamless"], obs))
+    say(wind_line("Open-Meteo 기본 모델 (예전 앱)", om_arc["best_match"], obs))
+    say(wind_line("GFS (윈드파인더 무료 예보)", om_arc["gfs_seamless"], obs))
     say("")
     say(f"- 기상청 단기예보 API는 매일 쌓은 예보로만 비교 가능 — 현재 쌓인 비교 {sum(1 for t in obs if t in kma_fc)}시간, "
         "며칠 더 돌리면 늘어남")
