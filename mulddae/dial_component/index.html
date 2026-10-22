@@ -413,6 +413,12 @@ function draw(){
   txt(0,-14.5,mo+"월",{"font-size":8.5,"font-weight":900,fill:"#fff"},cb);
   txt(0,8,dd,{"font-size":17,"font-weight":900,fill:"#14304b"},cb);
   txt(0,32,"달력",{"font-size":10,"font-weight":700,fill:"#a3b6c8"},cb);
+  // 달력 위 일출, 예약조회 위 일몰 (그날 바다타임 기준)
+  const sunTag=(g,label,t,up)=>{const y=-36,x=-37;
+    el("path",{d:`M${x-6.5} ${y+3}a6.5 6.5 0 0 1 13 0z`,fill:"#ffc23d"},g);
+    el("line",{x1:x-9,y1:y+3.4,x2:x+9,y2:y+3.4,stroke:"#ffc23d","stroke-width":1.2},g);
+    el("path",{d:up?`M${x-3} ${y-6}l3-4l3 4z`:`M${x-3} ${y-10}l3 4l3-4z`,fill:"#ffe08a"},g);
+    txt(6,y+1,`${label} ${t}`,{"font-size":10.5,"font-weight":800,fill:"#ffc23d"},g)};
   cb.addEventListener("click",toggleCal);
   // 2시 방향 예약조회 버튼: 보던 날짜·항구 지역으로 '선상낚시 예약조회'를 엶
   const[rx,ry]=pt(170,258);const rb=el("g",{id:"rsvBtn",tabindex:0,role:"button","aria-label":"이 날짜·지역으로 선상낚시 예약조회 열기",transform:`translate(${rx} ${ry})`});
@@ -422,6 +428,7 @@ function draw(){
   el("path",{d:"M-12 6h24l-4 7h-16z",fill:"#14304b"},rb);el("path",{d:"M-1 5V-5l8 9z",fill:"#2f6fd6"},rb);el("path",{d:"M-2 5V-3l-6 8z",fill:"#7fa8e6"},rb);
   el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
   txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},rb);
+  sunTag(cb,"일출",d.sunrise||"-",true);sunTag(rb,"일몰",d.sunset||"-",false);
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
   // 8시 방향 라마르호 예상분석 버튼: 보던 날짜로 '라마르호 예상 조과 분석'을 엶
   const[lx,ly]=pt(8*60+30,252);const lb=el("g",{id:"lamarBtn",tabindex:0,role:"button","aria-label":"이 날짜로 라마르호 예상 조과 분석 열기",transform:`translate(${lx} ${ly})`});
