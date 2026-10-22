@@ -15,7 +15,10 @@ import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowInsets
+import android.Manifest
+import android.content.pm.PackageManager
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -39,6 +42,7 @@ class MainActivity : Activity() {
     private lateinit var web: WebView
     private lateinit var bar: ProgressBar
     private lateinit var errorView: LinearLayout
+    private var geoPending: Pair<String, GeolocationPermissions.Callback>? = null   // 위치 권한 묻는 중인 웹 요청
     private var splash: WebView? = null                 // 시작화면 (assets/splash.html)
     private val splashStart = System.currentTimeMillis()
     private var splashClosing = false
@@ -69,7 +73,16 @@ class MainActivity : Activity() {
             settings.setSupportMultipleWindows(false)      // 새 창 링크도 아래 규칙으로 처리
             settings.mediaPlaybackRequiresUserGesture = true
             webViewClient = Client()
+            @Suppress("DEPRECATION") settings.setGeolocationEnabled(true)
             webChromeClient = object : WebChromeClient() {
+                // 채비 계산기 'GPS 켜기' → 휴대폰 위치 권한을 묻고, 허용하면 웹 화면에 위치를 넘겨줌
+                override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) {
+                    if (hasLocation()) { callback.invoke(origin, true, false); return }
+                    geoPending = origin to callback
+                    requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION), REQ_LOCATION)
+                }
+
                 override fun onProgressChanged(view: WebView, newProgress: Int) {
                     bar.progress = newProgress
                     bar.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
@@ -263,6 +276,18 @@ class MainActivity : Activity() {
         if (web.canGoBack()) web.goBack() else super.onBackPressed()
     }
 
+    private fun hasLocation() =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQ_LOCATION) return
+        val (origin, cb) = geoPending ?: return
+        geoPending = null
+        cb.invoke(origin, hasLocation(), false)
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         web.saveState(outState)
@@ -275,6 +300,7 @@ class MainActivity : Activity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 
     companion object {
+        private const val REQ_LOCATION = 7
         /** 물때 시계 원 그림(#dial)이 Streamlit 화면 안 iframe에 그려졌는지 확인 */
         private const val READY_JS = """
 (function(){
