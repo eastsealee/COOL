@@ -2786,8 +2786,13 @@ day_set = set(days)
 
 
 def row_fish_ok(r):
-    """고른 어종'만' 하는 일정만 (어종 칸 기준, 어종 칸이 비었으면 공지로 판단)"""
-    return fish_only_match(r["species"] or r["notice"], fish_sel)
+    """고른 어종'만' 하는 일정만 (어종 칸 기준, 어종 칸이 비었으면 공지로 판단)
+    더피싱 어종 칸은 '백조기 외 3종'처럼 대표 어종만 있어 판단이 안 되므로,
+    '외 N종'이면 그날 공지에 적힌 어종(예: '쭈갑 출조합니다', '낚시종류 갑오징어')으로 판단"""
+    text = r["species"] or r["notice"]
+    if r["species"] and "?" in fish_set(r["species"]) and (fish_set(r["notice"]) - {"?"}):
+        text = r["notice"]
+    return fish_only_match(text, fish_sel)
 
 
 def name_ok(r):
