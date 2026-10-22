@@ -58,6 +58,7 @@ svg text{font-family:var(--sans)}
 .diag{display:block;width:100%;height:auto;margin-top:8px;border-radius:12px;background:#0a1824}
 .verdict{margin-top:10px;padding:10px 12px;border-radius:12px;font-size:13.5px;line-height:1.5;background:rgba(0,0,0,.22);border:1px solid var(--line)}
 .verdict b{font-weight:900}
+.verdict.hl b{color:#ffd84d}
 .verdict.good{border-color:rgba(127,224,166,.45)} .verdict.good b{color:var(--good)}
 .verdict.warn{border-color:rgba(255,200,87,.45)} .verdict.warn b{color:var(--warn)}
 .verdict.bad{border-color:rgba(255,91,91,.5)} .verdict.bad b{color:var(--bad)}
@@ -164,7 +165,7 @@ details .body b{color:var(--ink)}
       <div class="seg wide" id="relSeg">
         <button data-v="0">조류 따라</button><button data-v="45">비스듬히</button><button data-v="90">옆으로</button><button data-v="180">거슬러</button>
       </div>
-      <div class="verdict" style="color:var(--ink,#eef4fa)">바람이 없으면 보통 <b>'조류 따라'</b>. 바람에 밀려 옆으로 가면 <b>'옆으로'</b>, 엔진으로 버티며 조금씩 밀리면 <b>'거슬러'</b>.</div>
+      <div class="verdict hl" style="color:var(--ink,#eef4fa)">바람이 없으면 보통 <b>'조류 따라'</b>. 바람에 밀려 옆으로 가면 <b>'옆으로'</b>, 엔진으로 버티며 조금씩 밀리면 <b>'거슬러'</b>.</div>
     </div>
     <div class="row">
       <div class="lab"><span>수심</span></div>
