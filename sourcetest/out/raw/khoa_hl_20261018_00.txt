@@ -1,3 +1,11 @@
-200 https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService?serviceKey=***&type=json&pageNo=1&numOfRows=300&obsCode=DT_0025&reqDate=20261018
+503 https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService?serviceKey=***&type=json&pageNo=1&numOfRows=300&obsCode=DT_0025&reqDate=20261018
 
-{"header":{"resultCode":"00","resultMsg":"NORMAL_SERVICE"},"body":{"items":{"item":[{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-10-18 01:55","predcTdlvVl":285.0,"extrSe":"2"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-10-18 07:24","predcTdlvVl":510.0,"extrSe":"1"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-10-18 13:43","predcTdlvVl":219.0,"extrSe":"4"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-10-18 20:24","predcTdlvVl":566.0,"extrSe":"3"}]},"pageNo":1,"numOfRows":300,"totalCount":4,"type":"json"}}
+{
+  "OpenAPI_ServiceResponse": {
+    "cmmMsgHeader": {
+      "errMsg": "SERVICETIMEOUT_ERROR",
+      "returnAuthMsg": "서비스 연결실패 에러",
+      "returnReasonCode": "05"
+    }
+  }
+}
