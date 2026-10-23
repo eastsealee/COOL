@@ -1,13 +1,13 @@
-# 데이터 출처 비교 테스트 — 2026-10-23 09:00 KST
+# 데이터 출처 비교 테스트 — 2026-10-23 23:17 KST
 
 ## A. 물때(만조·간조) — 보령 조위관측소 실측 기준, 지난 14일
 | 예측 출처 | 시간 오차(평균) | 시간 오차(최대) | 높이 오차(평균) | 높이 치우침 | 비교 수 |
 |---|---|---|---|---|---|
-| 바다타임 보령(지금 앱) | 5분 | 20분 | 18cm | -15cm | 50 |
-| 해양조사원 조석예보 | 5분 | 20분 | 18cm | -15cm | 50 |
+| 바다타임 보령(지금 앱) | 6분 | 26분 | 17cm | -13cm | 54 |
+| 해양조사원 조석예보 | 6분 | 26분 | 17cm | -13cm | 54 |
 
 ※ 높이는 관측소 기준면이 서로 다를 수 있어 '치우침'이 크면 기준면 차이, 평균 오차에서 치우침을 뺀 값이 실제 정확도
-- 치우침 뺀 높이 오차: 바다타임 11cm · 해양조사원 11cm
+- 치우침 뺀 높이 오차: 바다타임 12cm · 해양조사원 12cm
 - 하루 평균 ▲▼ 변화량(조류세기 계산값) 차이: 평균 0cm (바다타임−해양조사원 +0cm, 14일)
 
 ### 남당항 — 바다타임(356) vs 해양조사원 TideBED(남당항 좌표) 예측 차이, 오늘부터 7일
@@ -40,18 +40,18 @@
 | GFS (윈드파인더 무료 예보) | 0.3 m/s | +0.3 m/s | 9° | 100% | 2 |
 
 - 기상청 단기예보 API는 매일 쌓은 예보로만 비교 가능 — 현재 쌓인 비교 2시간, 며칠 더 돌리면 늘어남
-- 참고: 기상청 단기예보에는 파고(WAV)도 있음 — 원산도 격자 10/23 09시 풍속 2.7m/s 풍향 82° 파고 0.5m
+- 참고: 기상청 단기예보에는 파고(WAV)도 있음 — 원산도 격자 10/24 00시 풍속 0.5m/s 풍향 270° 파고 0.5m
 
 ## C. 기상청 중기 해상예보 (3~10일 뒤) — 받아지는지만 확인
-서해중부 해상: regId=12A20000, wf4Am=맑음, wf4Pm=맑음, wf5Am=맑음, wf5Pm=맑음, wf6Am=맑음, wf6Pm=구름많음, wf7Am=흐리고 비, wf7Pm=구름많음, wf8=맑음, wf9=맑음, wf10=맑음, wh4AAm=1.0, wh4APm=1.0
+서해중부 해상: regId=12A20000, wf5Am=맑음, wf5Pm=맑음, wf6Am=맑음, wf6Pm=흐림, wf7Am=흐리고 비, wf7Pm=구름많음, wf8=맑음, wf9=맑음, wf10=맑음, wh5AAm=1.0, wh5APm=1.0, wh5BAm=2.5, wh5BPm=2.0
 
 ## 진행 기록
 - obs_20261009: https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService type → 144건, 필드 ['obsvtrNm', 'lat', 'lot', 'obsrvnDt', 'bscTdlvHgt', 'tdlvHgt'], 예: {'obsvtrNm': '보령', 'lat': 36.40638, 'lot': 126.48611, 'obsrvnDt': '2026-10-09 00:00', 'bscTdlvHgt': 521.0, 'tdlvHgt': 509.5}
 - hl_20261009: https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService type → 4건, 필드 ['obsvtrNm', 'lot', 'lat', 'predcDt', 'predcTdlvVl', 'extrSe'], 예: {'obsvtrNm': '보령', 'lot': 126.48611, 'lat': 36.40638, 'predcDt': '2026-10-09 02:23', 'predcTdlvVl': 697.0, 'extrSe': '1'}
-- 실측 1872점 → 만조·간조 50개 / 해양조사원 예보 54 / 바다타임 54
+- 실측 2016점 → 만조·간조 54개 / 해양조사원 예보 54 / 바다타임 54
 - bed_20261023: https://apis.data.go.kr/1192136/tidebed/GetTidebedApiService type → 144건, 필드 ['obsvtrNm', 'lot', 'lat', 'obsrvnDt', 'obsrvnHgt', 'm2TdlvAmp', 'm2TdlvTlag', 's2TdlvAmp', 's2TdlvTlag', 'k1TdlvAmp', 'k1TdlvTlag', 'o1TdlvAmp', 'o1TdlvTlag', 'slctdDt', 'slctdHgt', 'm2TconstAmp', 'm2TconstTlag', 's2TconstAmp', 's2TconstTlag', 'k1TconstAmp', 'k1TconstTlag', 'o1TconstAmp', 'o1TconstTlag', 'jogo', 'josi', 'msl'], 예: {'obsvtrNm': '방포항', 'lot': 126.3253, 'lat': 36.5022, 'obsrvnDt': '2026-10-23 00:00', 'obsrvnHgt': 502.41, 'm2TdlvAmp': 209.1, 'm2TdlvTlag': 96.4, 's2TdlvAmp': 83.3, 's2TdlvTlag': 148.6, 'k1TdlvAmp': 35.2, 'k1TdlvTlag': 286.8, 'o1TdlvAmp': 27.8, 'o1TdlvTlag': 248.7, 'slctdDt': '2026-10-22 23:59', 'slctdHgt': '554', 'm2TconstAmp': 234.912, 'm2TconstTlag': 95.444, 's2TconstAmp': 92.799, 's2TconstTlag': 150.222, 'k1TconstAmp': 36.138, 'k1TconstTlag': 286.947, 'o1TconstAmp': 26.29, 'o1TconstTlag': 248.877, 'jogo': '1.120762653898769', 'josi': '-1분', 'msl': 390.139}
 - 보령 ASOS 336시간 NORMAL_SERVICE
-- 단기예보 asos 격자 53,100 발표 10-23 08시 → 72시간 NORMAL_SERVICE
-- 단기예보 wonsando 격자 50,101 발표 10-23 08시 → 72시간 NORMAL_SERVICE
-- 단기예보 namdang 격자 51,104 발표 10-23 08시 → 72시간 NORMAL_SERVICE
+- 단기예보 asos 격자 53,100 발표 10-23 23시 → 81시간 NORMAL_SERVICE
+- 단기예보 wonsando 격자 50,101 발표 10-23 23시 → 81시간 NORMAL_SERVICE
+- 단기예보 namdang 격자 51,104 발표 10-23 23시 → 81시간 NORMAL_SERVICE
 - Open-Meteo 하루 전 예보: kma_gdps 0시간, kma_ldps 0시간, best_match 360시간, gfs_seamless 360시간
