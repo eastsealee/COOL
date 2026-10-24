@@ -227,6 +227,8 @@ body.inapp .bar{padding-top:12px}
 #mapBtn:active{transform:translateY(1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 0 0 #8e2222}
 #mapBtn svg{width:14px;height:14px}
 #mapBtn:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+#nmMap .leaflet-control-layers{font:700 12px 'Noto Sans KR',sans-serif;border-radius:10px}
+#nmMap .leaflet-control-layers-base label{margin:2px 0}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
@@ -814,10 +816,18 @@ let LPROM=null;
 function loadLeaflet(){if(window.L)return Promise.resolve();if(LPROM)return LPROM;
   return LPROM=new Promise((ok,bad)=>{const c=document.createElement("link");c.rel="stylesheet";c.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";document.head.appendChild(c);
     const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";sc.onload=ok;sc.onerror=bad;document.head.appendChild(sc)})}
+/* 바탕 지도: 브이월드(국토교통부) 키가 있으면 브이월드(섬 이름이 자세함), 없거나 안 되면 OpenStreetMap */
+function addBase(){const k=D&&D.vworld,osm=()=>L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"});
+  if(!k){osm().addTo(LMAP);return}
+  const vw=(lay,ext)=>L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${k}/${lay}/{z}/{y}/{x}.${ext}`,{minZoom:6,maxZoom:19,attribution:"© 국토교통부 브이월드"});
+  const base=vw("Base","png"),sat=L.layerGroup([vw("Satellite","jpeg"),vw("Hybrid","png")]);
+  let bad=0,ok=0,ctl=null;base.on("tileload",()=>ok++);base.on("tileerror",()=>{if(++bad>=4&&!ok){bad=-1e9;LMAP.removeLayer(base);if(ctl)LMAP.removeControl(ctl);osm().addTo(LMAP);toast("브이월드 지도를 못 불러와 기본 지도로 보여줍니다 (인증키·등록 주소 확인)",5000)}});
+  base.addTo(LMAP);ctl=L.control.layers({"일반 지도":base,"위성 + 이름":sat},null,{position:"topright",collapsed:false}).addTo(LMAP);
+  LMAP.setMinZoom(6)}
 let MAPMODE=null,MAPTK=0;
 function withMap(fn){loadLeaflet().then(()=>{
     if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(LMAP);LLAY=L.layerGroup().addTo(LMAP)}
+      addBase();LLAY=L.layerGroup().addTo(LMAP)}
     LLAY.clearLayers();fn()}).catch(()=>{document.getElementById("nmMap").innerHTML='<div style="padding:20px;color:#14304b">지도를 불러오지 못했습니다 (인터넷 연결 확인)</div>'})}
 const meIcon=()=>L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]});
 const pinIcon=big=>L.divIcon({className:"",html:`<div class="pin ${big?"big":"sm"}"><i></i></div>`,iconSize:[26,26],iconAnchor:[13,26]});
@@ -850,7 +860,7 @@ function showNearMap(la,lo,list){MAPMODE='near';NEAR={la,lo,list};const box=docu
   nmListUI();setHeight();
   loadLeaflet().then(()=>{
     if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(LMAP);LLAY=L.layerGroup().addTo(LMAP)}
+      addBase();LLAY=L.layerGroup().addTo(LMAP)}
     LLAY.clearLayers();
     L.marker([la,lo],{icon:L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]}),zIndexOffset:500}).addTo(LLAY).bindTooltip("내 위치",{direction:"bottom",offset:[0,8]});
     list.forEach((o,i)=>{const big=i===0;

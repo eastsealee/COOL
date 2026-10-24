@@ -128,7 +128,19 @@ try:
     cur_fc = tide_data.port_current(lat, lon, sorted(days)) if hasattr(tide_data, "port_current") else None
 except Exception:  # noqa: BLE001
     cur_fc = None
-data = {"cur": cur_fc, "bite": bite, "port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", "")), round(PORTS[k][1], 4), round(PORTS[k][2], 4)] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
+# 브이월드(국토교통부) 지도 인증키: Streamlit Secrets의 VWORLD_KEY, 없으면 data/vworld_key.txt (없으면 OpenStreetMap)
+def _vworld_key() -> str:
+    try:
+        k = str(st.secrets.get("VWORLD_KEY", "") or "").strip()
+    except Exception:  # noqa: BLE001  secrets 파일이 없을 때
+        k = ""
+    f = HERE / "data" / "vworld_key.txt"
+    if not k and f.exists():
+        k = f.read_text(encoding="utf-8").strip()
+    return k
+
+
+data = {"vworld": _vworld_key(), "cur": cur_fc, "bite": bite, "port": port.split(" (")[0], "portFull": port, "ports": [[k, *PORT_META.get(k, ("", "", "")), round(PORTS[k][1], 4), round(PORTS[k][2], 4)] for k in names], "today": today, "center": center_s, "days": days, "weather": weather}
 val = dial(data=data, key="dial", default=None)
 
 # 화면에서 범위 밖 날짜를 골랐으면 그 날짜를 기준으로 다시 불러옴
