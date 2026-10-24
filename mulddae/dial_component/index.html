@@ -221,12 +221,18 @@ body.inapp .bar{padding-top:12px}
 .pinLbl{background:#fff;color:#14304b;border:0;border-radius:6px;padding:2px 6px;font:800 12px 'Noto Sans KR',sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .pinLbl::before{display:none}
 .me{width:16px;height:16px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 6px rgba(26,115,232,.25)}
+#mapBtn{flex:none;display:flex;align-items:center;gap:3px;font-weight:800;font-size:12px;color:#fff;cursor:pointer;
+  border:1px solid #ff9a9a;border-radius:999px;padding:5px 9px 5px 7px;background:linear-gradient(180deg,#ff8a8a 0%,#ef4b4b 55%,#c93434 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 0 #8e2222,0 3px 6px rgba(0,0,0,.35);transform:translateY(-1px);text-shadow:0 1px 1px rgba(80,0,0,.6)}
+#mapBtn:active{transform:translateY(1px);box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 0 0 #8e2222}
+#mapBtn svg{width:14px;height:14px}
+#mapBtn:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
 <div class="app">
   <div class="loading" id="loading" hidden>물때 불러오는 중…</div>
-  <div class="bar"><div class="pl"><b id="portName"></b><button id="nearBtn" aria-label="내 위치에서 가장 가까운 항구 찾기" title="내 위치에서 가장 가까운 항구"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M12 1.8v4M12 18.2v4M1.8 12h4M18.2 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>내 근처</button><button id="portBtn" aria-haspopup="dialog">항구 선택 <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></div><label class="hq"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#ead9cf" stroke-width="2.4"/><path d="M15 15l6 6" stroke="#ead9cf" stroke-width="2.6" stroke-linecap="round"/></svg><input id="hdrQ" type="search" placeholder="항 이름으로 찾기" aria-label="항구 이름으로 찾기" autocomplete="off" enterkeyhint="search"></label></div>
+  <div class="bar"><div class="pl"><b id="portName"></b><button id="mapBtn" aria-label="고른 항구와 내 위치를 지도에서 보기"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6l6-2.5 6 2.5 6-2.5v14.5l-6 2.5-6-2.5-6 2.5z" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/><path d="M9 3.5v14.5M15 6v14.5" stroke="currentColor" stroke-width="1.6"/></svg>지도</button><button id="nearBtn" aria-label="내 위치에서 가장 가까운 항구 찾기" title="내 위치에서 가장 가까운 항구"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="6.2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M12 1.8v4M12 18.2v4M1.8 12h4M18.2 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>내 근처</button><button id="portBtn" aria-haspopup="dialog">항구 선택 <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M1.5 3.5 5 7l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button></div><label class="hq"><svg viewBox="0 0 24 24"><circle cx="10" cy="10" r="6.5" fill="none" stroke="#ead9cf" stroke-width="2.4"/><path d="M15 15l6 6" stroke="#ead9cf" stroke-width="2.6" stroke-linecap="round"/></svg><input id="hdrQ" type="search" placeholder="항 이름으로 찾기" aria-label="항구 이름으로 찾기" autocomplete="off" enterkeyhint="search"></label></div>
   <div id="nearMap" hidden>
     <div class="nmTop"><span id="nmTitle">내 근처 항구</span><button id="nmClose">지도 닫기 ✕</button></div>
     <div id="nmMap" role="img" aria-label="내 위치와 가까운 항구 지도"></div>
@@ -804,15 +810,46 @@ document.getElementById("nearBtn").onclick=()=>{const btn=document.getElementByI
 function pickPort(k){if(k===D.portFull)return;portsEl.hidden=true;calEl.hidden=true;loadEl.hidden=false;
   send("streamlit:setComponentValue",{value:{port:k,n:Date.now()},dataType:"json"})}
 let LMAP=null,LLAY=null,NEAR=null;
-function loadLeaflet(){if(window.L)return Promise.resolve();
-  return new Promise((ok,bad)=>{const c=document.createElement("link");c.rel="stylesheet";c.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";document.head.appendChild(c);
+let LPROM=null;
+function loadLeaflet(){if(window.L)return Promise.resolve();if(LPROM)return LPROM;
+  return LPROM=new Promise((ok,bad)=>{const c=document.createElement("link");c.rel="stylesheet";c.href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css";document.head.appendChild(c);
     const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js";sc.onload=ok;sc.onerror=bad;document.head.appendChild(sc)})}
-function showNearMap(la,lo,list){NEAR={la,lo,list};const box=document.getElementById("nearMap");box.hidden=false;
+let MAPMODE=null,MAPTK=0;
+function withMap(fn){loadLeaflet().then(()=>{
+    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(LMAP);LLAY=L.layerGroup().addTo(LMAP)}
+    LLAY.clearLayers();fn()}).catch(()=>{document.getElementById("nmMap").innerHTML='<div style="padding:20px;color:#14304b">지도를 불러오지 못했습니다 (인터넷 연결 확인)</div>'})}
+const meIcon=()=>L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]});
+const pinIcon=big=>L.divIcon({className:"",html:`<div class="pin ${big?"big":"sm"}"><i></i></div>`,iconSize:[26,26],iconAnchor:[13,26]});
+/* '지도' 버튼: 지금 고른 항구(빨간 핀) + GPS 내 위치(파란 점), 둘 사이 거리 */
+function showPortMap(){MAPMODE="port";NEAR=null;const box=document.getElementById("nearMap");box.hidden=false;document.getElementById("nmList").innerHTML="";
+  const me=(D.ports||[]).find(p=>p[0]===D.portFull),nm=esc(pname(D.portFull));
+  const title=document.getElementById("nmTitle");title.innerHTML=`<b>${nm}</b> 위치 · 내 위치 찾는 중…`;setHeight();
+  if(!me||me[4]==null){title.innerHTML=`${nm} — 위치 자료가 없습니다`;return}
+  const pp=[me[4],me[5]];
+  withMap(()=>{L.marker(pp,{icon:pinIcon(true),zIndexOffset:1000}).addTo(LLAY).bindTooltip(nm,{permanent:true,direction:"top",offset:[0,-24],className:"pinLbl"});
+    const tk=++MAPTK;setTimeout(()=>{if(tk!==MAPTK)return;LMAP.invalidateSize();LMAP.fitBounds([[33.0,124.6],[38.7,130.0]],{animate:false});setTimeout(()=>{if(tk===MAPTK)LMAP.flyTo(pp,11,{duration:1.6})},600)},60)});
+  if(!navigator.geolocation){title.innerHTML=`<b>${nm}</b> 위치 · 이 기기는 내 위치를 지원하지 않습니다`;return}
+  const want=D.portFull;
+  navigator.geolocation.getCurrentPosition(pos=>{if(MAPMODE!=="port"||D.portFull!==want)return;
+    const la=pos.coords.latitude,lo=pos.coords.longitude,r=Math.PI/180,km=6371*Math.hypot((pp[1]-lo)*r*Math.cos((pp[0]+la)/2*r),(pp[0]-la)*r);
+    const kmS=km<10?km.toFixed(1):Math.round(km);
+    title.innerHTML=`<b>${nm}</b> · 내 위치에서 <b style="color:#4cc3e6">${kmS}km</b>`;
+    withMap(()=>{L.marker(pp,{icon:pinIcon(true),zIndexOffset:1000}).addTo(LLAY).bindTooltip(`${nm} ${kmS}km`,{permanent:true,direction:"top",offset:[0,-24],className:"pinLbl"});
+      L.marker([la,lo],{icon:meIcon(),zIndexOffset:500}).addTo(LLAY).bindTooltip("내 위치",{permanent:true,direction:"bottom",offset:[0,10],className:"pinLbl"});
+      L.circle([la,lo],{radius:Math.min(pos.coords.accuracy||30,2000),color:"#1a73e8",weight:1,fillOpacity:.12}).addTo(LLAY);
+      L.polyline([[la,lo],pp],{color:"#ff3b3b",weight:2.5,dashArray:"6 6"}).addTo(LLAY);
+      const tk=++MAPTK;LMAP.stop();LMAP.invalidateSize();setTimeout(()=>{if(tk===MAPTK){LMAP.stop();LMAP.flyToBounds([[la,lo],pp],{padding:[44,44],maxZoom:14,duration:1.4})}},80)})},
+  e=>{if(MAPMODE!=="port")return;title.innerHTML=`<b>${nm}</b> 위치 · `+(e.code===1?"위치 권한이 꺼져 있어 내 위치는 못 보여줍니다":"내 위치를 잡지 못했습니다")},
+  {enableHighAccuracy:true,timeout:15000,maximumAge:30000})}
+document.getElementById("mapBtn").onclick=()=>{const box=document.getElementById("nearMap");
+  if(!box.hidden&&MAPMODE==="port"){box.hidden=true;MAPMODE=null;setHeight();return}portsEl.hidden=true;calEl.hidden=true;showPortMap()};
+function showNearMap(la,lo,list){MAPMODE='near';NEAR={la,lo,list};const box=document.getElementById("nearMap");box.hidden=false;
   const b=list[0],kmS=k=>k<10?k.toFixed(1):Math.round(k);
   document.getElementById("nmTitle").innerHTML=`가장 가까운 항구 <b>${esc(pname(b.p[0]))}</b> · ${kmS(b.km)}km`;
   nmListUI();setHeight();
   loadLeaflet().then(()=>{
-    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true});
+    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
       L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:18,attribution:"© OpenStreetMap"}).addTo(LMAP);LLAY=L.layerGroup().addTo(LMAP)}
     LLAY.clearLayers();
     L.marker([la,lo],{icon:L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]}),zIndexOffset:500}).addTo(LLAY).bindTooltip("내 위치",{direction:"bottom",offset:[0,8]});
@@ -823,13 +860,13 @@ function showNearMap(la,lo,list){NEAR={la,lo,list};const box=document.getElement
     L.polyline([[la,lo],[b.p[4],b.p[5]]],{color:"#ff3b3b",weight:2.5,dashArray:"6 6"}).addTo(LLAY);
     const pts=[[la,lo],...list.slice(0,3).map(o=>[o.p[4],o.p[5]])];
     // 먼저 한국 전체를 보여주고, 내 위치·가까운 항구로 날아가듯 확대
-    setTimeout(()=>{LMAP.invalidateSize();LMAP.fitBounds([[33.0,124.6],[38.7,130.0]],{animate:false});
-      setTimeout(()=>LMAP.flyToBounds(pts,{padding:[36,36],maxZoom:13,duration:1.8}),700)},60);
+    const tk=++MAPTK;LMAP.stop();setTimeout(()=>{if(tk!==MAPTK)return;LMAP.invalidateSize();LMAP.fitBounds([[33.0,124.6],[38.7,130.0]],{animate:false});
+      setTimeout(()=>{if(tk===MAPTK)LMAP.flyToBounds(pts,{padding:[36,36],maxZoom:13,duration:1.8})},700)},60);
   }).catch(()=>{document.getElementById("nmMap").innerHTML='<div style="padding:20px;color:#14304b">지도를 불러오지 못했습니다 (인터넷 연결 확인)</div>'})}
 function nmListUI(){if(!NEAR)return;const kmS=k=>k<10?k.toFixed(1):Math.round(k);const el_=document.getElementById("nmList");
   el_.innerHTML=NEAR.list.map(o=>`<button data-p="${esc(o.p[0])}" class="${o.p[0]===D.portFull?"on":""}">${esc(pname(o.p[0]))}<small>${kmS(o.km)}km</small></button>`).join("");
   el_.querySelectorAll("button").forEach(b=>b.onclick=()=>pickPort(b.dataset.p))}
-document.getElementById("nmClose").onclick=()=>{document.getElementById("nearMap").hidden=true;setHeight()};
+document.getElementById("nmClose").onclick=()=>{document.getElementById("nearMap").hidden=true;MAPMODE=null;setHeight()};
 function openPorts(){const me=(D.ports||[]).find(p=>p[0]===D.portFull);if(me){pArea=me[1];pSg=me[2]+"|"+me[3]}}
 const placePorts=()=>{portsEl.style.top=(document.querySelector(".bar").offsetHeight+6)+"px"};
 document.getElementById("portBtn").onclick=()=>{placePorts();if(portsEl.hidden){calEl.hidden=true;portQ.value="";openPorts();buildPorts();portsEl.hidden=false;portQ.focus()}else portsEl.hidden=true};
@@ -846,7 +883,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")portsEl.hidden=true}
 window.addEventListener("message",e=>{const m=e.data;if(!m||m.type!=="streamlit:render")return;
   loadEl.hidden=true;loadEl.textContent="물때 불러오는 중…";const nd=m.args&&m.args.data;
   if(!nd||!nd.days||!Object.keys(nd.days).length){document.querySelector(".app").innerHTML='<div style="padding:24px">물때 자료를 불러오지 못했습니다.</div>';setHeight();return}
-  setData(nd);render();try{nmListUI()}catch(e){}setHeight()});
+  setData(nd);render();try{nmListUI();if(MAPMODE==="port"&&!document.getElementById("nearMap").hidden)showPortMap()}catch(e){}setHeight()});
 new ResizeObserver(setHeight).observe(document.body);
 send("streamlit:componentReady",{apiVersion:1});
 })();
