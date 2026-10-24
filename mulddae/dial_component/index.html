@@ -220,6 +220,7 @@ body.inapp .bar{padding-top:12px}
 @keyframes pinPulse{0%{transform:scale(.5);opacity:1}100%{transform:scale(2.6);opacity:0}}
 .pinLbl{background:#fff;color:#14304b;border:0;border-radius:6px;padding:2px 6px;font:800 12px 'Noto Sans KR',sans-serif;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .pinLbl::before{display:none}
+.ringLbl{color:#0b5f7f;font:900 11px 'Noto Sans KR',sans-serif;text-align:center;text-shadow:0 0 3px #fff,0 0 3px #fff}
 .me{width:16px;height:16px;border-radius:50%;background:#1a73e8;border:3px solid #fff;box-shadow:0 0 0 6px rgba(26,115,232,.25)}
 #mapBtn{flex:none;display:flex;align-items:center;gap:3px;font-weight:800;font-size:12px;color:#fff;cursor:pointer;
   border:1px solid #ff9a9a;border-radius:999px;padding:5px 9px 5px 7px;background:linear-gradient(180deg,#ff8a8a 0%,#ef4b4b 55%,#c93434 100%);
@@ -799,7 +800,8 @@ document.getElementById("nearBtn").onclick=()=>{const btn=document.getElementByI
     near.sort((a,b)=>a.km-b.km);const best=near[0];
     if(!best){toast("항구 위치 자료가 없습니다");return}
     const km=best.km<10?best.km.toFixed(1):Math.round(best.km);
-    showNearMap(la,lo,near.slice(0,6));
+    // 10km 안 항구 전부(최대 40곳), 없으면 가장 가까운 곳까지 보여줌
+    const in10=near.filter(o=>o.km<=10).slice(0,40);showNearMap(la,lo,in10.length?in10:near.slice(0,1));
     if(best.p[0]===D.portFull){toast(`지금 보고 있는 <b>${esc(pname(best.p[0]))}</b>이 가장 가깝습니다 (${km}km)`);return}
     toast(`가장 가까운 항구: <b>${esc(pname(best.p[0]))}</b> (${km}km) — 불러오는 중…`,4000);
     pickPort(best.p[0])},
@@ -826,7 +828,7 @@ function addBase(){const k=D&&D.vworld,osm=()=>L.tileLayer("https://tile.openstr
   LMAP.setMinZoom(6)}
 let MAPMODE=null,MAPTK=0;
 function withMap(fn){loadLeaflet().then(()=>{
-    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
+    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true,zoomSnap:0.25,zoomDelta:0.5}).setView([36.0,127.8],6);
       addBase();LLAY=L.layerGroup().addTo(LMAP)}
     LLAY.clearLayers();fn()}).catch(()=>{document.getElementById("nmMap").innerHTML='<div style="padding:20px;color:#14304b">지도를 불러오지 못했습니다 (인터넷 연결 확인)</div>'})}
 const meIcon=()=>L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]});
@@ -856,10 +858,10 @@ document.getElementById("mapBtn").onclick=()=>{const box=document.getElementById
   if(!box.hidden&&MAPMODE==="port"){box.hidden=true;MAPMODE=null;setHeight();return}portsEl.hidden=true;calEl.hidden=true;showPortMap()};
 function showNearMap(la,lo,list){MAPMODE='near';NEAR={la,lo,list};const box=document.getElementById("nearMap");box.hidden=false;
   const b=list[0],kmS=k=>k<10?k.toFixed(1):Math.round(k);
-  document.getElementById("nmTitle").innerHTML=`가장 가까운 항구 <b>${esc(pname(b.p[0]))}</b> · ${kmS(b.km)}km`;
+  document.getElementById("nmTitle").innerHTML=`가장 가까운 <b>${esc(pname(b.p[0]))}</b> ${kmS(b.km)}km · 10km 안 항구 ${list.filter(o=>o.km<=10).length}곳`;
   nmListUI();setHeight();
   loadLeaflet().then(()=>{
-    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true}).setView([36.0,127.8],6);
+    if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true,zoomSnap:0.25,zoomDelta:0.5}).setView([36.0,127.8],6);
       addBase();LLAY=L.layerGroup().addTo(LMAP)}
     LLAY.clearLayers();
     L.marker([la,lo],{icon:L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]}),zIndexOffset:500}).addTo(LLAY).bindTooltip("내 위치",{direction:"bottom",offset:[0,8]});
@@ -868,10 +870,13 @@ function showNearMap(la,lo,list){MAPMODE='near';NEAR={la,lo,list};const box=docu
       m.bindTooltip(`${esc(pname(o.p[0]))} ${kmS(o.km)}km`,{permanent:big,direction:"top",offset:[0,-24],className:"pinLbl"});
       m.on("click",()=>pickPort(o.p[0]))});
     L.polyline([[la,lo],[b.p[4],b.p[5]]],{color:"#ff3b3b",weight:2.5,dashArray:"6 6"}).addTo(LLAY);
-    const pts=[[la,lo],...list.slice(0,3).map(o=>[o.p[4],o.p[5]])];
+    // 내 위치 중심 반경 10km 원 + 화면도 그 원이 꽉 차게 (가장 가까운 항구가 10km 밖이면 그 항구까지 보이게)
+    const ring=L.circle([la,lo],{radius:10000,color:"#4cc3e6",weight:2,dashArray:"8 6",fill:true,fillColor:"#4cc3e6",fillOpacity:.06,interactive:false}).addTo(LLAY);
+    L.marker([la+10000/111320,lo],{icon:L.divIcon({className:"",html:'<div class="ringLbl">10km</div>',iconSize:[40,16],iconAnchor:[20,8]}),interactive:false}).addTo(LLAY);
+    const rb=ring.getBounds();const pts=b.km>10?[rb.getSouthWest(),rb.getNorthEast(),[b.p[4],b.p[5]]]:[rb.getSouthWest(),rb.getNorthEast()];
     // 먼저 한국 전체를 보여주고, 내 위치·가까운 항구로 날아가듯 확대
     const tk=++MAPTK;LMAP.stop();setTimeout(()=>{if(tk!==MAPTK)return;LMAP.invalidateSize();LMAP.fitBounds([[33.0,124.6],[38.7,130.0]],{animate:false});
-      setTimeout(()=>{if(tk===MAPTK)LMAP.flyToBounds(pts,{padding:[36,36],maxZoom:13,duration:1.8})},700)},60);
+      setTimeout(()=>{if(tk===MAPTK)LMAP.flyToBounds(pts,{padding:[14,14],maxZoom:14,duration:1.8})},700)},60);
   }).catch(()=>{document.getElementById("nmMap").innerHTML='<div style="padding:20px;color:#14304b">지도를 불러오지 못했습니다 (인터넷 연결 확인)</div>'})}
 function nmListUI(){if(!NEAR)return;const kmS=k=>k<10?k.toFixed(1):Math.round(k);const el_=document.getElementById("nmList");
   el_.innerHTML=NEAR.list.map(o=>`<button data-p="${esc(o.p[0])}" class="${o.p[0]===D.portFull?"on":""}">${esc(pname(o.p[0]))}<small>${kmS(o.km)}km</small></button>`).join("");
