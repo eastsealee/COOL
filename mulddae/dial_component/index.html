@@ -18,6 +18,7 @@
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 html,body{margin:0;background:var(--bg)}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}   /* 안드로이드 크롬 글자 자동 키움 끄기: 높이가 바뀔 때마다 글자가 커졌다 작아져 화면이 들썩이던 원인 */
 body{font-family:var(--sans);color:var(--ink);padding:4px 4px 12px;-webkit-font-smoothing:antialiased}
 button,input,select{font-family:var(--sans)}
 .app{container-type:inline-size;position:relative;max-width:420px;margin:0 auto;background:var(--app);border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 18px 50px rgba(0,0,0,.5)}
@@ -205,7 +206,7 @@ body.inapp .bar{padding-top:12px}
 .nmTop{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;font-weight:800}
 .nmTop b{color:#ff5a5a}
 #nmClose{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 12px;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
-#nmMap{height:min(78vw,380px);border-radius:12px;overflow:hidden;border:1px solid var(--line2);background:#cfe3ee}
+#nmMap{touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;height:min(78vw,380px);border-radius:12px;overflow:hidden;border:1px solid var(--line2);background:#cfe3ee}
 #nmMap .leaflet-control-attribution{font-size:9px}
 .nmList{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .nmList button{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 10px;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
@@ -760,7 +761,8 @@ document.getElementById("rigBtn").onclick=()=>{loadEl.hidden=false;loadEl.textCo
 /* ---------- Streamlit 연결: 범위 밖 날짜를 고르면 서버에 요청 → 새 자료로 다시 그림 ---------- */
 const loadEl=document.getElementById("loading");
 function send(type,data){window.parent.postMessage(Object.assign({isStreamlitMessage:true,type},data||{}),"*")}
-function setHeight(){send("streamlit:setFrameHeight",{height:Math.ceil(document.documentElement.getBoundingClientRect().height)+4})}
+let LASTH=0;   // 높이가 실제로 바뀔 때만 알림 (같은 값을 계속 보내 화면이 들썩이지 않게)
+function setHeight(){const h=Math.ceil(document.documentElement.getBoundingClientRect().height)+4;if(Math.abs(h-LASTH)<2)return;LASTH=h;send("streamlit:setFrameHeight",{height:h})}
 function requestDate(k){loadEl.hidden=false;send("streamlit:setComponentValue",{value:{date:k,n:Date.now()},dataType:"json"})}
 /* 항구 선택: 이름 옆 버튼 → 지역별 목록·검색 → 고르면 서버가 그 항구 물때를 불러옴 (날짜는 그대로) */
 const portsEl=document.getElementById("ports"),portQ=document.getElementById("portQ");
@@ -836,7 +838,9 @@ function addBase(){const k=D&&D.vworld,osm=()=>L.tileLayer("https://tile.openstr
 /* 섬 이름표: islands.json(OpenStreetMap 섬·무인도 이름)을 받아, 화면에 보이는 섬에만 이름표를 붙임
    확대 10 이상 = 이름 있는 섬, 11.5 이상 = 작은 섬·무인도까지. 글자가 겹치면 뒤엣것은 뺌 */
 let ISL=null,ISLAY=null,ISLON=true;window.__map=()=>LMAP;   // 확인용
-function setupIslands(){ISLAY=L.layerGroup().addTo(LMAP);
+function lockTouch(el){["touchstart","touchmove"].forEach(t=>el.addEventListener(t,e=>{if(t==="touchmove"||e.touches.length>1)e.preventDefault()},{passive:false}));
+  el.addEventListener("wheel",e=>e.preventDefault(),{passive:false})}
+function setupIslands(){ISLAY=L.layerGroup().addTo(LMAP);lockTouch(document.getElementById("nmMap"));
   fetch("islands.json").then(r=>r.ok?r.json():[]).then(a=>{ISL=a||[];drawIslands()}).catch(()=>{ISL=[]});
   LMAP.on("moveend zoomend",drawIslands);
   const C=L.Control.extend({options:{position:"bottomleft"},onAdd:()=>{const b=L.DomUtil.create("button","islBtn");b.type="button";
@@ -854,7 +858,7 @@ function drawIslands(){if(!ISLAY)return;ISLAY.clearLayers();if(!ISLON||!ISL||!IS
     if(rects.some(q=>r[0]<q[2]&&q[0]<r[2]&&r[1]<q[3]&&q[1]<r[3]))continue;rects.push(r);n++;
     L.marker([i[1],i[2]],{interactive:false,keyboard:false,icon:L.divIcon({className:"",iconSize:[0,0],
       html:`<div class="isl${i[3]===2?" sm":""}"><i></i>${esc(i[0])}</div>`})}).addTo(ISLAY)}}
-let MAPMODE=null,MAPTK=0;
+let MAPMODE=null,MAPTK=0,MAPPORT=null;
 function withMap(fn){loadLeaflet().then(()=>{
     if(!LMAP){LMAP=L.map("nmMap",{zoomControl:true,attributionControl:true,tap:true,zoomSnap:0.25,zoomDelta:0.5}).setView([36.0,127.8],6);
       addBase();setupIslands();LLAY=L.layerGroup().addTo(LMAP)}
@@ -862,7 +866,7 @@ function withMap(fn){loadLeaflet().then(()=>{
 const meIcon=()=>L.divIcon({className:"",html:'<div class="me"></div>',iconSize:[16,16],iconAnchor:[8,8]});
 const pinIcon=big=>L.divIcon({className:"",html:`<div class="pin ${big?"big":"sm"}"><i></i></div>`,iconSize:[26,26],iconAnchor:[13,26]});
 /* '지도' 버튼: 지금 고른 항구(빨간 핀) + GPS 내 위치(파란 점), 둘 사이 거리 */
-function showPortMap(){MAPMODE="port";NEAR=null;const box=document.getElementById("nearMap");box.hidden=false;document.getElementById("nmList").innerHTML="";
+function showPortMap(){MAPMODE="port";MAPPORT=D.portFull;NEAR=null;const box=document.getElementById("nearMap");box.hidden=false;document.getElementById("nmList").innerHTML="";
   const me=(D.ports||[]).find(p=>p[0]===D.portFull),nm=esc(pname(D.portFull));
   const title=document.getElementById("nmTitle");title.innerHTML=`<b>${nm}</b> 위치 · 내 위치 찾는 중…`;setHeight();
   if(!me||me[4]==null){title.innerHTML=`${nm} — 위치 자료가 없습니다`;return}
@@ -926,7 +930,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")portsEl.hidden=true}
 window.addEventListener("message",e=>{const m=e.data;if(!m||m.type!=="streamlit:render")return;
   loadEl.hidden=true;loadEl.textContent="물때 불러오는 중…";const nd=m.args&&m.args.data;
   if(!nd||!nd.days||!Object.keys(nd.days).length){document.querySelector(".app").innerHTML='<div style="padding:24px">물때 자료를 불러오지 못했습니다.</div>';setHeight();return}
-  setData(nd);render();try{nmListUI();if(MAPMODE==="port"&&!document.getElementById("nearMap").hidden)showPortMap()}catch(e){}setHeight()});
+  setData(nd);render();try{nmListUI();if(MAPMODE==="port"&&MAPPORT!==D.portFull&&!document.getElementById("nearMap").hidden)showPortMap()}catch(e){}setHeight()});
 new ResizeObserver(setHeight).observe(document.body);
 send("streamlit:componentReady",{apiVersion:1});
 })();
