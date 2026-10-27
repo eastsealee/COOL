@@ -478,7 +478,9 @@ function draw(){
   el("path",{d:"M-12 6h24l-4 7h-16z",fill:"#14304b"},rb);el("path",{d:"M-1 5V-5l8 9z",fill:"#2f6fd6"},rb);el("path",{d:"M-2 5V-3l-6 8z",fill:"#7fa8e6"},rb);
   el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
   txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},rb);
-  sunTag(cb,"일출",d.sunrise||"-",true);sunTag(rb,"일몰",d.sunset||"-",false);
+  sunTag(cb,"일출",d.sunrise||"-",true);
+  // 예약조회·예상분석·조류 레이더 아이콘은 시계 위 탭으로 옮겨 원 둘레에서는 숨김 (일몰 시각은 그 자리에 그대로)
+  const sg=el("g",{transform:`translate(${rx} ${ry})`});sunTag(sg,"일몰",d.sunset||"-",false);rb.setAttribute("display","none");
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
   // 8시 방향 라마르호 예상분석 버튼: 보던 날짜로 '라마르호 예상 조과 분석'을 엶
   const[lx,ly]=pt(8*60+30,252);const lb=el("g",{id:"lamarBtn",tabindex:0,role:"button","aria-label":"이 날짜로 라마르호 예상 조과 분석 열기",transform:`translate(${lx} ${ly})`});
@@ -489,6 +491,7 @@ function draw(){
   el("line",{x1:-16,y1:17.5,x2:16,y2:17.5,stroke:"#14304b","stroke-width":1.2},lb);
   txt(0,32,"예상분석",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},lb);
   const goLamar=()=>{loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+  lb.setAttribute("display","none");
   lb.addEventListener("click",goLamar);lb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goLamar()}});
   // 14시 방향 조류 레이더: 파란 화살표 = 고른 시각의 예보 조류 방향(항구 근처 해양조사원 예보점),
   // 누르면 GPS를 켜서 노란 화살표 = 배 진행 방향, 그 사이 각도 표시 (채비 계산기 레이더와 같은 모양)
@@ -507,6 +510,7 @@ function draw(){
   txt(0,-RR-4,"북",{"font-size":7.5,"font-weight":900,fill:"#ff6b6b"},gb);
   el("g",{id:"radarDyn"},gb);
   el("text",{id:"radarLbl",x:0,y:RR+13,"text-anchor":"middle","font-size":9.5,"font-weight":800,fill:"#a3b6c8"},gb);
+  gb.setAttribute("display","none");
   gb.addEventListener("click",openRadar);gb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();openRadar()}});
   rb.addEventListener("click",goRsv);rb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();goRsv()}});cb.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}});
 }
