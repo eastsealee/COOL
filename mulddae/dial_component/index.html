@@ -168,14 +168,14 @@ body.inapp .app{max-width:none;border:0;border-radius:0;box-shadow:none}
 body.inapp .bar{padding-top:12px}
 #radarView{padding:6px 6px 4px}
 .rvTop{display:flex;justify-content:space-between;gap:8px;align-items:center}
-#rvBack{border:2px solid #bff1ff;border-radius:999px;padding:8px 16px;font:800 14px inherit;font-family:inherit;color:#fff;cursor:pointer;
+#rvBack{border:2px solid #bff1ff;border-radius:999px;padding:8px 16px;font-weight:800;font-size:14px;font-family:inherit;color:#fff;cursor:pointer;
   background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%);background-size:250% 100%;
   text-shadow:0 1px 3px rgba(0,40,60,.8);animation:rvShine 2.2s linear infinite,rvRing 1.6s ease-out infinite}
 @keyframes rvShine{0%{background-position:100% 0}100%{background-position:-150% 0}}
 @keyframes rvRing{0%{box-shadow:0 0 0 0 rgba(76,195,230,.7)}100%{box-shadow:0 0 0 12px rgba(76,195,230,0)}}
 /* GPS 버튼: 켜짐 = 입체 녹색(위 하이라이트·아래 그림자·깜빡이는 불빛), 꺼짐 = 회색 */
 #rvGps{display:inline-flex;align-items:center;gap:7px;border:1px solid #1d7a43;border-radius:999px;padding:8px 15px 9px;cursor:pointer;
-  font:900 13.5px inherit;font-family:inherit;color:#fff;letter-spacing:.02em;text-shadow:0 1px 1px rgba(0,50,20,.7);
+  font-weight:900;font-size:13.5px;font-family:inherit;color:#fff;letter-spacing:.02em;text-shadow:0 1px 1px rgba(0,50,20,.7);
   background:linear-gradient(180deg,#7ef0a8 0%,#33c46c 45%,#1e9a4f 55%,#17803f 100%);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.75),inset 0 -2px 3px rgba(0,60,25,.45),0 4px 0 #0e5c2c,0 6px 10px rgba(0,0,0,.45),0 0 14px rgba(70,230,130,.35);
   transform:translateY(-2px);transition:transform .08s,box-shadow .08s}
@@ -205,11 +205,11 @@ body.inapp .bar{padding-top:12px}
 #nearMap{padding:10px 12px 12px;background:#0b1722;border-bottom:1px solid var(--line)}
 .nmTop{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px;font-size:14px;font-weight:800}
 .nmTop b{color:#ff5a5a}
-#nmClose{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 12px;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
+#nmClose{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 12px;font-weight:700;font-size:12.5px;font-family:inherit;cursor:pointer}
 #nmMap{touch-action:none;overscroll-behavior:contain;-webkit-user-select:none;user-select:none;height:min(78vw,380px);border-radius:12px;overflow:hidden;border:1px solid var(--line2);background:#cfe3ee}
 #nmMap .leaflet-control-attribution{font-size:9px}
 .nmList{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
-.nmList button{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 10px;font:700 12.5px inherit;font-family:inherit;cursor:pointer}
+.nmList button{border:1px solid var(--line2);background:var(--panel2);color:var(--ink);border-radius:999px;padding:5px 10px;font-weight:700;font-size:12.5px;font-family:inherit;cursor:pointer}
 .nmList button small{color:var(--sub);font-weight:500;margin-left:3px}
 .nmList button.on{background:#ff5a5a;border-color:#ff8a8a;color:#fff}
 .nmList button.on small{color:#ffe1e1}
@@ -238,6 +238,11 @@ body.inapp .bar{padding-top:12px}
 .isl.sm i{background:#7a8a96;width:4px;height:4px}
 .islBtn{border:1px solid #0a7a5a;border-radius:999px;padding:4px 10px;background:#e9fff6;color:#0a5a42;font:800 11.5px 'Noto Sans KR',sans-serif;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.3)}
 .islBtn.off{background:#f1f3f5;color:#6b7885;border-color:#9aa6b2}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 8px 4px;padding:4px;border-radius:14px;background:#0a1520;border:1px solid var(--line)}
+.tabs button{border:0;border-radius:10px;padding:9px 2px;font-weight:800;font-size:13.5px;font-family:inherit;color:#a3b6c8;background:transparent;cursor:pointer;white-space:nowrap}
+.tabs button.on{color:#06202b;background:linear-gradient(180deg,#9eeefc,#4cc3e6 60%,#2a9fc4);box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 0 #17708f}
+.tabs button:not(.on):active{background:#13283a}
+.tabs button:focus-visible{outline:2px solid var(--sea);outline-offset:1px}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
@@ -281,6 +286,9 @@ body.inapp .bar{padding-top:12px}
   </div>
   <div class="navinfo" id="navinfo"></div>
 
+  <div class="tabs" role="tablist" aria-label="화면 바꾸기">
+    <button id="tbMul" class="on" role="tab">물때</button><button id="tbCur" role="tab">조류분석</button><button id="tbBite" role="tab">예상분석</button><button id="tbRsv" role="tab">예약조회</button>
+  </div>
   <div class="dialwrap">
     <svg id="dial" viewBox="-48 -46 496 492" role="img" aria-label="24시간 물때 시계"></svg>
     <div class="cal" id="cal" hidden></div>
@@ -533,9 +541,9 @@ function startRG(){if(RG.on)return;if(!navigator.geolocation){RG.err="이 기기
     e=>{RG.err=e.code===1?(/MulddaeApp/.test(navigator.userAgent)?"위치 권한이 꺼져 있습니다. 휴대폰 설정 → 애플리케이션 → 쭈갑과물때 → 권한 → 위치 → '앱 사용 중에만 허용'":"위치 권한이 꺼져 있습니다. 주소창 왼쪽 자물쇠 → 위치 허용"):"위치를 잡지 못했습니다";updateRadar()},
     {enableHighAccuracy:true,maximumAge:0,timeout:20000});updateRadar()}
 function stopRG(){if(RG.id!=null)navigator.geolocation.clearWatch(RG.id);Object.assign(RG,{on:false,id:null,buf:[],cv:null,cog:null,sog:null,err:"",fix:null});updateRadar()}
-function openRadar(){RVOPEN=true;document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
+function openRadar(){RVOPEN=true;tabOn("tbCur");document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
   document.getElementById("radarView").hidden=false;startRG();updateRadar();setHeight();setTimeout(setHeight,150)}
-function closeRadar(){RVOPEN=false;stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";
+function closeRadar(){RVOPEN=false;tabOn("tbMul");stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";
   // 원래 화면을 처음처럼 다시 그리고(카드·수치·원·입질 확률), 높이를 몇 번 다시 맞춘 뒤 화면 맨 위로
   try{render()}catch(e){}
   setHeight();requestAnimationFrame(setHeight);setTimeout(setHeight,150);setTimeout(setHeight,500);
@@ -615,6 +623,13 @@ function updateRadar(){const g=document.getElementById("radarDyn"),lb=document.g
   else t=D&&D.cur?"조류 예보 없음":"조류 레이더";
   lb.textContent=t;lb.setAttribute("fill",diff!=null?"#ff9d4d":c?"#8fd8ef":"#a3b6c8");drawBig();
 }
+
+/* 시계 위 탭: 물때(시계) · 조류분석(조류 레이더) · 예상분석(라마르호 예상 조과) · 예약조회(선상낚시 예약조회) */
+function tabOn(id){["tbMul","tbCur","tbBite","tbRsv"].forEach(k=>document.getElementById(k).classList.toggle("on",k===id))}
+document.getElementById("tbMul").onclick=()=>{if(RVOPEN)closeRadar();tabOn("tbMul")};
+document.getElementById("tbCur").onclick=()=>{if(!RVOPEN)openRadar();tabOn("tbCur")};
+document.getElementById("tbBite").onclick=()=>{tabOn("tbBite");loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+document.getElementById("tbRsv").onclick=()=>{tabOn("tbRsv");loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
 function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
 function select(h){selH=h;if(typeof biteMark==="function")biteMark(h);updateRadar();
   sel.setAttribute("d",arc(h*60,h*60+60,80,198));const w=W?W[h]:null;
