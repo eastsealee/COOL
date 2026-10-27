@@ -1,0 +1,27 @@
+name: 수온 비교 (Open-Meteo vs 해양조사원 실측)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python sourcetest/sst_compare.py out
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      - name: 결과를 probe-log 브랜치에 저장
+        if: always()
+        run: |
+          cd out && git init -q && git config user.name sst-bot && git config user.email sst-bot@users.noreply.github.com
+          git checkout -q -b probe-log && git add -A && git commit -q -m "수온 비교 $(TZ=Asia/Seoul date '+%F %H:%M')" || true
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" probe-log
