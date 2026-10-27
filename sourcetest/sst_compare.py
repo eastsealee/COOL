@@ -40,9 +40,19 @@ def obs(code, day):
 
 
 def model(lat, lon, start, end):
+    for k in range(5):
+        try:
+            return _model(lat, lon, start, end)
+        except Exception as e:  # noqa: BLE001
+            log.append(f"Open-Meteo {lat},{lon} 재시도 {k + 1}: {e.__class__.__name__}")
+            time.sleep(5 * (k + 1))
+    return {}, None, None
+
+
+def _model(lat, lon, start, end):
     r = requests.get("https://marine-api.open-meteo.com/v1/marine", params={
         "latitude": lat, "longitude": lon, "hourly": "sea_surface_temperature", "timezone": "Asia/Seoul",
-        "start_date": start, "end_date": end}, timeout=30).json()
+        "start_date": start, "end_date": end}, timeout=60).json()
     h = r.get("hourly", {})
     return {t.replace("T", " "): v for t, v in zip(h.get("time", []), h.get("sea_surface_temperature", []))}, r.get("latitude"), r.get("longitude")
 
