@@ -47,46 +47,60 @@ def model(lat, lon, start, end):
     return {t.replace("T", " "): v for t, v in zip(h.get("time", []), h.get("sea_surface_temperature", []))}, r.get("latitude"), r.get("longitude")
 
 
-rows, raw = [], {}
-for code in CODES:
-    meas, name, la, lo = {}, code, None, None
-    for d in DAYS:
-        for it in obs(code, d):
-            t = str(it.get("obsrvnDt", ""))[:16]
-            try:
-                w = float(it.get("wtem"))
-            except (TypeError, ValueError):
-                continue
-            if -2 < w < 35 and t.endswith(":00"):
-                meas[t] = w
-            name = it.get("obsvtrNm", name)
-            la, lo = la or it.get("lat"), lo or it.get("lot")
-    if not meas or la is None:
-        log.append(f"{code}: 실측 수온 없음")
-        continue
-    m, mla, mlo = model(float(la), float(lo), DAYS[0].isoformat(), DAYS[-1].isoformat())
-    pairs = [(meas[t], m[t]) for t in meas if m.get(t) is not None]
-    if not pairs:
-        log.append(f"{code} {name}: 모델 값 없음 (해안이라 격자가 육지일 수 있음, 모델 격자 {mla},{mlo})")
-        rows.append([name, code, len(meas), None, None, None, None, None])
-        continue
-    dif = [b - a for a, b in pairs]
-    # 하루 평균끼리 (앱 화면은 하루 평균 수온을 보여줌)
-    dm = {}
-    for t in meas:
-        if m.get(t) is not None:
-            dm.setdefault(t[:10], []).append((meas[t], m[t]))
-    ddif = [statistics.mean(b for _, b in v) - statistics.mean(a for a, _ in v) for v in dm.values()]
-    rows.append([name, code, len(pairs), round(statistics.mean(a for a, _ in pairs), 1), round(statistics.mean(b for _, b in pairs), 1),
-                 round(statistics.mean(abs(x) for x in dif), 2), round(statistics.mean(dif), 2), round(max(abs(x) for x in ddif), 2)])
-    raw[code] = {"name": name, "lat": la, "lon": lo, "model_grid": [mla, mlo], "meas": meas, "model": {t: m.get(t) for t in meas}}
+import traceback
 
-L = [f"# 수온 비교 — {dt.datetime.now(KST):%Y-%m-%d %H:%M} KST", "",
-     f"기간: {DAYS[0]} ~ {DAYS[-1]} (7일, 1시간 간격) · 실측 = 해양조사원 조위관측소 · 모델 = Open-Meteo 해양(지금 앱)", "",
-     "| 관측소 | 코드 | 비교 수 | 실측 평균 | 모델 평균 | 오차(평균) | 치우침(모델−실측) | 하루 평균 최대 차이 |", "|---|---|---|---|---|---|---|---|"]
-for r in rows:
-    L.append("| " + " | ".join("–" if v is None else (f"{v}°C" if i in (3, 4, 5, 6, 7) else str(v)) for i, v in enumerate(r)) + " |")
-L += ["", "## 기록"] + [f"- {x}" for x in log[:60]]
-(OUT / "sst_report.md").write_text("\n".join(L), encoding="utf-8")
-(OUT / "sst_raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
-print("\n".join(L))
+
+rows, raw = [], {}
+
+
+def run():
+    global rows, raw
+    for code in CODES:
+        meas, name, la, lo = {}, code, None, None
+        for d in DAYS:
+            for it in obs(code, d):
+                t = str(it.get("obsrvnDt", ""))[:16]
+                try:
+                    w = float(it.get("wtem"))
+                except (TypeError, ValueError):
+                    continue
+                if -2 < w < 35 and t.endswith(":00"):
+                    meas[t] = w
+                name = it.get("obsvtrNm", name)
+                la, lo = la or it.get("lat"), lo or it.get("lot")
+        if not meas or la is None:
+            log.append(f"{code}: 실측 수온 없음")
+            continue
+        m, mla, mlo = model(float(la), float(lo), DAYS[0].isoformat(), DAYS[-1].isoformat())
+        pairs = [(meas[t], m[t]) for t in meas if m.get(t) is not None]
+        if not pairs:
+            log.append(f"{code} {name}: 모델 값 없음 (해안이라 격자가 육지일 수 있음, 모델 격자 {mla},{mlo})")
+            rows.append([name, code, len(meas), None, None, None, None, None])
+            continue
+        dif = [b - a for a, b in pairs]
+        # 하루 평균끼리 (앱 화면은 하루 평균 수온을 보여줌)
+        dm = {}
+        for t in meas:
+            if m.get(t) is not None:
+                dm.setdefault(t[:10], []).append((meas[t], m[t]))
+        ddif = [statistics.mean(b for _, b in v) - statistics.mean(a for a, _ in v) for v in dm.values()]
+        rows.append([name, code, len(pairs), round(statistics.mean(a for a, _ in pairs), 1), round(statistics.mean(b for _, b in pairs), 1),
+                     round(statistics.mean(abs(x) for x in dif), 2), round(statistics.mean(dif), 2), round(max(abs(x) for x in ddif), 2)])
+        raw[code] = {"name": name, "lat": la, "lon": lo, "model_grid": [mla, mlo], "meas": meas, "model": {t: m.get(t) for t in meas}}
+
+    L = [f"# 수온 비교 — {dt.datetime.now(KST):%Y-%m-%d %H:%M} KST", "",
+         f"기간: {DAYS[0]} ~ {DAYS[-1]} (7일, 1시간 간격) · 실측 = 해양조사원 조위관측소 · 모델 = Open-Meteo 해양(지금 앱)", "",
+         "| 관측소 | 코드 | 비교 수 | 실측 평균 | 모델 평균 | 오차(평균) | 치우침(모델−실측) | 하루 평균 최대 차이 |", "|---|---|---|---|---|---|---|---|"]
+    for r in rows:
+        L.append("| " + " | ".join("–" if v is None else (f"{v}°C" if i in (3, 4, 5, 6, 7) else str(v)) for i, v in enumerate(r)) + " |")
+    L += ["", "## 기록"] + [f"- {x}" for x in log[:60]]
+    (OUT / "sst_report.md").write_text("\n".join(L), encoding="utf-8")
+    (OUT / "sst_raw.json").write_text(json.dumps(raw, ensure_ascii=False), encoding="utf-8")
+    print("\n".join(L))
+
+
+try:
+    run()
+except Exception:  # noqa: BLE001  에러도 보고서로 남김
+    (OUT / "sst_report.md").write_text("# 수온 비교 실패\n\n```\n" + traceback.format_exc() + "\n```\n\n" + "\n".join(log[:40]), encoding="utf-8")
+    print(traceback.format_exc())
