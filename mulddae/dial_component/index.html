@@ -243,6 +243,8 @@ body.inapp .bar{padding-top:12px}
 .tabs button.on{color:#06202b;background:linear-gradient(180deg,#9eeefc,#4cc3e6 60%,#2a9fc4);box-shadow:inset 0 1px 0 rgba(255,255,255,.7),0 2px 0 #17708f}
 .tabs button:not(.on):active{background:#13283a}
 .tabs button:focus-visible{outline:2px solid var(--sea);outline-offset:1px}
+#dateL{cursor:pointer}
+#dateL::after{content:"▾";font-size:.8em;margin-left:5px;color:var(--sea)}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
@@ -478,7 +480,7 @@ function draw(){
   el("path",{d:"M-12 6h24l-4 7h-16z",fill:"#14304b"},rb);el("path",{d:"M-1 5V-5l8 9z",fill:"#2f6fd6"},rb);el("path",{d:"M-2 5V-3l-6 8z",fill:"#7fa8e6"},rb);
   el("path",{d:"M-14 17q3.5-3 7 0t7 0t7 0t7 0",fill:"none",stroke:"#3d8bd6","stroke-width":1.6},rb);
   txt(0,32,"예약조회",{"font-size":10,"font-weight":700,"fill":"#a3b6c8"},rb);
-  sunTag(cb,"일출",d.sunrise||"-",true);
+  const sr_=el("g",{transform:`translate(${kx} ${ky})`});sunTag(sr_,"일출",d.sunrise||"-",true);cb.setAttribute("display","none");   // 달력 아이콘도 숨김 — 날짜 카드의 날짜를 누르면 달력
   // 예약조회·예상분석·조류 레이더 아이콘은 시계 위 탭으로 옮겨 원 둘레에서는 숨김 (일몰 시각은 그 자리에 그대로)
   const sg=el("g",{transform:`translate(${rx} ${ry})`});sunTag(sg,"일몰",d.sunset||"-",false);rb.setAttribute("display","none");
   const goRsv=()=>{loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
@@ -634,6 +636,10 @@ document.getElementById("tbMul").onclick=()=>{if(RVOPEN)closeRadar();tabOn("tbMu
 document.getElementById("tbCur").onclick=()=>{if(!RVOPEN)openRadar();tabOn("tbCur")};
 document.getElementById("tbBite").onclick=()=>{tabOn("tbBite");loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
 document.getElementById("tbRsv").onclick=()=>{tabOn("tbRsv");loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+
+/* 날짜 카드의 날짜를 누르면 달력 (원 둘레 달력 아이콘 대신) */
+(()=>{const dl=document.getElementById("dateL");dl.setAttribute("role","button");dl.tabIndex=0;dl.title="달력에서 날짜 고르기";
+  dl.addEventListener("click",()=>{if(RVOPEN)closeRadar();toggleCal()});dl.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}})})();
 function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
 function select(h){selH=h;if(typeof biteMark==="function")biteMark(h);updateRadar();
   sel.setAttribute("d",arc(h*60,h*60+60,80,198));const w=W?W[h]:null;
