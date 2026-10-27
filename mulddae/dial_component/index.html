@@ -245,6 +245,7 @@ body.inapp .bar{padding-top:12px}
 .tabs button:focus-visible{outline:2px solid var(--sea);outline-offset:1px}
 #dateL{cursor:pointer}
 #dateL::after{content:"▾";font-size:.8em;margin-left:5px;color:var(--sea)}
+.sstSrc{display:block;font-style:normal;font-size:10.5px;font-weight:700;color:var(--sea);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style></head><body>
 <script>if(/MulddaeApp/.test(navigator.userAgent))document.body.classList.add("inapp")</script>
 
@@ -276,7 +277,7 @@ body.inapp .bar{padding-top:12px}
     </div>
   </div>
   <div class="stats">
-    <div><small>수온</small><strong id="sst"></strong></div>
+    <div><small>수온</small><strong id="sst"></strong><em class="sstSrc" id="sstSrc"></em></div>
     <div><small>기온</small><strong id="temp"></strong></div>
     <div><small>최대 바람</small><strong id="maxWind"></strong></div>
   </div>
@@ -376,7 +377,7 @@ function wxInfo(c,night,ws){
   return r}
 function weather(i){const hrs=WX[DAYS[i].date];if(!hrs)return null;const out=[];
   for(let h=0;h<24;h++){const w=hrs[h];if(!w)return null;const[icon,label]=wxInfo(w.wcode,w.is_day===0,w.wspd??0);
-    out.push({icon,label,temp:w.temp==null?null:Math.round(w.temp),dir:w.wdir??0,wspd:w.wspd==null?0:Math.round(w.wspd*10)/10,sst:w.sst})}
+    out.push({icon,label,temp:w.temp==null?null:Math.round(w.temp),dir:w.wdir??0,wspd:w.wspd==null?0:Math.round(w.wspd*10)/10,sst:w.sst,so:w.so||0})}
   return out}
 
 const DIRS=["북","북북동","북동","동북동","동","동남동","남동","남남동","남","남남서","남서","서남서","서","서북서","북서","북북서"];
@@ -661,6 +662,10 @@ function render(){
   draw();
   const temps=W?W.map(w=>w.temp).filter(v=>v!=null):[],ssts=W?W.map(w=>w.sst).filter(v=>v!=null):[];
   document.getElementById("sst").textContent=ssts.length?(ssts.reduce((a,b)=>a+b)/ssts.length).toFixed(1)+"°":"-";
+  // 수온 출처: 실측(가까운 조위관측소) / 예측 보정 / 예측
+  {const si=D.sstInfo,n1=W?W.filter(w=>w.so===1).length:0,n2=W?W.filter(w=>w.so===2).length:0,el_=document.getElementById("sstSrc");
+   el_.textContent=!W?"":(si&&n1>=n2&&n1)?`${si.name} 실측`:(si&&n2)?`예측 보정`:"예측";
+   el_.title=si?`${si.name} 조위관측소(${si.km}km) 실측 수온`+(si.bias!=null?` · 앞날은 예측에 ${si.bias>0?"+":""}${si.bias}℃ 보정`:""):"Open-Meteo 예측"}
   document.getElementById("temp").textContent=temps.length?`${Math.min(...temps)}~${Math.max(...temps)}°`:"-";
   document.getElementById("maxWind").textContent=W?Math.round(Math.max(...W.map(w=>w.wspd)))+"m/s":"-";
   document.getElementById("portName").textContent=D.port;

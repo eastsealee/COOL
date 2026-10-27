@@ -298,3 +298,57 @@ def port_current(lat: float, lon: float, dates: list[str], max_km: float = 40) -
     return {"name": best[2], "km": round(best[1], 1), "dirs": db.get("dirs"),
             "sp": {d: db["sp"][code][d] for d in dates if d in db["sp"][code]},
             "dr": {d: db["dr"][code][d] for d in dates if d in db["dr"].get(code, {})}}
+
+
+# ---------------------------------------------------------------- 실측 수온 (해양조사원 조위관측소, 매시간)
+# '실측 수온 받기' Actions가 sst 브랜치에 올린 파일 — 지난·오늘은 실측, 앞날은 Open-Meteo 예측 + 최근 차이로 보정
+SST_URL = "https://raw.githubusercontent.com/eastsealee/COOL/sst/sst.json"
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_sst() -> dict | None:
+    try:
+        r = requests.get(SST_URL, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def port_sst(lat: float, lon: float, max_km: float = 35) -> dict | None:
+    """항구에서 가장 가까운 조위관측소의 실측 수온 {name, km, obs{'YYYY-MM-DD HH:00': °C}}"""
+    import math
+    db = load_sst()
+    if not db:
+        return None
+    best = None
+    for code, (name, la, lo) in db.get("st", {}).items():
+        if not db.get("obs", {}).get(code):
+            continue
+        km = 6371 * math.hypot(math.radians(lo - lon) * math.cos(math.radians((la + lat) / 2)), math.radians(la - lat))
+        if best is None or km < best[1]:
+            best = (code, km, name)
+    if not best or best[1] > max_km:
+        return None
+    return {"code": best[0], "name": best[2], "km": round(best[1], 1), "obs": db["obs"][best[0]], "updated": db.get("updated")}
+
+
+def apply_sst(weather: list[dict], lat: float, lon: float) -> dict | None:
+    """weather(시간별)의 sst를 실측으로 바꾸고, 실측이 없는 시간은 예측 + 최근 7일 평균 차이로 보정.
+    각 시간에 so=1(실측) / 2(예측 보정) / 0(예측 그대로) 표시. 돌려주는 값: 화면 설명용 정보"""
+    ps = port_sst(lat, lon)
+    if not ps or not weather:
+        return None
+    obs = ps["obs"]
+    diffs = [obs[w["time"].replace("T", " ")] - w["sst"] for w in weather
+             if w.get("sst") is not None and w["time"].replace("T", " ") in obs]
+    bias = round(sum(diffs) / len(diffs), 2) if len(diffs) >= 24 else None
+    for w in weather:
+        t = w["time"].replace("T", " ")
+        if t in obs:
+            w["sst"], w["so"] = obs[t], 1
+        elif w.get("sst") is not None and bias is not None:
+            w["sst"], w["so"] = round(w["sst"] + bias, 2), 2
+        else:
+            w["so"] = 0
+    return {"name": ps["name"], "km": ps["km"], "bias": bias, "updated": ps["updated"]}
