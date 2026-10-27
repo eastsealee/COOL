@@ -1,0 +1,38 @@
+name: 실측 수온 받기 (물때 시계 수온)
+
+on:
+  schedule:
+    - cron: "12 * * * *"      # 매시간
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "관측소 목록·8일치 다시 받기 (1=예)"
+        required: false
+        default: "1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sst
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python mulddae/sst_fetch.py out
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+          FULL: ${{ github.event.inputs.full }}
+      - name: sst 브랜치에 저장 (덮어씀)
+        run: |
+          cd out && git init -q && git config user.name sst-bot && git config user.email sst-bot@users.noreply.github.com
+          git checkout -q -b sst && git add -A && git commit -q -m "실측 수온 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" sst
