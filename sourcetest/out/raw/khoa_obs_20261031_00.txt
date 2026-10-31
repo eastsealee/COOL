@@ -1,0 +1,11 @@
+503 https://apis.data.go.kr/1192136/surveyTideLevel/GetSurveyTideLevelApiService?serviceKey=***&type=json&pageNo=1&numOfRows=300&obsCode=DT_0025&reqDate=20261031&min=10
+
+{
+  "OpenAPI_ServiceResponse": {
+    "cmmMsgHeader": {
+      "errMsg": "SERVICETIMEOUT_ERROR",
+      "returnAuthMsg": "서비스 연결실패 에러",
+      "returnReasonCode": "05"
+    }
+  }
+}
