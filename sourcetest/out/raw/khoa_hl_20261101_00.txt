@@ -1,0 +1,3 @@
+200 https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService?serviceKey=***&type=json&pageNo=1&numOfRows=300&obsCode=DT_0025&reqDate=20261101
+
+{"header":{"resultCode":"00","resultMsg":"NORMAL_SERVICE"},"body":{"items":{"item":[{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-11-01 02:00","predcTdlvVl":219.0,"extrSe":"2"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-11-01 07:07","predcTdlvVl":563.0,"extrSe":"1"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-11-01 13:53","predcTdlvVl":153.0,"extrSe":"4"},{"obsvtrNm":"보령","lot":126.48611,"lat":36.40638,"predcDt":"2026-11-01 20:05","predcTdlvVl":639.0,"extrSe":"3"}]},"pageNo":1,"numOfRows":300,"totalCount":4,"type":"json"}}
