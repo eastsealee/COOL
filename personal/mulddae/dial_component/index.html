@@ -442,8 +442,8 @@ function draw(){
     // 스토어 버전: 낚시 시간대(04~18시) 만조·간조는 크게 (개인 버전은 그대로)
     const big=D&&D.store&&mm>=240&&mm<=1080,k=big?2.03:1;   // 큰 칸 = 기본의 약 2배 (2.9에서 30% 줄임)
     let px=x,py=y;
-    if(big){   // 큰 칸은 가운데 글자를 가리지 않게 원 바깥쪽으로 밀고, 원래 자리와 선으로 이음
-      const a=ang(mm),ux=Math.cos(a),uy=Math.sin(a),e=20*k*Math.abs(ux)+8.5*k*Math.abs(uy),rp=Math.max(r,90+e);
+    if(big){   // 큰 칸은 조류세기 링(반지름 120)에 걸쳐 놓고, 원래 자리와 선으로 이음
+      const rp=120;
       [px,py]=pt(mm,rp);
       el("line",{x1:x,y1:y,x2:px,y2:py,stroke:"#ff5b5b","stroke-width":2,"stroke-dasharray":"3 3"});
       el("circle",{cx:x,cy:y,r:4,fill:"#ff5b5b",stroke:"#0b1825","stroke-width":1.5})}
