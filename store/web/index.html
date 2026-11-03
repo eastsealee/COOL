@@ -91,6 +91,13 @@ window.addEventListener("message", e => {
   else if (m.type === "streamlit:setFrameHeight") { fr.style.height = Math.max(200, m.height) + "px"; if (fr.id === "vDial" && P) hideSplash() }
   else if (m.type === "streamlit:setComponentValue") onValue(fr, m.value || {});
 });
+/* 높이 신호가 늦거나 안 오는 브라우저(카카오톡 안 브라우저 등) 대비: 같은 출처라 화면 높이를 직접 재서 맞춤 */
+function autoHeight(fr) {
+  const fit = () => { try { const d = fr.contentDocument; if (!d || fr.hidden) return; const h = Math.ceil(d.documentElement.getBoundingClientRect().height) + 4; if (h > 150 && Math.abs(h - (parseFloat(fr.style.height) || 0)) >= 2) fr.style.height = h + "px" } catch (e) {} };
+  fr.addEventListener("load", () => { fit(); try { new ResizeObserver(fit).observe(fr.contentDocument.documentElement) } catch (e) {} });
+  setInterval(fit, 1500);
+}
+autoHeight($("vDial")); autoHeight($("vRig"));
 function hideSplash() {
   const s = $("splash"); if (!s || s.classList.contains("out")) return;
   setTimeout(() => { s.classList.add("out"); document.body.classList.remove("loading"); setTimeout(() => s.remove(), 700) }, Math.max(0, 2200 - (Date.now() - shownAt)));
