@@ -17,5 +17,6 @@ pages = [
             url_path="lamar"),
     st.Page("personal/mulddae/dial.py", title="물때 시계", icon=":material/schedule:", url_path="mulddae-clock"),
     st.Page("personal/chaebi/calc.py", title="채비 계산기", icon=":material/straighten:", url_path="chaebi"),
+    st.Page("store/preview/preview.py", title="플레이스토어 버전 (미리보기)", icon=":material/storefront:", url_path="store"),
 ]
 st.navigation(pages, position="sidebar").run()
