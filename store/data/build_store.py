@@ -242,4 +242,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import traceback
+    try:
+        main()
+    except BaseException:  # noqa: BLE001  실패 원인을 파일로 남김 (Actions 기록은 밖에서 못 읽음)
+        (OUT / "error.txt").write_text(traceback.format_exc() + "\n" + "\n".join(log[:80]), encoding="utf-8")
+        raise

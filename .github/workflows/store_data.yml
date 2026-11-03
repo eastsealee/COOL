@@ -25,6 +25,11 @@ jobs:
       - run: python store/data/build_store.py out
         env:
           DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      - name: 실패하면 원인을 store-data-log 브랜치에
+        if: failure()
+        run: |
+          cd out && git init -q && git config user.name store-bot && git config user.email store-bot@users.noreply.github.com
+          git checkout -q -b store-data-log && git add -A && git commit -q -m "실패 기록" && git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" store-data-log
       - name: store-data 브랜치에 저장 (덮어씀)
         run: |
           cd out && git init -q && git config user.name store-bot && git config user.email store-bot@users.noreply.github.com
