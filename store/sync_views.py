@@ -15,4 +15,9 @@ for src, dst in ((R / "personal/mulddae/dial_component", W / "views/dial"), (R /
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
 shutil.copy(R / "personal/android/app/src/main/assets/splash.html", W / "splash.html")
+# 채비 계산기: model.js를 화면 파일 안에 넣음 (따로 받다가 실패하면 화면이 비는 문제 방지)
+rig = W / "views/rig/index.html"
+t = rig.read_text(encoding="utf-8")
+t = t.replace('<script src="model.js"></script>', "<script>\n" + (W / "views/rig/model.js").read_text(encoding="utf-8") + "\n</script>")
+rig.write_text(t, encoding="utf-8")
 print("복사 완료")

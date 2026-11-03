@@ -275,6 +275,10 @@ const KEY = "chaebi_v1", PKEY = "chaebi_points";
 const DEF = { sp: "gab", cur: 1, sog: 0, rel: 0, H: 12, sinker: 20, pe: 0.8, egi: 2.5, es: 4, myH: 15, myL: 30, lineOut: 13 };
 let S = Object.assign({}, DEF);
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY) || "{}")); } catch (e) {}
+for (const k of Object.keys(DEF)) {          // 저장된 값이 이상하면(예전 버전·다른 화면이 남긴 값) 기본값으로
+  if (typeof DEF[k] === "number" ? !Number.isFinite(+S[k]) : typeof S[k] !== typeof DEF[k]) S[k] = DEF[k];
+  else if (typeof DEF[k] === "number") S[k] = +S[k];
+}
 if (!M.SINKERS.includes(S.sinker)) S.sinker = Math.min(40, M.SINKERS.reduce((b, v) => Math.abs(v - S.sinker) < Math.abs(b - S.sinker) ? v : b));
 let pick = 0;                 // 추천 조합 중 그림에 보이는 것
 let gps = { on: false, id: null, sog: null, fix: null, buf: [], err: "" };
