@@ -242,8 +242,8 @@ function drawSeason() {
     <div class="kv">
       <div><small>예상 분위기</small><b>${f0(v.score)}<small>%</small></b><div class="bar2"><i style="width:${Math.max(0, Math.min(100, v.score || 0))}%;background:${scoreColor(v.score)}"></i></div></div>
       <div><small>물세기</small><b>${v.pct != null ? v.pct : "-"}<small>%</small></b><div class="bar2"><i style="width:${v.pct || 0}%;background:#4cc3e6"></i></div></div>
-      <div><small>예상 주꾸미 (중앙값 / 최고)</small><b>${f0(v.jj)}<small> / ${f0(v.jj_max)}마리</small></b></div>
-      <div><small>예상 갑오징어 (중앙값 / 최고)</small><b>${f1(v.gg)}<small> / ${f0(v.gg_max)}마리</small></b></div>
+      <div><small>예상 주꾸미 (중앙값 / 최고)</small><b>${f0(v.jj)}<small> / ${f0(v.jj_max == null ? null : Math.max(v.jj_max, v.jj || 0))}마리</small></b></div>
+      <div><small>예상 갑오징어 (중앙값 / 최고)</small><b>${f1(v.gg)}<small> / ${f0(v.gg_max == null ? null : Math.max(v.gg_max, v.gg || 0))}마리</small></b></div>
       <div><small>오전 조황</small><b>${f0(v.am)}<small>% ${segWord(v.am)}</small></b></div>
       <div><small>오후 조황</small><b>${f0(v.pm)}<small>% ${segWord(v.pm)}</small></b></div>
     </div>
