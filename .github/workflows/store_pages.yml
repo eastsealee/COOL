@@ -1,0 +1,26 @@
+name: 스토어 버전 웹 미리보기 올리기 (GitHub Pages, Streamlit 없이)
+
+on:
+  push:
+    branches: [main]
+    paths: ["store/web/**", ".github/workflows/store_pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: store-pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: gh-pages 브랜치에 store/web 그대로 올림
+        run: |
+          mkdir -p /tmp/site && cp -r store/web/. /tmp/site/ && touch /tmp/site/.nojekyll
+          cd /tmp/site && git init -q && git config user.name pages-bot && git config user.email pages-bot@users.noreply.github.com
+          git checkout -q -b gh-pages && git add -A && git commit -q -m "스토어 미리보기 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
