@@ -129,7 +129,7 @@ async function loadPort(pid) {
   const [T, W, C] = await Promise.all([J(`store-tide/t/${id}.json`, true), J(`store-data/w/${grid}.json`, true).catch(() => []), cc ? J(`store-data/c/${cc}.json`, true).catch(() => null) : null]);
   P = { key, area, sido, sgg, lat, lon, id, ref, T, W, C, sc, name: key.replace(/\s*\(.*\)$/, "") };
   store.set("store_port2", String(id));
-  $("foot").textContent = `물때: 자체 계산(해양조사원 ${IDX.refs[ref] || ref} 조석예보 기준 + TideBED 상수) · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · 입질 확률 보정: 라마르호 조과 기록 · ${IDX.updated} 기준`;
+  $("foot").textContent = `물때: 자체 계산(해양조사원 ${IDX.refs[ref] || ref} 조석예보 기준 + TideBED 상수) · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · ${IDX.updated} 기준`;
 }
 function dialData() {
   const today = kst(), all = Object.keys(P.T.days).sort();
