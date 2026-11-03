@@ -20,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install requests beautifulsoup4 korean-lunar-calendar
+      - run: pip install requests beautifulsoup4 korean-lunar-calendar playwright && python -m playwright install --with-deps chromium
       - run: python "${{ github.event.inputs.script }}" out
         env:
           DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
