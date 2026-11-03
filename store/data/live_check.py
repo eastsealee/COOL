@@ -7,7 +7,8 @@ L = []
 with sync_playwright() as p:
     b = p.chromium.launch(); ctx = b.new_context(**p.devices["Galaxy S9+"]); pg = ctx.new_page()
     errs = []; pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
-    t0 = time.time(); pg.goto("https://kim-sunsang24.streamlit.app/store", timeout=120000)
+    import os; URL = os.environ.get("URL", "https://kim-sunsang24.streamlit.app/store")
+    t0 = time.time(); pg.goto(URL, timeout=120000)
     for k in range(12):
         pg.wait_for_timeout(5000)
         fr = [f.url[:100] for f in pg.frames]
