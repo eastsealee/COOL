@@ -60,7 +60,8 @@ button,input,select{font-family:var(--sans)}
 .ports .grp button.on small{color:#06202b}
 .ports .none{padding:22px;text-align:center;color:var(--sub)}
 .ports .tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:8px 0 6px;position:sticky;top:0;background:var(--pop);z-index:1}
-.ports .tabs button{font-weight:900;font-size:14px;color:var(--sub);background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 0;cursor:pointer}
+.ports .tabs button[hidden]{display:none}
+.tabs button{font-weight:900;font-size:14px;color:var(--sub);background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 0;cursor:pointer}
 .ports .tabs button.on{color:#06202b;background:var(--sea);border-color:var(--sea)}
 .ports .sgrow{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:6px}
 .ports .sgrow span{font-size:11.5px;color:var(--sun);font-weight:900;min-width:30px}
@@ -562,9 +563,11 @@ function startRG(){if(RG.on)return;if(!navigator.geolocation){RG.err="이 기기
     e=>{RG.err=e.code===1?(/MulddaeApp/.test(navigator.userAgent)?"위치 권한이 꺼져 있습니다. 휴대폰 설정 → 애플리케이션 → 쭈갑과물때 → 권한 → 위치 → '앱 사용 중에만 허용'":"위치 권한이 꺼져 있습니다. 주소창 왼쪽 자물쇠 → 위치 허용"):"위치를 잡지 못했습니다";updateRadar()},
     {enableHighAccuracy:true,maximumAge:0,timeout:20000});updateRadar()}
 function stopRG(){if(RG.id!=null)navigator.geolocation.clearWatch(RG.id);Object.assign(RG,{on:false,id:null,buf:[],cv:null,cog:null,sog:null,err:"",fix:null});updateRadar()}
-function openRadar(){RVOPEN=true;tabOn("tbCur");document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
+function openRadar(){RVOPEN=true;tabOn("tbCur");if(D&&D.store){const b=document.getElementById("bite");if(b)b.style.display="none"}   // 스토어: 조류분석은 레이더만
+  document.getElementById("dial").style.display="none";document.getElementById("cal").hidden=true;
   document.getElementById("radarView").hidden=false;startRG();updateRadar();setHeight();setTimeout(setHeight,150)}
-function closeRadar(){RVOPEN=false;tabOn("tbMul");stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";
+function closeRadar(){RVOPEN=false;tabOn("tbMul");{const b=document.getElementById("bite");if(b)b.style.display=""}
+  stopRG();document.getElementById("radarView").hidden=true;document.getElementById("dial").style.display="";
   // 원래 화면을 처음처럼 다시 그리고(카드·수치·원·입질 확률), 높이를 몇 번 다시 맞춘 뒤 화면 맨 위로
   try{render()}catch(e){}
   setHeight();requestAnimationFrame(setHeight);setTimeout(setHeight,150);setTimeout(setHeight,500);
@@ -657,13 +660,14 @@ document.getElementById("tbRsv").onclick=()=>{if(D&&D.store){storeTab("rsv");ret
   dl.addEventListener("click",()=>{if(RVOPEN)closeRadar();toggleCal()});dl.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}})})();
 
 /* 플레이스토어 버전(D.store): 남의 자료를 쓰는 '예상분석·예약조회' 대신 '채비계산·입질확률' 탭 */
-function storeTabs(){const on=!!(D&&D.store);document.getElementById("tbBite").textContent=on?"채비계산":"예상분석";document.getElementById("tbRsv").textContent=on?"입질확률":"예약조회";
+function storeTabs(){const on=!!(D&&D.store);document.getElementById("tbBite").textContent=on?"채비계산":"예상분석";document.getElementById("tbRsv").textContent="예약조회";
+  document.getElementById("tbRsv").hidden=on;   // 스토어: '입질확률'은 물때 화면과 같아 탭을 없앰
   // 스토어 버전: 다섯 번째 탭 '시즌 예상' (그 해 9~12월 날짜별 예상 조황)
   let sea=document.getElementById("tbSea");const tabs=document.querySelector(".tabs");
   if(on&&D.seasonYear){if(!sea){sea=document.createElement("button");sea.id="tbSea";sea.setAttribute("role","tab");tabs.appendChild(sea);
       sea.onclick=()=>send("streamlit:setComponentValue",{value:{goto:"season",date:DAYS[cur].date,n:Date.now()},dataType:"json"})}
-    sea.textContent=D.seasonYear+"예상";tabs.classList.add("five")}
-  else if(sea){sea.remove();tabs.classList.remove("five")}}
+    sea.textContent="예상조과";tabs.classList.remove("five")}
+  else if(sea){sea.remove()}}
 function storeTab(k){if(k==="bite"){loadEl.hidden=false;loadEl.textContent="채비 계산기 여는 중…";send("streamlit:setComponentValue",{value:{goto:"chaebi",date:DAYS[cur].date,n:Date.now()},dataType:"json"});return}
   if(RVOPEN)closeRadar();tabOn("tbRsv");const b=document.getElementById("bite");
   if(b&&!b.hidden){send("streamlit:setComponentValue",{value:{scrollTo:Math.round(b.getBoundingClientRect().top+window.scrollY),n:Date.now()},dataType:"json"})}

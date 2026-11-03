@@ -218,7 +218,7 @@ $("seaBack").onclick = closeSeason;
 function drawSeason() {
   const S = IDX.season, H = IDX.holidays || {}, keys = Object.keys(S).sort(), y = keys[0].slice(0, 4), today = kst();
   const months = [...new Set(keys.map(k => +k.slice(5, 7)))];
-  let h = `<h2>${y}년 쭈갑 시즌 예상</h2><p class="sub">${y}년 9~12월 날짜별 예상 조황이에요. 같은 달 안에서 물세기가 비슷했던 과거 출조일들의 조과를 평균했어요. 날짜를 누르면 아래에 자세히 나와요.</p>
+  let h = `<h2>${y}년 예상조과</h2><p class="sub">${y}년 9~12월 날짜별 예상 조황이에요. 같은 달 안에서 물세기가 비슷했던 과거 출조일들의 조과를 평균했어요. 날짜를 누르면 아래에 자세히 나와요.</p>
     <div class="legend"><span><i style="background:${scoreColor(75)}"></i>분위기 좋음</span><span><i style="background:${scoreColor(52)}"></i>보통</span><span><i style="background:${scoreColor(30)}"></i>약함</span><span style="color:#7fe0f5">물세기 30% 이하 = 파란 숫자</span></div>`;
   h += `<div id="seaDet"></div>`;
   for (const m of months) {
