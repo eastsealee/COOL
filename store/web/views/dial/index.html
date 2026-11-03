@@ -440,9 +440,9 @@ function draw(){
   // 만조·간조 (빨간색)
   d.tides.forEach(t=>{const mm=t.m-base,r=R0+(t.h-hmin)/(hmax-hmin)*(R1-R0);const[x,y]=pt(mm,r);const hi=t.type==="high";
     // 스토어 버전: 낚시 시간대(04~18시) 만조·간조는 크게 (개인 버전은 그대로)
-    const big=D&&D.store&&mm>=240&&mm<=1080,k=big?1.45:1;
-    el("rect",{x:x-20*k,y:y-8.5*k,width:40*k,height:17*k,rx:8.5*k,fill:hi?"#ff5b5b":"#0e1f2e",stroke:"#ff5b5b","stroke-width":big?2.2:1.6});
-    txt(x,y+.5,t.t,{"font-size":big?15:10.5,"font-weight":big?900:700,fill:hi?"#fff":"#ff7b7b","font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif"})});
+    const big=D&&D.store&&mm>=240&&mm<=1080,k=big?2.9:1;
+    el("rect",{x:x-20*k,y:y-8.5*k,width:40*k,height:17*k,rx:8.5*k,fill:hi?"#ff5b5b":"#0e1f2e",stroke:"#ff5b5b","stroke-width":big?3:1.6});
+    txt(x,y+1,t.t,{"font-size":big?30:10.5,"font-weight":big?900:700,fill:hi?"#fff":"#ff7b7b","font-family":"IBM Plex Sans KR,Noto Sans KR,sans-serif"})});
   // 일출·일몰 (원 안 점선 + 바깥 표시)
   [[d.sunrise,"일출"],[d.sunset,"일몰"]].forEach(([s,n])=>{const m=toMin(s),[x1,y1]=pt(m,80),[x2,y2]=pt(m,198);
     el("line",{x1,y1,x2,y2,stroke:"#ffc857","stroke-width":1.4,"stroke-dasharray":"3 4",opacity:.8});
