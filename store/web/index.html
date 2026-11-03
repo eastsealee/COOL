@@ -123,6 +123,22 @@ function dialData() {
     W[t] = { time: t, temp, hum, wspd, wdir, wcode, precip, wave, is_day: sr <= hm && hm < ss ? 1 : 0, sst: null, so: 0 };
   }
   for (const [t, v] of Object.entries(obs)) { const tt = t.replace(" ", "T"); (W[tt] ??= { time: tt, sst: null }).sst = v; W[tt].so = 1 }
+  // 시계는 하루 24시간이 다 있어야 날씨를 그림 → 기상청 예보가 있는 날은 빈 시간을 가장 가까운 시간 값으로 채움
+  //  (오늘의 지난 시간 등. 수온은 실측이 있는 시간만)
+  const byDay = {};
+  for (const w of Object.values(W)) (byDay[w.time.slice(0, 10)] ??= []).push(w);
+  for (const [d, list] of Object.entries(byDay)) {
+    const fc = list.filter(w => w.temp != null).sort((a, b) => a.time < b.time ? -1 : 1);
+    if (!fc.length) continue;
+    const [sr, ss] = sun(d, P.lat, P.lon);
+    for (let h = 0; h < 24; h++) {
+      const t = `${d}T${String(h).padStart(2, "0")}:00`;
+      if (W[t] && W[t].temp != null) continue;
+      const near = fc.reduce((b, w) => Math.abs(+w.time.slice(11, 13) - h) < Math.abs(+b.time.slice(11, 13) - h) ? w : b);
+      const hm = t.slice(11, 16);
+      W[t] = { ...near, time: t, is_day: sr <= hm && hm < ss ? 1 : 0, sst: W[t] ? W[t].sst : null, so: W[t] ? W[t].so : 0, fill: 1 };
+    }
+  }
   const weather = Object.values(W).sort((a, b) => a.time < b.time ? -1 : 1);
   const sstInfo = P.sc && SST ? { name: SST.st[P.sc][0], km: null, bias: null, updated: SST.updated } : null;
   const cur = P.C ? { name: P.C.name, km: null, dirs: P.C.dirs, sp: P.C.sp, dr: P.C.dr } : null;
