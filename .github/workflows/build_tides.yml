@@ -1,0 +1,38 @@
+name: 자체 물때 1년치 만들기 (플레이스토어 버전)
+
+on:
+  schedule:
+    - cron: "50 16 * * *"      # 매일 한국시간 01:50
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "기준항 예보를 이번에 최대 몇 번 받을지"
+        required: false
+        default: "7500"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: store-tide
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests korean-lunar-calendar
+      - run: python store/data/build_tides.py out
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+          BUDGET: ${{ github.event.inputs.budget || '7500' }}
+      - name: store-tide 브랜치에 저장 (덮어씀)
+        run: |
+          cd out && git init -q && git config user.name tide-bot && git config user.email tide-bot@users.noreply.github.com
+          git checkout -q -b store-tide && git add -A && git commit -q -m "자체 물때 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" store-tide

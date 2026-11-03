@@ -37,15 +37,25 @@ iframe.view[hidden]{display:none}
 </div>
 <script>
 "use strict";
-const DATA = "https://raw.githubusercontent.com/eastsealee/COOL/store-data/";
+/* 자료 위치 (모두 공공 API로 만든 파일, 인증키 없음)
+   store-tide: 자체 물때 1년치 (t/<항구id>.json, cal.json)    store-data: 항구 목록·날씨(w/)·조류(c/)·라마르 입질 예상
+   sst: 해양조사원 실측 수온 */
+const RAW = "https://raw.githubusercontent.com/eastsealee/COOL/";
 const $ = id => document.getElementById(id);
 const store = { get: k => { try { return localStorage.getItem(k) } catch (e) { return null } },
                 set: (k, v) => { try { localStorage.setItem(k, v) } catch (e) {} } };
-const BITE_SIDO = new Set(["인천", "경기", "충남"]);       // 입질 확률 모델이 맞춰진 서해 중부
-let IDX = null, P = null, center = null, dialReady = false, rigReady = false, rigArgs = null, shownAt = Date.now();
+const BITE_SIDO = new Set(["인천", "경기", "충남"]);       // 입질 확률(라마르호 기록 보정)은 서해 중부
+const NAMDANG = 356;                                        // 남당항: 조류세기 기준값을 맞춘 곳
+let IDX = null, CAL = null, SST = null, P = null, center = null, dialReady = false, rigReady = false, rigArgs = null, shownAt = Date.now();
+const cache = {};
 
 const kst = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
 const addDays = (d, k) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + k); return t.toISOString().slice(0, 10) };
+async function J(path, fresh) {
+  if (cache[path]) return cache[path];
+  const r = await fetch(RAW + path + (fresh ? "?t=" + Math.floor(Date.now() / 6e5) : "")); if (!r.ok) throw new Error(path + " " + r.status);
+  return (cache[path] = await r.json());
+}
 
 /* ---------- 화면(iframe)과 주고받기: Streamlit과 같은 신호 */
 function post(fr, args) { fr.contentWindow && fr.contentWindow.postMessage({ type: "streamlit:render", args: { data: args } }, "*") }
@@ -53,51 +63,89 @@ window.addEventListener("message", e => {
   const m = e.data || {}, fr = e.source === $("vDial").contentWindow ? $("vDial") : e.source === $("vRig").contentWindow ? $("vRig") : null;
   if (!fr || !m.type) return;
   if (m.type === "streamlit:componentReady") { if (fr.id === "vDial") { dialReady = true; renderDial() } else { rigReady = true; if (rigArgs) post(fr, rigArgs) } }
-  else if (m.type === "streamlit:setFrameHeight") { fr.style.height = Math.max(200, m.height) + "px"; if (fr.id === "vDial") hideSplash() }
+  else if (m.type === "streamlit:setFrameHeight") { fr.style.height = Math.max(200, m.height) + "px"; if (fr.id === "vDial" && P) hideSplash() }
   else if (m.type === "streamlit:setComponentValue") onValue(fr, m.value || {});
 });
-
 function hideSplash() {
   const s = $("splash"); if (!s || s.classList.contains("out")) return;
   setTimeout(() => { s.classList.add("out"); document.body.classList.remove("loading"); setTimeout(() => s.remove(), 700) }, Math.max(0, 2200 - (Date.now() - shownAt)));
 }
 
-/* ---------- 자료 */
-async function loadIndex() {
-  const r = await fetch(DATA + "index.json?t=" + Date.now()); if (!r.ok) throw new Error("index " + r.status);
-  IDX = await r.json();
+/* ---------- 일출·일몰 (NOAA 계산식, 한국 표준시) */
+function sun(d, lat, lon) {
+  const t = new Date(d + "T00:00:00Z"), n = Math.round((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5) + 1, g = 2 * Math.PI / 365 * (n - 1);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const de = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const la = lat * Math.PI / 180, c = Math.cos(90.833 * Math.PI / 180) / (Math.cos(la) * Math.cos(de)) - Math.tan(la) * Math.tan(de);
+  const ha = Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI, noon = 720 - 4 * lon - eqt + 540;
+  const f = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(Math.floor(m % 60)).padStart(2, "0");
+  return [f(noon - 4 * ha), f(noon + 4 * ha)];
 }
-async function loadPort(code) {
-  const r = await fetch(DATA + "p/" + code + ".json?t=" + Math.floor(Date.now() / 6e5)); if (!r.ok) throw new Error("port " + r.status);
-  P = await r.json(); store.set("store_port", code);
-  $("foot").textContent = `물때: 국립해양조사원 조석예보 · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · 입질 확률 보정: 라마르호 조과 기록 · ${P.updated} 기준`;
-}
-function portList() { return IDX.ports.map(p => [p[0], p[1], p[2], p[3], p[4], p[5]]) }
-function codeOf(key) { const p = IDX.ports.find(x => x[0] === key); return p ? p[6] : null }
 
+/* ---------- 조류세기: 선상낚시 예약조회와 같은 계산 (▲▼ 변화량 하루 평균)
+   남당항 = 기준값(사리→조금 201~732cm, 조금→사리 234~727cm), 다른 항구 = 불러온 기간 안 최약 0% ~ 최강 100% */
+function addFlow(days, pid) {
+  const ks = Object.keys(days).sort(), F = {};
+  for (const k of ks) { const ds = days[k].tides.slice(0, 4).map(e => Math.abs(e.diff)); F[k] = ds.length ? ds.reduce((a, b) => a + b) / ds.length : null }
+  const v = Object.values(F).filter(x => x != null), lo = Math.min(...v), hi = Math.max(...v);
+  for (const k of ks) {
+    const f = F[k]; let p = null;
+    if (f != null && pid !== NAMDANG) p = hi > lo ? Math.round((f - lo) / (hi - lo) * 100) : null;
+    else if (f != null) { const pv = F[addDays(k, -1)], up = pv != null && f > pv && days[k].tides.length >= 4, z = up ? 234 : 201, full = up ? 727 : 732; p = Math.round((f - z) / (full - z) * 100) }
+    days[k].flow = p == null ? 0 : Math.max(0, Math.min(100, p));
+  }
+}
+
+/* ---------- 한 항구 자료 모으기 */
+function row(pid) { return IDX.ports.find(r => r[6] === pid) }
+async function loadPort(pid) {
+  const r = row(pid); if (!r) throw new Error("no port");
+  const [key, area, sido, sgg, lat, lon, id, ref, grid, sc, cc] = r;
+  const [T, W, C] = await Promise.all([J(`store-tide/t/${id}.json`, true), J(`store-data/w/${grid}.json`, true).catch(() => []), cc ? J(`store-data/c/${cc}.json`, true).catch(() => null) : null]);
+  P = { key, area, sido, sgg, lat, lon, id, ref, T, W, C, sc, name: key.replace(/\s*\(.*\)$/, "") };
+  store.set("store_port2", String(id));
+  $("foot").textContent = `물때: 자체 계산(해양조사원 ${IDX.refs[ref] || ref} 조석예보 기준 + TideBED 상수) · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · 입질 확률 보정: 라마르호 조과 기록 · ${IDX.updated} 기준`;
+}
 function dialData() {
-  const today = kst(), days = P.days, keys = Object.keys(days).sort();
-  if (!center || !days[center]) center = days[today] ? today : keys[0];
+  const today = kst(), all = Object.keys(P.T.days).sort();
+  if (!center || !P.T.days[center]) center = P.T.days[today] ? today : all[0];
+  const days = {};
+  for (let k = -35; k <= 35; k++) {           // 기준 날짜 앞뒤 35일
+    const d = addDays(center, k), ev = P.T.days[d]; if (!ev) continue;
+    const [sr, ss] = sun(d, P.lat, P.lon), [lu, mul] = (CAL && CAL[d]) || ["", ""];
+    days[d] = { lunar: lu, mul, sunrise: sr, sunset: ss, tides: ev.map(([t, h, hi, diff]) => ({ t, h, type: hi ? "high" : "low", diff })) };
+  }
+  addFlow(days, P.id);
+  // 시간별 날씨 (기상청) + 수온 (가까운 관측소 실측)
+  const obs = (SST && P.sc && SST.obs[P.sc]) || {}, W = {};
+  for (const [t, temp, hum, wspd, wdir, wcode, precip, wave] of P.W) {
+    const d = t.slice(0, 10), [sr, ss] = sun(d, P.lat, P.lon), hm = t.slice(11, 16);
+    W[t] = { time: t, temp, hum, wspd, wdir, wcode, precip, wave, is_day: sr <= hm && hm < ss ? 1 : 0, sst: null, so: 0 };
+  }
+  for (const [t, v] of Object.entries(obs)) { const tt = t.replace(" ", "T"); (W[tt] ??= { time: tt, sst: null }).sst = v; W[tt].so = 1 }
+  const weather = Object.values(W).sort((a, b) => a.time < b.time ? -1 : 1);
+  const sstInfo = P.sc && SST ? { name: SST.st[P.sc][0], km: null, bias: null, updated: SST.updated } : null;
+  const cur = P.C ? { name: P.C.name, km: null, dirs: P.C.dirs, sp: P.C.sp, dr: P.C.dr } : null;
   return {
-    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: IDX.bite || {} },   // 라마르호 기록으로 예상한 오전·오후 조황 (±20% 보정) port: P.name, portFull: P.key, ports: portList(),
-    today, center, days, weather: P.weather || [], cur: P.cur, sstInfo: P.sstInfo, vworld: ""
+    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: IDX.bite || {} },
+    port: P.name, portFull: P.key, ports: IDX.ports.map(r => r.slice(0, 6)),
+    today, center, days, weather, cur, sstInfo, vworld: ""
   };
 }
 function renderDial() { if (dialReady && P) post($("vDial"), dialData()) }
 
 /* ---------- 화면에서 온 요청 */
 async function onValue(fr, v) {
-  if (fr.id === "vDial") {
-    if (v.scrollTo != null) { window.scrollTo({ top: $("vDial").offsetTop + v.scrollTo - 8, behavior: "smooth" }); return }
-    if (v.goto === "chaebi") { openRig(v.date); return }
-    if (v.port && v.port !== P.key) { const c = codeOf(v.port); if (c) { await loadPort(c); renderDial() } return }
-    if (v.date) { const d = String(v.date).slice(0, 10); if (P.days[d]) { center = d; renderDial() } else { renderDial() } }
-  }
+  if (fr.id !== "vDial") return;
+  if (v.scrollTo != null) { window.scrollTo({ top: $("vDial").offsetTop + v.scrollTo - 8, behavior: "smooth" }); return }
+  if (v.goto === "chaebi") { openRig(v.date); return }
+  if (v.port && v.port !== P.key) { const r = IDX.ports.find(x => x[0] === v.port); if (r) { await loadPort(r[6]); renderDial() } return }
+  if (v.date) { center = String(v.date).slice(0, 10); renderDial() }
 }
 
 /* ---------- 채비 계산기 */
 function rigData(day) {
-  const c = P.cur, curdb = c ? { updated: c.updated, dirs: c.dirs, st: { [c.code]: [c.name, c.lat, c.lon] }, sp: { [c.code]: c.sp }, dr: { [c.code]: c.dr } } : null;
+  const c = P.C, curdb = c ? { updated: c.updated, dirs: c.dirs, st: { [c.code]: [c.name, c.lat, c.lon] }, sp: { [c.code]: c.sp }, dr: { [c.code]: c.dr } } : null;
   return { curdb, today: kst(), day: day || kst(), loc: { lat: P.lat, lon: P.lon, name: P.name } };
 }
 function openRig(day) {
@@ -111,9 +159,9 @@ $("rigBack").onclick = () => { $("vRig").hidden = true; $("rigBar").hidden = tru
 /* ---------- 시작 */
 (async () => {
   try {
-    await loadIndex();
-    const saved = store.get("store_port"), def = (IDX.ports.find(p => p[0].startsWith("보령")) || IDX.ports[0])[6];
-    await loadPort(saved && IDX.ports.some(p => p[6] === saved) ? saved : def);
+    [IDX, CAL, SST] = await Promise.all([J("store-data/index.json", true), J("store-tide/cal.json", true), J("sst/sst.json", true).catch(() => null)]);
+    const saved = +store.get("store_port2"), def = (IDX.ports.find(p => p[6] === NAMDANG) || IDX.ports[0])[6];
+    await loadPort(row(saved) ? saved : def);
     renderDial();
   } catch (e) {
     $("vDial").hidden = true; const m = $("msg"); m.hidden = false;

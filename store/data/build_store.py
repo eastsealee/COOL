@@ -1,10 +1,12 @@
 """플레이스토어 버전 자료 만들기 — 공공 API만 씀 (GitHub Actions '스토어 자료 만들기', 매일 + 3시간마다 날씨)
-- 물때: 해양조사원 조석예보(고·저조) tideFcstHghLw — 조석예보 지점(DT_xxxx)별
+- 물때: 자체 물때(build_tides.py, 해양조사원 조석예보 + TideBED 상수) — 여기서는 만들지 않음
 - 날씨·바람: 기상청 단기예보(3일, 동네예보 격자)
 - 수온: 해양조사원 조위관측소 실측(sst 브랜치, 매시간) — 지점 가까운 관측소
 - 조류: 해양조사원 조류예보(currents 브랜치) — 지점 가까운 예보점
 - 음력·물때 이름: 한국 음력 + 서해 7물때식 / 일출·일몰: 계산
-결과(out/, store-data 브랜치): index.json(지점 목록) + p/<코드>.json(그 지점의 날짜별 물때·시간별 날씨·조류·수온)
+결과(out/, store-data 브랜치): index.json(1,394곳 항구 목록·각 항구의 기준항·날씨 묶음·수온 관측소·조류 예보점 + 라마르 입질 예상)
+  + w/<격자>.json(기상청 단기예보, 10km 묶음) + c/<예보점>.json(조류예보)
+  물때는 store-tide 브랜치(자체 물때 1년치, build_tides.py), 수온은 sst 브랜치를 앱이 직접 읽음
 인증키: Secret DATA_GO_KR_KEY (화면·앱에는 키가 들어가지 않음)
 """
 import datetime as dt, gzip, json, math, os, sys, time
@@ -18,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[2]
 KEY = unquote(os.environ.get("DATA_GO_KR_KEY", "").strip())
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "out"); (OUT / "p").mkdir(parents=True, exist_ok=True)
 KST = dt.timezone(dt.timedelta(hours=9)); NOW = dt.datetime.now(KST); TODAY = NOW.date()
-DAYS = [TODAY + dt.timedelta(days=k) for k in range(-4, 31)]
+DAYS = [TODAY + dt.timedelta(days=k) for k in range(-4, 31)]   # 입질 확률 예상 날짜
 HL = "https://apis.data.go.kr/1192136/tideFcstHghLw/GetTideFcstHghLwApiService"
 VIL = "https://apis.data.go.kr/1360000/VilageFcstInfoService_2.0/getVilageFcst"
 RAW = "https://raw.githubusercontent.com/eastsealee/COOL"
@@ -111,8 +113,9 @@ def wmo(sky, pty, pcp):
     return {"1": 0, "3": 2, "4": 3}.get(str(sky or "1"), 1)
 
 
-def kma_weather(lat, lon, sr_ss):
-    nx, ny = kma_grid(lat, lon); base = kma_base()
+def kma_weather(nx, ny):
+    """기상청 단기예보 (격자 nx, ny) → 시간별 [시각, 기온, 습도, 풍속, 풍향, 날씨코드, 강수, 파고]"""
+    base = kma_base()
     its = call(VIL, {"pageNo": 1, "numOfRows": 1500, "dataType": "JSON", "base_date": base.strftime("%Y%m%d"),
                      "base_time": base.strftime("%H00"), "nx": nx, "ny": ny})
     rows = {}
@@ -122,46 +125,12 @@ def kma_weather(lat, lon, sr_ss):
     for k in sorted(rows):
         r = rows[k]
         try:
-            t = f"{k[:4]}-{k[4:6]}-{k[6:8]}T{k[8:10]}:00"
             pcp = r.get("PCP", "0"); pcp = 0.0 if pcp in ("강수없음", None) else float(str(pcp).replace("mm", "").split("~")[0].replace("미만", "").strip() or 0)
-            sr, ss = sr_ss.get(t[:10], ("06:30", "18:00"))
-            out.append({"time": t, "temp": float(r["TMP"]) if "TMP" in r else None, "hum": float(r.get("REH", 0) or 0),
-                        "wspd": float(r["WSD"]) if "WSD" in r else None, "wdir": float(r["VEC"]) if "VEC" in r else None,
-                        "wcode": wmo(r.get("SKY"), r.get("PTY"), pcp), "precip": pcp, "wave": float(r["WAV"]) if r.get("WAV") not in (None, "") else None,
-                        "is_day": 1 if sr <= t[11:16] < ss else 0, "sst": None, "src": "kma"})
+            fl = lambda x: float(r[x]) if r.get(x) not in (None, "") else None
+            out.append([f"{k[:4]}-{k[4:6]}-{k[6:8]}T{k[8:10]}:00", fl("TMP"), fl("REH"), fl("WSD"), fl("VEC"), wmo(r.get("SKY"), r.get("PTY"), pcp), pcp, fl("WAV")])
         except (ValueError, KeyError):
             continue
     return out
-
-
-# ---------- 지점 목록: 조석예보가 나오는 곳
-def stations():
-    def one(code):
-        its = call(HL, {"obsCode": code, "reqDate": TODAY.strftime("%Y%m%d"), "type": "json", "pageNo": 1, "numOfRows": 10})
-        return (code, its[0]) if its else None
-    codes = [f"DT_{n:04d}" for n in range(1, 100)]
-    with ThreadPoolExecutor(6) as ex:
-        found = [x for x in ex.map(one, codes) if x]
-    return {c: {"name": it.get("obsvtrNm", c), "lat": float(it["lat"]), "lon": float(it["lot"])} for c, it in found}
-
-
-def tides_for(code):
-    ev = []
-    for d in [DAYS[0] - dt.timedelta(days=1)] + DAYS:
-        for it in call(HL, {"obsCode": code, "reqDate": d.strftime("%Y%m%d"), "type": "json", "pageNo": 1, "numOfRows": 10}):
-            try:
-                ev.append((str(it["predcDt"])[:16], float(it["predcTdlvVl"]), str(it.get("extrSe", ""))))
-            except (KeyError, ValueError):
-                pass
-    ev = sorted(set(ev))
-    days = {}
-    for i, (t, h, se) in enumerate(ev):
-        prev = ev[i - 1][1] if i else None
-        typ = "high" if se in ("1", "3") else "low"
-        if t[:10] < DAYS[0].isoformat():
-            continue
-        days.setdefault(t[:10], []).append({"t": t[11:16], "h": int(round(h)), "type": typ, "diff": int(round(h - prev)) if prev is not None else 0})
-    return days
 
 
 def lamar_pred(st):
@@ -198,11 +167,7 @@ def lamar_pred(st):
 def main():
     if not KEY:
         sys.exit("DATA_GO_KR_KEY 없음")
-    st = stations(); print(f"조석예보 지점 {len(st)}곳", flush=True)
-    ports = json.loads((ROOT / "personal" / "mulddae" / "data" / "ports.json").read_text(encoding="utf-8"))
-    SH = {"충청남도": "충남", "충청북도": "충북", "전라남도": "전남", "전라북도": "전북", "전북특별자치도": "전북", "경상남도": "경남",
-          "경상북도": "경북", "제주특별자치도": "제주", "강원특별자치도": "강원", "강원도": "강원", "경기도": "경기", "인천광역시": "인천",
-          "부산광역시": "부산", "울산광역시": "울산"}
+    T = requests.get(f"{RAW}/store-tide/ports.json", timeout=60).json()      # 자체 물때(1년치)의 항구 목록
     try:
         cur = json.loads(gzip.decompress(requests.get(f"{RAW}/currents/currents.json.gz", timeout=30).content))
     except Exception:  # noqa: BLE001
@@ -211,71 +176,40 @@ def main():
         sst = requests.get(f"{RAW}/sst/sst.json", timeout=30).json()
     except Exception:  # noqa: BLE001
         sst = None
-    index = []
-
-    def build(code):
-        s = st[code]; la, lo = s["lat"], s["lon"]
-        near = min(ports, key=lambda p: km(la, lo, p["lat"], p["lon"]))
-        area, sido = near.get("area", ""), SH.get(near.get("sido", ""), near.get("sido", ""))
-        sgg = (near.get("sigungu") or "").split()[0].rstrip("시군구") if near.get("sigungu") else sido
-        tid = tides_for(code)
-        days, srss = {}, {}
-        for d in DAYS:
-            k = d.isoformat()
-            if k not in tid:
-                continue
-            lu, mul = lunar(d); sr, ss = sun(d, la, lo); srss[k] = (sr, ss)
-            days[k] = {"lunar": lu, "mul": mul, "tides": tid[k], "sunrise": sr, "sunset": ss}
-        add_flow(days)
-        weather = kma_weather(la, lo, srss)
-        # 수온: 가까운 관측소 실측 (35km 안), 앞날은 없음
-        sinfo = None
+    (OUT / "w").mkdir(exist_ok=True); (OUT / "c").mkdir(exist_ok=True)
+    rows, groups = [], {}
+    for key, area, sido, sgg, la, lo, pid, ref in T["ports"]:
+        nx, ny = kma_grid(la, lo)
+        g = f"{nx // 2 * 2}_{ny // 2 * 2}"                 # 10km 묶음 (호출 수 줄이기)
+        groups.setdefault(g, (nx, ny))
+        sc = None
         if sst:
-            best = min(((c, km(la, lo, v[1], v[2])) for c, v in sst.get("st", {}).items() if sst["obs"].get(c)), key=lambda x: x[1], default=None)
-            if best and best[1] <= 35:
-                obs = sst["obs"][best[0]]
-                have = {w["time"] for w in weather}
-                for t, v in obs.items():
-                    tt = t.replace(" ", "T")
-                    if tt not in have and tt[:10] >= DAYS[0].isoformat():
-                        weather.append({"time": tt, "sst": v, "so": 1, "src": "obs"})
-                for w in weather:
-                    v = obs.get(w["time"].replace("T", " "))
-                    if v is not None:
-                        w["sst"], w["so"] = v, 1
-                weather.sort(key=lambda w: w["time"])
-                sinfo = {"name": sst["st"][best[0]][0], "km": round(best[1], 1), "bias": None, "updated": sst.get("updated")}
-        # 조류: 가까운 예보점 (40km 안)
-        cinfo = None
+            b = min(((km(la, lo, v[1], v[2]), c) for c, v in sst.get("st", {}).items() if sst["obs"].get(c)), default=None)
+            sc = b[1] if b and b[0] <= 35 else None
+        cc = None
         if cur:
-            best = min(((c, km(la, lo, v[1], v[2]), v[0]) for c, v in cur.get("st", {}).items() if c in cur.get("sp", {})), key=lambda x: x[1], default=None)
-            if best and best[1] <= 40:
-                c = best[0]
-                cinfo = {"code": c, "name": best[2], "lat": cur["st"][c][1], "lon": cur["st"][c][2], "km": round(best[1], 1), "updated": cur.get("updated"), "dirs": cur.get("dirs"), "sp": cur["sp"][c], "dr": cur.get("dr", {}).get(c, {})}
-        key = f"{s['name']} ({sgg})" if sgg else s["name"]
-        data = {"code": code, "key": key, "name": s["name"], "lat": la, "lon": lo, "area": area, "sido": sido, "sgg": sgg,
-                "updated": NOW.strftime("%Y-%m-%d %H:%M"), "days": days, "weather": weather, "cur": cinfo, "sstInfo": sinfo}
-        (OUT / "p" / f"{code}.json").write_text(json.dumps(data, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        return [key, area, sido, sgg, round(la, 4), round(lo, 4), code, len(days)]
-
-    with ThreadPoolExecutor(4) as ex:
-        for r in ex.map(build, sorted(st)):
-            if r[7] >= 7:
-                index.append(r[:7])
-            else:
-                log.append(f"{r[6]} {r[0]}: 물때 {r[7]}일뿐이라 뺌")
-    index.sort(key=lambda r: (r[1], r[2], r[0]))
-    # 입질 확률 보정: 라마르호 조과 기록(허락 받음) + 보령 조석예보 → 날짜별 예상 오전·오후 조황 (개인 버전과 같은 방식)
+            b = min(((km(la, lo, v[1], v[2]), c) for c, v in cur.get("st", {}).items() if c in cur.get("sp", {})), default=None)
+            cc = b[1] if b and b[0] <= 40 else None
+        rows.append([key, area, sido, sgg, la, lo, pid, ref, g, sc, cc])
+    print(f"항구 {len(rows)}곳 · 날씨 묶음 {len(groups)}개", flush=True)
+    with ThreadPoolExecutor(6) as ex:
+        for g, w in zip(groups, ex.map(lambda xy: kma_weather(*xy), groups.values())):
+            if w:
+                (OUT / "w" / f"{g}.json").write_text(json.dumps(w, separators=(",", ":")), encoding="utf-8")
+    if cur:
+        for c in {r[10] for r in rows if r[10]}:
+            n, la, lo = cur["st"][c]
+            (OUT / "c" / f"{c}.json").write_text(json.dumps({"code": c, "name": n, "lat": la, "lon": lo, "updated": cur.get("updated"), "dirs": cur.get("dirs"),
+                                                             "sp": cur["sp"][c], "dr": cur.get("dr", {}).get(c, {})}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     bite = {}
     try:
-        bite = lamar_pred(st)
+        bite = lamar_pred(None)
     except Exception as e:  # noqa: BLE001
         log.append(f"라마르 예상 실패: {e}")
-    (OUT / "index.json").write_text(json.dumps({"updated": NOW.strftime("%Y-%m-%d %H:%M"), "days": [DAYS[0].isoformat(), DAYS[-1].isoformat()],
-                                                "ports": index, "bite": bite}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-    print(f"완료: 지점 {len(index)}곳 · {DAYS[0]}~{DAYS[-1]}", *log, sep="\n")
-    if len(index) < 10:
-        sys.exit("지점이 너무 적음")
+    (OUT / "index.json").write_text(json.dumps({"updated": NOW.strftime("%Y-%m-%d %H:%M"), "range": T.get("range"), "refs": T.get("refs"),
+                                                "fields": ["항구", "권역", "시도", "시군", "위도", "경도", "id", "기준항", "날씨묶음", "수온관측소", "조류예보점"],
+                                                "ports": rows, "bite": bite}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+    print(f"완료 · {NOW:%F %H:%M}", *log, sep="\n")
 
 
 if __name__ == "__main__":
