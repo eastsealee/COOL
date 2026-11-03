@@ -26,12 +26,37 @@ iframe.view[hidden]{display:none}
 .msg{padding:28px 20px;text-align:center;color:var(--sub);line-height:1.7}
 .msg b{color:var(--ink)}
 .foot{padding:10px 14px 18px;font-size:11px;color:#6f8396;line-height:1.6;text-align:center}
+/* 시즌 예상 */
+#season{padding:10px 12px 6px}
+#season[hidden]{display:none}
+#season h2{font-size:19px;margin:6px 2px 2px}#season .sub{color:var(--sub);font-size:12.5px;margin:0 2px 10px;line-height:1.5}
+.mon{background:#0f1f2d;border:1px solid var(--line);border-radius:14px;padding:10px 8px 8px;margin-bottom:10px}
+.mon h3{margin:0 4px 6px;font-size:15px}
+.cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cg .wd{text-align:center;font-size:11px;color:var(--sub);padding:2px 0}.cg .wd.sun{color:#ff8a8a}.cg .wd.sat{color:#8ab4ff}
+.cg button{position:relative;border:1px solid #1f3446;background:#132637;color:var(--ink);border-radius:8px;padding:4px 0 9px;font-family:inherit;cursor:pointer;min-height:50px}
+.cg button b{display:block;font-size:14px;font-weight:800}.cg button small{display:block;font-size:9.5px;color:var(--sub);line-height:1.25}
+.cg button.sun b,.cg button.hol b{color:#ff8a8a}.cg button.sat b{color:#8ab4ff}
+.cg button i{position:absolute;left:4px;right:4px;bottom:3px;height:4px;border-radius:2px}
+.cg button.past{opacity:.45}.cg button.today{outline:2px solid var(--sea)}.cg button.sel{background:#1d4660;border-color:var(--sea)}
+.cg button.weak small.p{color:#7fe0f5;font-weight:800}
+.cg .no{visibility:hidden}
+.det{background:#0f1f2d;border:1px solid var(--sea);border-radius:14px;padding:12px 14px;margin:4px 0 10px}
+.det h3{margin:0 0 8px;font-size:16px}.det h3 em{font-style:normal;font-size:12px;font-weight:800;color:#06202b;background:var(--sea);border-radius:6px;padding:1px 7px;margin-left:6px}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.kv div{background:#132637;border-radius:10px;padding:8px 10px}.kv small{display:block;color:var(--sub);font-size:11.5px}.kv b{font-size:19px}
+.kv b small{display:inline;font-size:12px;color:var(--sub);font-weight:600}
+.bar2{height:8px;border-radius:4px;background:#1f3446;margin-top:6px;overflow:hidden}.bar2 i{display:block;height:100%;border-radius:4px}
+.det .go{margin-top:10px;width:100%;border:1px solid var(--sea);background:transparent;color:var(--sea);border-radius:999px;padding:9px;font-weight:800;font-family:inherit;font-size:14px;cursor:pointer}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin:0 2px 10px}.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-right:3px}
 </style></head><body class="loading">
 <iframe id="splash" src="splash.html" title="쭈갑과물때"></iframe>
 <div class="app">
   <div class="backbar" id="rigBar" hidden><button id="rigBack">← 물때 시계로 돌아가기</button></div>
   <iframe class="view" id="vDial" src="views/dial/index.html" title="물때 시계" allow="geolocation" scrolling="no"></iframe>
   <iframe class="view" id="vRig" title="채비 계산기" allow="geolocation" scrolling="no" hidden></iframe>
+  <div class="backbar" id="seaBar" hidden><button id="seaBack">← 물때 시계로 돌아가기</button></div>
+  <section id="season" hidden></section>
   <div class="msg" id="msg" hidden></div>
   <div class="foot" id="foot"></div>
 </div>
@@ -145,7 +170,8 @@ function dialData() {
   return {
     store: true, bite: { on: BITE_SIDO.has(P.sido), pred: IDX.bite || {} },
     port: P.name, portFull: P.key, ports: IDX.ports.map(r => r.slice(0, 6)),
-    today, center, days, weather, cur, sstInfo, vworld: ""
+    today, center, days, weather, cur, sstInfo, vworld: "",
+    seasonYear: IDX.season && Object.keys(IDX.season).length ? Object.keys(IDX.season)[0].slice(0, 4) : null
   };
 }
 function renderDial() { if (dialReady && P) post($("vDial"), dialData()) }
@@ -155,6 +181,7 @@ async function onValue(fr, v) {
   if (fr.id !== "vDial") return;
   if (v.scrollTo != null) { window.scrollTo({ top: $("vDial").offsetTop + v.scrollTo - 8, behavior: "smooth" }); return }
   if (v.goto === "chaebi") { openRig(v.date); return }
+  if (v.goto === "season") { openSeason(v.date); return }
   if (v.port && v.port !== P.key) { const r = IDX.ports.find(x => x[0] === v.port); if (r) { await loadPort(r[6]); renderDial() } return }
   if (v.date) { center = String(v.date).slice(0, 10); renderDial() }
 }
@@ -172,6 +199,58 @@ function openRig(day) {
 }
 $("rigBack").onclick = () => { $("vRig").hidden = true; $("rigBar").hidden = true; $("vDial").hidden = false; renderDial(); window.scrollTo({ top: 0 }) };
 
+
+/* ---------- 시즌 예상 (그 해 9~12월): 같은 달·비슷한 물세기였던 과거 출조일들의 조과 평균 */
+let seaSel = null;
+const scoreColor = v => { if (v == null) return "#3a4b5a"; const x = Math.max(0, Math.min(1, (v - 35) / 35));
+  const st = [[0, [250, 82, 82]], [.5, [250, 176, 5]], [1, [55, 178, 77]]];
+  for (let i = 1; i < st.length; i++) if (x <= st[i][0]) { const [x0, c0] = st[i - 1], [x1, c1] = st[i], f = (x - x0) / (x1 - x0);
+    return "rgb(" + c0.map((c, j) => Math.round(c + (c1[j] - c) * f)).join(",") + ")" } return "rgb(55,178,77)" };
+const segWord = v => v == null ? "" : v >= 70 ? "좋음" : v >= 55 ? "보통 이상" : v >= 40 ? "보통" : "약함";
+function openSeason(day) {
+  const S = IDX.season || {}, keys = Object.keys(S).sort(); if (!keys.length) return;
+  const today = kst();
+  seaSel = S[String(day || "").slice(0, 10)] ? String(day).slice(0, 10) : (S[today] ? today : keys[0]);
+  $("vDial").hidden = true; $("seaBar").hidden = false; $("season").hidden = false; drawSeason(); window.scrollTo({ top: 0 });
+}
+function closeSeason() { $("season").hidden = true; $("seaBar").hidden = true; $("vDial").hidden = false; renderDial(); window.scrollTo({ top: 0 }) }
+$("seaBack").onclick = closeSeason;
+function drawSeason() {
+  const S = IDX.season, H = IDX.holidays || {}, keys = Object.keys(S).sort(), y = keys[0].slice(0, 4), today = kst();
+  const months = [...new Set(keys.map(k => +k.slice(5, 7)))];
+  let h = `<h2>${y}년 쭈갑 시즌 예상</h2><p class="sub">${y}년 9~12월 날짜별 예상 조황이에요. 같은 달 안에서 물세기가 비슷했던 과거 출조일들의 조과를 평균했어요. 날짜를 누르면 아래에 자세히 나와요.</p>
+    <div class="legend"><span><i style="background:${scoreColor(75)}"></i>분위기 좋음</span><span><i style="background:${scoreColor(52)}"></i>보통</span><span><i style="background:${scoreColor(30)}"></i>약함</span><span style="color:#7fe0f5">물세기 30% 이하 = 파란 숫자</span></div>`;
+  h += `<div id="seaDet"></div>`;
+  for (const m of months) {
+    const first = new Date(Date.UTC(+y, m - 1, 1)), lead = first.getUTCDay(), nd = new Date(Date.UTC(+y, m, 0)).getUTCDate();
+    h += `<div class="mon"><h3>${m}월</h3><div class="cg">` + ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="wd ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</span>`).join("");
+    for (let i = 0; i < lead; i++) h += `<span class="no"></span>`;
+    for (let d = 1; d <= nd; d++) {
+      const k = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, v = S[k], wd = (lead + d - 1) % 7;
+      const cls = [wd === 0 ? "sun" : wd === 6 ? "sat" : "", H[k] ? "hol" : "", k < today ? "past" : "", k === today ? "today" : "", k === seaSel ? "sel" : "", v && v.pct != null && v.pct <= 30 ? "weak" : ""].join(" ");
+      h += v ? `<button data-k="${k}" class="${cls}" title="${H[k] || ""}"><b>${d}</b><small>${v.mul}</small><small class="p">${v.pct != null ? v.pct + "%" : ""}</small><i style="background:${scoreColor(v.score)}"></i></button>`
+             : `<button class="${cls}" disabled><b>${d}</b></button>`;
+    }
+    h += `</div></div>`;
+  }
+  h += `<p class="sub">예상은 과거 출조 기록의 평균이라 실제 조황·날씨와 다를 수 있어요. 날씨는 예상에 들어가지 않아요.</p>`;
+  $("season").innerHTML = h;
+  $("season").querySelectorAll("button[data-k]").forEach(b => b.onclick = () => { seaSel = b.dataset.k; drawSeason(); $("seaDet").scrollIntoView({ behavior: "smooth", block: "center" }) });
+  const v = S[seaSel], dd = new Date(seaSel + "T00:00:00Z"), WD = ["일", "월", "화", "수", "목", "금", "토"][dd.getUTCDay()];
+  const f0 = x => x == null ? "-" : Math.round(x), f1 = x => x == null ? "-" : (Math.round(x * 10) / 10).toFixed(1);
+  $("seaDet").innerHTML = `<div class="det"><h3>${+seaSel.slice(5, 7)}월 ${+seaSel.slice(8, 10)}일(${WD}) · 음력 ${v.lunar.replace(".", "월 ")}일<em>${v.mul}</em>${H[seaSel] ? ` <span style="color:#ff8a8a;font-size:13px">${H[seaSel]}</span>` : ""}</h3>
+    <div class="kv">
+      <div><small>예상 분위기</small><b>${f0(v.score)}<small>%</small></b><div class="bar2"><i style="width:${Math.max(0, Math.min(100, v.score || 0))}%;background:${scoreColor(v.score)}"></i></div></div>
+      <div><small>물세기</small><b>${v.pct != null ? v.pct : "-"}<small>%</small></b><div class="bar2"><i style="width:${v.pct || 0}%;background:#4cc3e6"></i></div></div>
+      <div><small>예상 주꾸미 (중앙값 / 최고)</small><b>${f0(v.jj)}<small> / ${f0(v.jj_max)}마리</small></b></div>
+      <div><small>예상 갑오징어 (중앙값 / 최고)</small><b>${f1(v.gg)}<small> / ${f0(v.gg_max)}마리</small></b></div>
+      <div><small>오전 조황</small><b>${f0(v.am)}<small>% ${segWord(v.am)}</small></b></div>
+      <div><small>오후 조황</small><b>${f0(v.pm)}<small>% ${segWord(v.pm)}</small></b></div>
+    </div>
+    <p class="sub" style="margin:8px 0 0">비슷했던 과거 출조일 ${v.n}일의 가중 평균 (같은 달 안에서 날짜가 가깝고 물세기가 비슷할수록 비중 큼)</p>
+    <button class="go" id="seaGo">이 날 물때 시계 보기 →</button></div>`;
+  $("seaGo").onclick = () => { center = seaSel; closeSeason() };
+}
 /* ---------- 시작 */
 (async () => {
   try {

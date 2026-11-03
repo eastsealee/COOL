@@ -138,8 +138,9 @@ def lamar_pred(st):
     import lamar_bite as lb
     code = "DT_0025"                     # 보령 — 남당항(라마르호 출항지)과 가장 가까운 조석예보 지점
     recs = json.loads(lb.RECORDS.read_text(encoding="utf-8"))
-    months = {d.month for d in DAYS}
-    need = sorted({dt.date.fromisoformat(r["date"]) for r in recs if int(r["date"][5:7]) in months} | set(DAYS))
+    SEASON = season_days()
+    months = {d.month for d in DAYS} | {d.month for d in SEASON}
+    need = sorted({dt.date.fromisoformat(r["date"]) for r in recs if int(r["date"][5:7]) in months} | set(DAYS) | set(SEASON))
     need = sorted({x for d in need for x in (d - dt.timedelta(days=1), d)})
     try:
         cache = requests.get(f"{RAW}/store-data/lamar_tides.json", timeout=30).json()
@@ -161,7 +162,44 @@ def lamar_pred(st):
         prev = flat[i - 1][1] if i else None
         tt = dt.datetime.strptime(t, "%Y-%m-%d %H:%M")
         exd.setdefault(tt.date(), []).append((tt, h, "high" if se in ("1", "3") else "low", (h - prev) if prev is not None else 0))
+    global SEASON_OUT
+    SEASON_OUT = season_pred(SEASON, exd, lb)
     return lb.predictions(list(DAYS), exd, lambda d: lunar(d)[1])
+
+
+SEASON_OUT = {}
+
+
+def season_days():
+    """올해 쭈갑 시즌(9~12월) 날짜 — 개인 버전 '2026 예상'과 같은 기간"""
+    y = TODAY.year if TODAY.month >= 6 else TODAY.year
+    a, b = dt.date(y, 9, 1), dt.date(y, 12, 31)
+    return [a + dt.timedelta(days=k) for k in range((b - a).days + 1)]
+
+
+def season_pred(days, exd, lb):
+    """시즌 날짜별 예상 (분위기·주꾸미·갑오징어·오전/오후) — 개인 버전 lamar_forecast.predict_one과 같은 계산
+    지난 날은 그날 전 기록만 써서 공정하게. 출처 이름·글 제목·링크 같은 개인 버전 내용은 넣지 않음"""
+    sys.path.insert(0, str(ROOT / "personal" / "lamar"))
+    import lamar_forecast as lf
+    rows = lf.load_rows()
+    pct = lb.pct_of(exd)
+    tide = {d.isoformat(): {"pct": v, "mul": lunar(d)[1]} for d, v in pct.items()}
+    lf.attach_tide(rows, tide)
+    fc = json.loads(lf.FC_FILE.read_text(encoding="utf-8")) if lf.FC_FILE.exists() else []
+    actual = {r["date"]: r for r in rows}
+    cal = lf.calibration(fc, actual)
+    out = {}
+    for d in days:
+        use = rows if d >= TODAY else [r for r in rows if r["date"] < d.isoformat()]
+        if not any(int(r["date"][5:7]) == d.month for r in use):
+            continue
+        p = lf.predict_one(d, use, tide)
+        r = lf.make_record(TODAY, d, p, cal, "예상")
+        lu, mul = lunar(d)
+        out[d.isoformat()] = {"score": r["score"], "jj": r["jj"], "gg": r["gg"], "jj_max": r["jj_max"], "gg_max": r["gg_max"],
+                              "am": r["am"], "pm": r["pm"], "pct": r["pct"], "mul": mul, "lunar": lu, "n": r["n"]}
+    return out
 
 
 def main():
@@ -208,7 +246,9 @@ def main():
         log.append(f"라마르 예상 실패: {e}")
     (OUT / "index.json").write_text(json.dumps({"updated": NOW.strftime("%Y-%m-%d %H:%M"), "range": T.get("range"), "refs": T.get("refs"),
                                                 "fields": ["항구", "권역", "시도", "시군", "위도", "경도", "id", "기준항", "날씨묶음", "수온관측소", "조류예보점"],
-                                                "ports": rows, "bite": bite}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                                                "ports": rows, "bite": bite, "season": SEASON_OUT,
+                                                "holidays": {"2026-09-24": "추석 연휴", "2026-09-25": "추석", "2026-09-26": "추석 연휴", "2026-10-03": "개천절",
+                                                             "2026-10-05": "대체공휴일", "2026-10-09": "한글날", "2026-12-25": "성탄절"}}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"완료 · {NOW:%F %H:%M}", *log, sep="\n")
 
 
