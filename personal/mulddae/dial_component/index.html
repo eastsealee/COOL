@@ -635,12 +635,19 @@ function updateRadar(){const g=document.getElementById("radarDyn"),lb=document.g
 function tabOn(id){["tbMul","tbCur","tbBite","tbRsv"].forEach(k=>document.getElementById(k).classList.toggle("on",k===id))}
 document.getElementById("tbMul").onclick=()=>{if(RVOPEN)closeRadar();tabOn("tbMul")};
 document.getElementById("tbCur").onclick=()=>{if(!RVOPEN)openRadar();tabOn("tbCur")};
-document.getElementById("tbBite").onclick=()=>{tabOn("tbBite");loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
-document.getElementById("tbRsv").onclick=()=>{tabOn("tbRsv");loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+document.getElementById("tbBite").onclick=()=>{if(D&&D.store){storeTab("bite");return}tabOn("tbBite");loadEl.hidden=false;loadEl.textContent="라마르호 예상분석 여는 중…";send("streamlit:setComponentValue",{value:{goto:"lamar",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
+document.getElementById("tbRsv").onclick=()=>{if(D&&D.store){storeTab("rsv");return}tabOn("tbRsv");loadEl.hidden=false;loadEl.textContent="예약조회 여는 중…";send("streamlit:setComponentValue",{value:{goto:"sunsang24",date:DAYS[cur].date,n:Date.now()},dataType:"json"})};
 
 /* 날짜 카드의 날짜를 누르면 달력 (원 둘레 달력 아이콘 대신) */
 (()=>{const dl=document.getElementById("dateL");dl.setAttribute("role","button");dl.tabIndex=0;dl.title="달력에서 날짜 고르기";
   dl.addEventListener("click",()=>{if(RVOPEN)closeRadar();toggleCal()});dl.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggleCal()}})})();
+
+/* 플레이스토어 버전(D.store): 남의 자료를 쓰는 '예상분석·예약조회' 대신 '채비계산·입질확률' 탭 */
+function storeTabs(){const on=!!(D&&D.store);document.getElementById("tbBite").textContent=on?"채비계산":"예상분석";document.getElementById("tbRsv").textContent=on?"입질확률":"예약조회"}
+function storeTab(k){if(k==="bite"){loadEl.hidden=false;loadEl.textContent="채비 계산기 여는 중…";send("streamlit:setComponentValue",{value:{goto:"chaebi",date:DAYS[cur].date,n:Date.now()},dataType:"json"});return}
+  if(RVOPEN)closeRadar();tabOn("tbRsv");const b=document.getElementById("bite");
+  if(b&&!b.hidden){send("streamlit:setComponentValue",{value:{scrollTo:Math.round(b.getBoundingClientRect().top+window.scrollY),n:Date.now()},dataType:"json"})}
+  setTimeout(()=>tabOn("tbMul"),1500)}
 function nextTide(h){const m=DAYS[cur].off+h*60;return ALL.find(t=>t.m>=m)}
 function select(h){selH=h;if(typeof biteMark==="function")biteMark(h);updateRadar();
   sel.setAttribute("d",arc(h*60,h*60+60,80,198));const w=W?W[h]:null;
@@ -960,7 +967,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")portsEl.hidden=true}
 window.addEventListener("message",e=>{const m=e.data;if(!m||m.type!=="streamlit:render")return;
   loadEl.hidden=true;loadEl.textContent="물때 불러오는 중…";const nd=m.args&&m.args.data;
   if(!nd||!nd.days||!Object.keys(nd.days).length){document.querySelector(".app").innerHTML='<div style="padding:24px">물때 자료를 불러오지 못했습니다.</div>';setHeight();return}
-  setData(nd);render();try{nmListUI();if(MAPMODE==="port"&&MAPPORT!==D.portFull&&!document.getElementById("nearMap").hidden)showPortMap()}catch(e){}setHeight()});
+  setData(nd);render();try{storeTabs()}catch(e){}try{nmListUI();if(MAPMODE==="port"&&MAPPORT!==D.portFull&&!document.getElementById("nearMap").hidden)showPortMap()}catch(e){}setHeight()});
 new ResizeObserver(setHeight).observe(document.body);
 send("streamlit:componentReady",{apiVersion:1});
 })();

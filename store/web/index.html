@@ -1,28 +1,127 @@
 <!doctype html>
 <html lang="ko"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>쭈갑과물때</title>
+<!-- 플레이스토어 버전 첫 화면(껍데기)
+     - 첫 화면: splash.html (쭈꾸미·갑오징어) → 물때 시계가 그려지면 사라짐
+     - 화면: views/dial(물때 시계·조류 레이더·입질 확률·지도), views/rig(채비 계산기) — 개인 버전과 같은 화면 파일
+     - 자료: store-data 브랜치의 JSON (해양조사원·기상청 공공 API로 만든 것). 인증키는 앱에 없음
+     - 화면들은 원래 Streamlit 안에서 돌던 것이라, 여기서 Streamlit 대신 자료를 넘겨줌(같은 신호 방식) -->
 <style>
 :root{--bg:#0b1722;--ink:#eef4fa;--sub:#a3b6c8;--sea:#4cc3e6;--line:#1d3346}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Noto Sans KR',system-ui,sans-serif}
 html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
-.wrap{max-width:520px;margin:0 auto;padding:24px 18px 40px}
-h1{font-size:24px;margin:0 0 6px}h1 b{color:#ff8a5a}h1 i{font-style:normal;color:#b9a2ff}
-p{color:var(--sub);line-height:1.6;margin:6px 0}
-ol{padding-left:20px;line-height:1.9}li.done{color:#7fe0a6}li.now{color:var(--sea);font-weight:800}
-.tag{display:inline-block;font-size:12px;font-weight:800;color:#06202b;background:var(--sea);border-radius:999px;padding:2px 10px}
-</style></head><body><div class="wrap">
-<span class="tag">플레이스토어 버전 · 미리보기</span>
-<h1><b>쭈</b><i>갑</i>과물때</h1>
-<p>이 화면이 플레이스토어 앱 안에 그대로 들어가요. 만드는 대로 여기서 먼저 확인할 수 있어요.</p>
-<ol>
-  <li class="now">자료: 해양조사원 조석예보·기상청 예보 자동으로 받기</li>
-  <li>물때 시계 (공공 자료)</li>
-  <li>조류 레이더</li>
-  <li>채비 계산기</li>
-  <li>입질 확률</li>
-  <li>안드로이드 앱으로 만들기</li>
-</ol>
+.app{max-width:560px;margin:0 auto}
+body.loading{min-height:760px}   /* 첫 화면이 보일 자리 (웹 미리보기에서도) */
+iframe.view{display:block;width:100%;border:0;background:var(--bg)}
+iframe.view[hidden]{display:none}
+#splash{position:fixed;inset:0;z-index:50;border:0;width:100%;height:100%;background:#071520;transition:opacity .6s}
+#splash.out{opacity:0;pointer-events:none}
+.backbar{display:flex;align-items:center;padding:10px 12px;background:#0d1a26;border-bottom:1px solid var(--line)}
+.backbar[hidden]{display:none}
+.backbar button{border:2px solid #bff1ff;border-radius:999px;padding:8px 18px;font-weight:800;font-size:14.5px;font-family:inherit;color:#fff;cursor:pointer;
+  background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%);background-size:250% 100%;
+  text-shadow:0 1px 3px rgba(0,40,60,.8);animation:shine 2.2s linear infinite}
+@keyframes shine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+.msg{padding:28px 20px;text-align:center;color:var(--sub);line-height:1.7}
+.msg b{color:var(--ink)}
+.foot{padding:10px 14px 18px;font-size:11px;color:#6f8396;line-height:1.6;text-align:center}
+</style></head><body class="loading">
+<iframe id="splash" src="splash.html" title="쭈갑과물때"></iframe>
+<div class="app">
+  <div class="backbar" id="rigBar" hidden><button id="rigBack">← 물때 시계로 돌아가기</button></div>
+  <iframe class="view" id="vDial" src="views/dial/index.html" title="물때 시계" allow="geolocation" scrolling="no"></iframe>
+  <iframe class="view" id="vRig" title="채비 계산기" allow="geolocation" scrolling="no" hidden></iframe>
+  <div class="msg" id="msg" hidden></div>
+  <div class="foot" id="foot"></div>
 </div>
+<script>
+"use strict";
+const DATA = "https://raw.githubusercontent.com/eastsealee/COOL/store-data/";
+const $ = id => document.getElementById(id);
+const store = { get: k => { try { return localStorage.getItem(k) } catch (e) { return null } },
+                set: (k, v) => { try { localStorage.setItem(k, v) } catch (e) {} } };
+const BITE_SIDO = new Set(["인천", "경기", "충남"]);       // 입질 확률 모델이 맞춰진 서해 중부
+let IDX = null, P = null, center = null, dialReady = false, rigReady = false, rigArgs = null, shownAt = Date.now();
+
+const kst = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const addDays = (d, k) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + k); return t.toISOString().slice(0, 10) };
+
+/* ---------- 화면(iframe)과 주고받기: Streamlit과 같은 신호 */
+function post(fr, args) { fr.contentWindow && fr.contentWindow.postMessage({ type: "streamlit:render", args: { data: args } }, "*") }
+window.addEventListener("message", e => {
+  const m = e.data || {}, fr = e.source === $("vDial").contentWindow ? $("vDial") : e.source === $("vRig").contentWindow ? $("vRig") : null;
+  if (!fr || !m.type) return;
+  if (m.type === "streamlit:componentReady") { if (fr.id === "vDial") { dialReady = true; renderDial() } else { rigReady = true; if (rigArgs) post(fr, rigArgs) } }
+  else if (m.type === "streamlit:setFrameHeight") { fr.style.height = Math.max(200, m.height) + "px"; if (fr.id === "vDial") hideSplash() }
+  else if (m.type === "streamlit:setComponentValue") onValue(fr, m.value || {});
+});
+
+function hideSplash() {
+  const s = $("splash"); if (s.classList.contains("out")) return;
+  setTimeout(() => { s.classList.add("out"); document.body.classList.remove("loading"); setTimeout(() => s.remove(), 700) }, Math.max(0, 2200 - (Date.now() - shownAt)));
+}
+
+/* ---------- 자료 */
+async function loadIndex() {
+  const r = await fetch(DATA + "index.json?t=" + Date.now()); if (!r.ok) throw new Error("index " + r.status);
+  IDX = await r.json();
+}
+async function loadPort(code) {
+  const r = await fetch(DATA + "p/" + code + ".json?t=" + Math.floor(Date.now() / 6e5)); if (!r.ok) throw new Error("port " + r.status);
+  P = await r.json(); store.set("store_port", code);
+  $("foot").textContent = `물때: 국립해양조사원 조석예보 · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · ${P.updated} 기준`;
+}
+function portList() { return IDX.ports.map(p => [p[0], p[1], p[2], p[3], p[4], p[5]]) }
+function codeOf(key) { const p = IDX.ports.find(x => x[0] === key); return p ? p[6] : null }
+
+function dialData() {
+  const today = kst(), days = P.days, keys = Object.keys(days).sort();
+  if (!center || !days[center]) center = days[today] ? today : keys[0];
+  return {
+    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: {} }, port: P.name, portFull: P.key, ports: portList(),
+    today, center, days, weather: P.weather || [], cur: P.cur, sstInfo: P.sstInfo, vworld: ""
+  };
+}
+function renderDial() { if (dialReady && P) post($("vDial"), dialData()) }
+
+/* ---------- 화면에서 온 요청 */
+async function onValue(fr, v) {
+  if (fr.id === "vDial") {
+    if (v.scrollTo != null) { window.scrollTo({ top: $("vDial").offsetTop + v.scrollTo - 8, behavior: "smooth" }); return }
+    if (v.goto === "chaebi") { openRig(v.date); return }
+    if (v.port && v.port !== P.key) { const c = codeOf(v.port); if (c) { await loadPort(c); renderDial() } return }
+    if (v.date) { const d = String(v.date).slice(0, 10); if (P.days[d]) { center = d; renderDial() } else { renderDial() } }
+  }
+}
+
+/* ---------- 채비 계산기 */
+function rigData(day) {
+  const c = P.cur, curdb = c ? { updated: c.updated, dirs: c.dirs, st: { [c.code]: [c.name, c.lat, c.lon] }, sp: { [c.code]: c.sp }, dr: { [c.code]: c.dr } } : null;
+  return { curdb, today: kst(), day: day || kst(), loc: { lat: P.lat, lon: P.lon, name: P.name } };
+}
+function openRig(day) {
+  rigArgs = rigData(String(day || "").slice(0, 10));
+  $("vDial").hidden = true; $("rigBar").hidden = false; $("vRig").hidden = false;
+  if (!$("vRig").src) $("vRig").src = "views/rig/index.html"; else if (rigReady) post($("vRig"), rigArgs);
+  window.scrollTo({ top: 0 });
+}
+$("rigBack").onclick = () => { $("vRig").hidden = true; $("rigBar").hidden = true; $("vDial").hidden = false; renderDial(); window.scrollTo({ top: 0 }) };
+
+/* ---------- 시작 */
+(async () => {
+  try {
+    await loadIndex();
+    const saved = store.get("store_port"), def = (IDX.ports.find(p => p[0].startsWith("보령")) || IDX.ports[0])[6];
+    await loadPort(saved && IDX.ports.some(p => p[6] === saved) ? saved : def);
+    renderDial();
+  } catch (e) {
+    $("vDial").hidden = true; const m = $("msg"); m.hidden = false;
+    m.innerHTML = "<b>자료를 불러오지 못했습니다.</b><br>인터넷 연결을 확인하고 다시 열어 주세요.";
+    hideSplash();
+  }
+  setTimeout(hideSplash, 25000);
+})();
+</script>
 <script src="preview-host.js"></script>
 </body></html>

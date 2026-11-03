@@ -220,7 +220,7 @@ def main():
             best = min(((c, km(la, lo, v[1], v[2]), v[0]) for c, v in cur.get("st", {}).items() if c in cur.get("sp", {})), key=lambda x: x[1], default=None)
             if best and best[1] <= 40:
                 c = best[0]
-                cinfo = {"name": best[2], "km": round(best[1], 1), "dirs": cur.get("dirs"), "sp": cur["sp"][c], "dr": cur.get("dr", {}).get(c, {})}
+                cinfo = {"code": c, "name": best[2], "lat": cur["st"][c][1], "lon": cur["st"][c][2], "km": round(best[1], 1), "updated": cur.get("updated"), "dirs": cur.get("dirs"), "sp": cur["sp"][c], "dr": cur.get("dr", {}).get(c, {})}
         key = f"{s['name']} ({sgg})" if sgg else s["name"]
         data = {"code": code, "key": key, "name": s["name"], "lat": la, "lon": lo, "area": area, "sido": sido, "sgg": sgg,
                 "updated": NOW.strftime("%Y-%m-%d %H:%M"), "days": days, "weather": weather, "cur": cinfo, "sstInfo": sinfo}
