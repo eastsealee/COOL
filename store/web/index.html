@@ -70,7 +70,7 @@ async function loadIndex() {
 async function loadPort(code) {
   const r = await fetch(DATA + "p/" + code + ".json?t=" + Math.floor(Date.now() / 6e5)); if (!r.ok) throw new Error("port " + r.status);
   P = await r.json(); store.set("store_port", code);
-  $("foot").textContent = `물때: 국립해양조사원 조석예보 · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · ${P.updated} 기준`;
+  $("foot").textContent = `물때: 국립해양조사원 조석예보 · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · 입질 확률 보정: 라마르호 조과 기록 · ${P.updated} 기준`;
 }
 function portList() { return IDX.ports.map(p => [p[0], p[1], p[2], p[3], p[4], p[5]]) }
 function codeOf(key) { const p = IDX.ports.find(x => x[0] === key); return p ? p[6] : null }
@@ -79,7 +79,7 @@ function dialData() {
   const today = kst(), days = P.days, keys = Object.keys(days).sort();
   if (!center || !days[center]) center = days[today] ? today : keys[0];
   return {
-    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: {} }, port: P.name, portFull: P.key, ports: portList(),
+    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: IDX.bite || {} },   // 라마르호 기록으로 예상한 오전·오후 조황 (±20% 보정) port: P.name, portFull: P.key, ports: portList(),
     today, center, days, weather: P.weather || [], cur: P.cur, sstInfo: P.sstInfo, vworld: ""
   };
 }

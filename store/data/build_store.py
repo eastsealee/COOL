@@ -164,6 +164,37 @@ def tides_for(code):
     return days
 
 
+def lamar_pred(st):
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import lamar_bite as lb
+    code = "DT_0025"                     # 보령 — 남당항(라마르호 출항지)과 가장 가까운 조석예보 지점
+    recs = json.loads(lb.RECORDS.read_text(encoding="utf-8"))
+    months = {d.month for d in DAYS}
+    need = sorted({dt.date.fromisoformat(r["date"]) for r in recs if int(r["date"][5:7]) in months} | set(DAYS))
+    need = sorted({x for d in need for x in (d - dt.timedelta(days=1), d)})
+    try:
+        cache = requests.get(f"{RAW}/store-data/lamar_tides.json", timeout=30).json()
+    except Exception:  # noqa: BLE001
+        cache = {}
+    todo = [d for d in need if d.isoformat() not in cache or d >= TODAY - dt.timedelta(days=1)]
+
+    def one(d):
+        its = call(HL, {"obsCode": code, "reqDate": d.strftime("%Y%m%d"), "type": "json", "pageNo": 1, "numOfRows": 10})
+        return d, [[str(i["predcDt"])[:16], float(i["predcTdlvVl"]), str(i.get("extrSe", ""))] for i in its if i.get("predcDt")]
+    with ThreadPoolExecutor(6) as ex:
+        for d, v in ex.map(one, todo):
+            if v:
+                cache[d.isoformat()] = v
+    (OUT / "lamar_tides.json").write_text(json.dumps(cache, separators=(",", ":")), encoding="utf-8")
+    flat = sorted({(t, h, se) for v in cache.values() for t, h, se in v})
+    exd = {}
+    for i, (t, h, se) in enumerate(flat):
+        prev = flat[i - 1][1] if i else None
+        tt = dt.datetime.strptime(t, "%Y-%m-%d %H:%M")
+        exd.setdefault(tt.date(), []).append((tt, h, "high" if se in ("1", "3") else "low", (h - prev) if prev is not None else 0))
+    return lb.predictions(list(DAYS), exd, lambda d: lunar(d)[1])
+
+
 def main():
     if not KEY:
         sys.exit("DATA_GO_KR_KEY 없음")
@@ -234,8 +265,14 @@ def main():
             else:
                 log.append(f"{r[6]} {r[0]}: 물때 {r[7]}일뿐이라 뺌")
     index.sort(key=lambda r: (r[1], r[2], r[0]))
+    # 입질 확률 보정: 라마르호 조과 기록(허락 받음) + 보령 조석예보 → 날짜별 예상 오전·오후 조황 (개인 버전과 같은 방식)
+    bite = {}
+    try:
+        bite = lamar_pred(st)
+    except Exception as e:  # noqa: BLE001
+        log.append(f"라마르 예상 실패: {e}")
     (OUT / "index.json").write_text(json.dumps({"updated": NOW.strftime("%Y-%m-%d %H:%M"), "days": [DAYS[0].isoformat(), DAYS[-1].isoformat()],
-                                                "ports": index}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
+                                                "ports": index, "bite": bite}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"완료: 지점 {len(index)}곳 · {DAYS[0]}~{DAYS[-1]}", *log, sep="\n")
     if len(index) < 10:
         sys.exit("지점이 너무 적음")
