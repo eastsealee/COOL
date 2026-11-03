@@ -131,9 +131,9 @@ details .body b{color:var(--ink)}
 .cursrc button{border:1px solid rgba(76,195,230,.6);background:transparent;color:inherit;border-radius:999px;padding:4px 12px;font:inherit;font-weight:700;cursor:pointer}
 .cursrc button.on{background:rgba(76,195,230,.25)}
 .cursrc.manual{opacity:.75}
-.radarbox{display:grid;grid-template-columns:132px 1fr;gap:4px 12px;align-items:center}
+.radarbox{display:grid;grid-template-columns:1fr;gap:8px;align-items:center}   /* 레이더를 크게: 위에 레이더, 아래에 설명 */
 .radarbox .ctl{grid-column:1/-1}
-.radar{width:132px;height:132px;display:block;overflow:visible}
+.radar{width:min(100%,340px);height:auto;aspect-ratio:1;display:block;overflow:visible;margin:4px auto 0}
 .radar .sweep{transform-origin:0 0;animation:rSweep 2.8s linear infinite}
 @keyframes rSweep{to{transform:rotate(360deg)}}
 .radar .blip{transform-box:fill-box;transform-origin:center;animation:rBlip 1.4s ease-out infinite}
@@ -144,7 +144,7 @@ details .body b{color:var(--ink)}
 @keyframes rRing{0%{transform:scale(.1);opacity:.7}100%{transform:scale(1);opacity:0}}
 .lg{display:inline-block;width:10px;height:3px;border-radius:2px;vertical-align:middle;margin:0 4px 2px 0}
 @media (prefers-reduced-motion:reduce){.radar .sweep,.radar .blip,.radar .cur,.radar .ring0{animation:none}}
-@media (max-width:360px){.radarbox{grid-template-columns:1fr}.radar{margin:0 auto}}
+
 </style></head>
 <body>
 <div class="app" id="app">
