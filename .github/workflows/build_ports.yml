@@ -23,16 +23,16 @@ jobs:
       - name: 바다타임 지점 목록·위치 모으기
         run: |
           mkdir -p ports-log
-          python mulddae/build_ports.py 2>&1 | tee ports-log/build.log; exit ${PIPESTATUS[0]}
+          python personal/mulddae/build_ports.py 2>&1 | tee ports-log/build.log; exit ${PIPESTATUS[0]}
 
       - name: 저장
         run: |
-          if git diff --quiet -- mulddae/data/ports.json && git ls-files --error-unmatch mulddae/data/ports.json >/dev/null 2>&1; then
+          if git diff --quiet -- personal/mulddae/data/ports.json && git ls-files --error-unmatch personal/mulddae/data/ports.json >/dev/null 2>&1; then
             echo "바뀐 내용 없음"; exit 0
           fi
           git config user.name "ports-bot"
           git config user.email "ports-bot@users.noreply.github.com"
-          git add mulddae/data/ports.json
+          git add personal/mulddae/data/ports.json
           git commit -m "물때 시계 전국 항구 목록 갱신 $(TZ=Asia/Seoul date +%Y-%m-%d)"
           git pull --rebase origin main
           git push origin HEAD:main

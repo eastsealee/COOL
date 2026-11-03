@@ -40,7 +40,7 @@ if True:                                                # 웹에서 메뉴로 �
     </style>""", unsafe_allow_html=True)
     if st.button("← 쭈갑과물때로 돌아가기", key="back_mulddae_rig"):
         st.session_state.pop("back_to_mulddae", None)
-        st.switch_page("mulddae/dial.py")
+        st.switch_page("personal/mulddae/dial.py")
 
 
 

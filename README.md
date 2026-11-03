@@ -1,36 +1,24 @@
-# COOL — 낚시 도구 모음
+# COOL — 낚시 도구 모음 (두 가지 버전)
 
-하나의 Streamlit 앱에서 왼쪽 메뉴로 프로그램을 골라 씁니다.
-
-| 폴더 | 프로그램 | 앱 주소 끝 |
-|---|---|---|
-| `sunsang24/` | 선상낚시 예약조회 (선상24·더피싱) | `/sunsang24` (첫 화면) |
-| `lamar/` | 라마르호 예상 조과 분석 | `/lamar` |
-| `mulddae/` | 물때 시계 (24시간 원형 화면) | `/mulddae-clock` |
+| 폴더 | 버전 | 누가 쓰나 | 어떻게 실행 |
+|---|---|---|---|
+| `personal/` | **나만 쓰는 버전** — 지금 쓰는 모든 기능 | KIM 개인 | Streamlit 웹(kim-sunsang24.streamlit.app) + 개인용 안드로이드 APK |
+| `store/` | **플레이스토어 버전** — 공공 API 자료만 쓰는 상용 앱 | 일반 사용자 | 화면을 앱 안에 넣은 안드로이드 앱 (Streamlit 없이) |
 
 ```
 COOL/
-├─ streamlit_app.py        메뉴 (Streamlit Cloud Main file — 바꾸지 않음)
-├─ requirements.txt        모든 프로그램이 함께 쓰는 패키지
+├─ streamlit_app.py        개인 버전 메뉴 (Streamlit Cloud Main file — 위치 바꾸지 않음)
+├─ requirements.txt        개인 버전 패키지
 ├─ .github/workflows/      자동 실행 (GitHub 규칙상 최상위에 있어야 함)
-│   ├─ precrawl.yml        선상24 사전조회 → data 브랜치
-│   └─ lamar_daily.yml     라마르 조과 매일 갱신 → lamar/data/
-├─ sunsang24/
-│   ├─ streamlit_app.py
-│   └─ precrawl.py         streamlit_app.py의 수집 코드를 같은 폴더에서 읽어 씀
-├─ lamar/
-│   ├─ streamlit_app.py
-│   ├─ lamar_*.py
-│   └─ data/lamar_days.json
-└─ mulddae/
-    ├─ tide_data.py        물때·날씨 수집 + 조류세기 계산
-    ├─ build_ports.py      바다타임 전국 지점 목록 만들기 → data/ports.json
-    │                      (Actions '물때 시계 전국 항구 목록 만들기'로 실행)
-    ├─ dial.py             물때 시계 화면 (날짜를 고르면 그 날짜 물때를 불러옴)
-    └─ dial_component/     원형 화면 (index.html)
+├─ sourcetest/             자료 출처 비교 테스트 (두 버전 공통 참고용)
+├─ personal/               ── 나만 쓰는 버전 ──
+│   ├─ sunsang24/          선상낚시 예약조회 (선상24·더피싱)        /sunsang24
+│   ├─ lamar/              라마르호 예상 조과 분석                 /lamar
+│   ├─ mulddae/            물때 시계 (+ 조류·수온·섬 자료 만드는 스크립트) /mulddae-clock
+│   ├─ chaebi/             채비 계산기                            /chaebi
+│   └─ android/            개인용 앱 '쭈갑과물때' (웹 화면을 감싼 APK)
+└─ store/                  ── 플레이스토어 버전 ── (store/README.md)
 ```
 
-## 새 프로그램 추가
-1. 새 폴더를 만들고 화면 파일을 `streamlit_app.py`로 둡니다.
-2. 최상위 `streamlit_app.py`의 `pages` 목록에 `st.Page("폴더/streamlit_app.py", title=..., url_path=...)` 한 줄을 넣습니다.
-3. 새 패키지가 필요하면 최상위 `requirements.txt`에 추가합니다.
+- 웹 주소와 개인용 앱은 그대로예요. 폴더만 `personal/` 아래로 옮겼어요.
+- 매일·매시간 도는 자료(조류예보 `currents`, 실측 수온 `sst` 브랜치)는 두 버전이 같이 써요.

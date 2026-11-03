@@ -36,7 +36,7 @@ RAW = OUT / "raw"
 ARC = OUT / "archive"
 for p in (OUT, RAW, ARC):
     p.mkdir(parents=True, exist_ok=True)
-sys.path.insert(0, str(HERE.parent / "mulddae"))
+sys.path.insert(0, str(HERE.parent / "personal" / "mulddae"))
 
 KST = dt.timezone(dt.timedelta(hours=9))
 NOW = dt.datetime.now(KST)

@@ -18,9 +18,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - run: python mulddae/build_islands.py
+      - run: python personal/mulddae/build_islands.py
       - name: 바뀌었으면 저장
         run: |
           git config user.name islands-bot && git config user.email islands-bot@users.noreply.github.com
-          git add mulddae/dial_component/islands.json
+          git add personal/mulddae/dial_component/islands.json
           if ! git diff --cached --quiet; then git commit -m "섬 이름 자료 갱신" && git pull --rebase origin main && git push origin HEAD:main; fi

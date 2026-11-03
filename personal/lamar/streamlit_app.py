@@ -119,7 +119,7 @@ if st.session_state.get("back_to_mulddae") or _in_mulddae_app:
     </style>""", unsafe_allow_html=True)
     if st.button("← 물때 시계로 돌아가기", key="back_mulddae_lamar"):
         st.session_state.pop("back_to_mulddae", None)
-        st.switch_page("mulddae/dial.py")
+        st.switch_page("personal/mulddae/dial.py")
     _d = st.session_state.pop("sel_day_from_dial", None)       # 넘어온 직후 한 번만 안내
     if _d:
         st.info(f"물때 시계에서 고른 {_d.month}월 {_d.day}일입니다. 기록은 아래 '날짜별 조회', "

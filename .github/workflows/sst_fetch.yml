@@ -27,7 +27,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install requests
-      - run: python mulddae/sst_fetch.py out
+      - run: python personal/mulddae/sst_fetch.py out
         env:
           DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
           FULL: ${{ github.event.inputs.full }}

@@ -3,7 +3,7 @@ name: 쭈갑과물때 안드로이드 앱 만들기
 on:
   push:
     branches: [main]
-    paths: ["android/**", ".github/workflows/build_android.yml"]
+    paths: ["personal/android/**", ".github/workflows/build_android.yml"]
   workflow_dispatch:         # Actions 탭에서 [Run workflow]로 다시 만들 수 있음
 
 permissions:
@@ -30,7 +30,7 @@ jobs:
           gradle-version: "8.11.1"
 
       - name: APK 만들기
-        working-directory: android
+        working-directory: personal/android
         run: |
           set -o pipefail
           gradle --no-daemon assembleRelease 2>&1 | tee ../build.log
@@ -47,7 +47,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cp android/app/build/outputs/apk/release/app-release.apk mulddae-clock.apk
+          cp personal/android/app/build/outputs/apk/release/app-release.apk mulddae-clock.apk
           gh release delete android-latest --yes --cleanup-tag || true
           # 예전에 초안으로 남은 릴리스 정리
           gh api repos/${{ github.repository }}/releases --jq '.[] | select(.draft) | .id' | xargs -r -I{} gh api -X DELETE repos/${{ github.repository }}/releases/{} || true

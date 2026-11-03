@@ -2092,7 +2092,7 @@ if ss.get("back_to_mulddae") or _in_mulddae_app:
     </style>""", unsafe_allow_html=True)
     if st.button("← 물때 시계로 돌아가기", key="back_mulddae"):
         ss.pop("back_to_mulddae", None)
-        st.switch_page("mulddae/dial.py")
+        st.switch_page("personal/mulddae/dial.py")
 
 site_sel = st.multiselect("조회할 사이트", list(SITES.values()), default=list(SITES.values()))
 site_codes = [k for k, v in SITES.items() if v in site_sel]
