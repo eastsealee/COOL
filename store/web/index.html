@@ -58,7 +58,7 @@ window.addEventListener("message", e => {
 });
 
 function hideSplash() {
-  const s = $("splash"); if (s.classList.contains("out")) return;
+  const s = $("splash"); if (!s || s.classList.contains("out")) return;
   setTimeout(() => { s.classList.add("out"); document.body.classList.remove("loading"); setTimeout(() => s.remove(), 700) }, Math.max(0, 2200 - (Date.now() - shownAt)));
 }
 
