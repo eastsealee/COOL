@@ -1,0 +1,32 @@
+name: 스토어 자료 만들기 (플레이스토어 버전 — 공공 API)
+
+on:
+  schedule:
+    - cron: "40 */3 * * *"     # 3시간마다 (기상청 단기예보 발표에 맞춰)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: store-data
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests korean-lunar-calendar
+      - run: python store/data/build_store.py out
+        env:
+          DATA_GO_KR_KEY: ${{ secrets.DATA_GO_KR_KEY }}
+      - name: store-data 브랜치에 저장 (덮어씀)
+        run: |
+          cd out && git init -q && git config user.name store-bot && git config user.email store-bot@users.noreply.github.com
+          git checkout -q -b store-data && git add -A && git commit -q -m "스토어 자료 $(TZ=Asia/Seoul date '+%F %H:%M')"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" store-data
