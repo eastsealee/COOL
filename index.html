@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>쭈갑과물때</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b1722">
+<link rel="icon" type="image/png" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="쭈갑과물때">
+<!-- 플레이스토어 버전 첫 화면(껍데기)
+     - 첫 화면: splash.html (쭈꾸미·갑오징어) → 물때 시계가 그려지면 사라짐
+     - 화면: views/dial(물때 시계·조류 레이더·입질 확률·지도), views/rig(채비 계산기) — 개인 버전과 같은 화면 파일
+     - 자료: store-data 브랜치의 JSON (해양조사원·기상청 공공 API로 만든 것). 인증키는 앱에 없음
+     - 화면들은 원래 Streamlit 안에서 돌던 것이라, 여기서 Streamlit 대신 자료를 넘겨줌(같은 신호 방식) -->
+<style>
+:root{--bg:#0b1722;--ink:#eef4fa;--sub:#a3b6c8;--sea:#4cc3e6;--line:#1d3346}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:'Noto Sans KR',system-ui,sans-serif}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.app{max-width:560px;margin:0 auto}
+body.loading{min-height:760px}   /* 첫 화면이 보일 자리 (웹 미리보기에서도) */
+iframe.view{display:block;width:100%;border:0;background:var(--bg)}
+iframe.view[hidden]{display:none}
+#splash{position:fixed;inset:0;z-index:50;border:0;width:100%;height:100%;background:#071520;transition:opacity .6s}
+#splash.out{opacity:0;pointer-events:none}
+.backbar{display:flex;align-items:center;padding:10px 12px;background:#0d1a26;border-bottom:1px solid var(--line)}
+.backbar[hidden]{display:none}
+.backbar button{border:2px solid #bff1ff;border-radius:999px;padding:8px 18px;font-weight:800;font-size:14.5px;font-family:inherit;color:#fff;cursor:pointer;
+  background:linear-gradient(100deg,#0b5f7f 0%,#14a3cf 30%,#bff1ff 50%,#14a3cf 70%,#0b5f7f 100%);background-size:250% 100%;
+  text-shadow:0 1px 3px rgba(0,40,60,.8);animation:shine 2.2s linear infinite}
+@keyframes shine{0%{background-position:100% 0}100%{background-position:-150% 0}}
+.msg{padding:28px 20px;text-align:center;color:var(--sub);line-height:1.7}
+.msg b{color:var(--ink)}
+.foot{padding:10px 14px 18px;font-size:11px;color:#6f8396;line-height:1.6;text-align:center}
+/* 시즌 예상 */
+#season{padding:10px 12px 6px}
+#season[hidden]{display:none}
+#season h2{font-size:19px;margin:6px 2px 2px}#season .sub{color:var(--sub);font-size:12.5px;margin:0 2px 10px;line-height:1.5}
+.mon{background:#0f1f2d;border:1px solid var(--line);border-radius:14px;padding:10px 8px 8px;margin-bottom:10px}
+.mon h3{margin:0 4px 6px;font-size:15px}
+.cg{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.cg .wd{text-align:center;font-size:11px;color:var(--sub);padding:2px 0}.cg .wd.sun{color:#ff8a8a}.cg .wd.sat{color:#8ab4ff}
+.cg button{position:relative;border:1px solid #1f3446;background:#132637;color:var(--ink);border-radius:8px;padding:4px 0 9px;font-family:inherit;cursor:pointer;min-height:50px}
+.cg button b{display:block;font-size:14px;font-weight:800}.cg button small{display:block;font-size:9.5px;color:var(--sub);line-height:1.25}
+.cg button.sun b,.cg button.hol b{color:#ff8a8a}.cg button.sat b{color:#8ab4ff}
+.cg button i{position:absolute;left:4px;right:4px;bottom:3px;height:4px;border-radius:2px}
+.cg button.past{opacity:.45}.cg button.today{outline:2px solid var(--sea)}.cg button.sel{background:#1d4660;border-color:var(--sea)}
+.cg button.weak small.p{color:#7fe0f5;font-weight:800}
+.cg .no{visibility:hidden}
+.det{background:#0f1f2d;border:1px solid var(--sea);border-radius:14px;padding:12px 14px;margin:4px 0 10px}
+.det h3{margin:0 0 8px;font-size:16px}.det h3 em{font-style:normal;font-size:12px;font-weight:800;color:#06202b;background:var(--sea);border-radius:6px;padding:1px 7px;margin-left:6px}
+.kv{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.kv div{background:#132637;border-radius:10px;padding:8px 10px}.kv small{display:block;color:var(--sub);font-size:11.5px}.kv b{font-size:19px}
+.kv b small{display:inline;font-size:12px;color:var(--sub);font-weight:600}
+.bar2{height:8px;border-radius:4px;background:#1f3446;margin-top:6px;overflow:hidden}.bar2 i{display:block;height:100%;border-radius:4px}
+.det .go{margin-top:10px;width:100%;border:1px solid var(--sea);background:transparent;color:var(--sea);border-radius:999px;padding:9px;font-weight:800;font-family:inherit;font-size:14px;cursor:pointer}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:11px;color:var(--sub);margin:0 2px 10px}.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-right:3px}
+</style></head><body class="loading">
+<iframe id="splash" src="splash.html" title="쭈갑과물때"></iframe>
+<div class="app">
+  <div class="backbar" id="rigBar" hidden><button id="rigBack">← 물때 시계로 돌아가기</button></div>
+  <iframe class="view" id="vDial" src="views/dial/index.html" title="물때 시계" allow="geolocation" scrolling="no"></iframe>
+  <iframe class="view" id="vRig" title="채비 계산기" allow="geolocation" scrolling="no" hidden></iframe>
+  <div class="backbar" id="seaBar" hidden><button id="seaBack">← 물때 시계로 돌아가기</button></div>
+  <section id="season" hidden></section>
+  <div class="msg" id="msg" hidden></div>
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+"use strict";
+/* 자료 위치 (모두 공공 API로 만든 파일, 인증키 없음)
+   store-tide: 자체 물때 1년치 (t/<항구id>.json, cal.json)    store-data: 항구 목록·날씨(w/)·조류(c/)·라마르 입질 예상
+   sst: 해양조사원 실측 수온 */
+const RAW = "https://raw.githubusercontent.com/eastsealee/COOL/";
+const $ = id => document.getElementById(id);
+const store = { get: k => { try { return localStorage.getItem(k) } catch (e) { return null } },
+                set: (k, v) => { try { localStorage.setItem(k, v) } catch (e) {} } };
+const BITE_SIDO = new Set(["인천", "경기", "충남"]);       // 입질 확률(라마르호 기록 보정)은 서해 중부
+const NAMDANG = 356;                                        // 남당항: 조류세기 기준값을 맞춘 곳
+let IDX = null, CAL = null, SST = null, P = null, center = null, dialReady = false, rigReady = false, rigArgs = null, shownAt = Date.now();
+const cache = {};
+
+const kst = () => new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+const addDays = (d, k) => { const t = new Date(d + "T00:00:00Z"); t.setUTCDate(t.getUTCDate() + k); return t.toISOString().slice(0, 10) };
+async function J(path, fresh) {
+  if (cache[path]) return cache[path];
+  const r = await fetch(RAW + path + (fresh ? "?t=" + Math.floor(Date.now() / 6e5) : "")); if (!r.ok) throw new Error(path + " " + r.status);
+  return (cache[path] = await r.json());
+}
+
+/* ---------- 화면(iframe)과 주고받기: Streamlit과 같은 신호 */
+function post(fr, args) { fr.contentWindow && fr.contentWindow.postMessage({ type: "streamlit:render", args: { data: args } }, "*") }
+window.addEventListener("message", e => {
+  const m = e.data || {}, fr = e.source === $("vDial").contentWindow ? $("vDial") : e.source === $("vRig").contentWindow ? $("vRig") : null;
+  if (!fr || !m.type) return;
+  if (m.type === "streamlit:componentReady") { if (fr.id === "vDial") { dialReady = true; renderDial() } else { rigReady = true; if (rigArgs) post(fr, rigArgs) } }
+  else if (m.type === "streamlit:setFrameHeight") { fr.style.height = Math.max(200, m.height) + "px"; if (fr.id === "vDial" && P) hideSplash() }
+  else if (m.type === "streamlit:setComponentValue") onValue(fr, m.value || {});
+});
+/* 높이 신호가 늦거나 안 오는 브라우저(카카오톡 안 브라우저 등) 대비: 같은 출처라 화면 높이를 직접 재서 맞춤 */
+function autoHeight(fr) {
+  const fit = () => { try { const d = fr.contentDocument; if (!d || fr.hidden) return; const h = Math.ceil(d.documentElement.getBoundingClientRect().height) + 4; if (h > 150 && Math.abs(h - (parseFloat(fr.style.height) || 0)) >= 2) fr.style.height = h + "px" } catch (e) {} };
+  fr.addEventListener("load", () => { fit(); try { new ResizeObserver(fit).observe(fr.contentDocument.documentElement) } catch (e) {} });
+  setInterval(fit, 1500);
+}
+autoHeight($("vDial")); autoHeight($("vRig"));
+function hideSplash() {
+  const s = $("splash"); if (!s || s.classList.contains("out")) return;
+  setTimeout(() => { s.classList.add("out"); document.body.classList.remove("loading"); setTimeout(() => s.remove(), 700) }, Math.max(0, 2200 - (Date.now() - shownAt)));
+}
+
+/* ---------- 일출·일몰 (NOAA 계산식, 한국 표준시) */
+function sun(d, lat, lon) {
+  const t = new Date(d + "T00:00:00Z"), n = Math.round((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 864e5) + 1, g = 2 * Math.PI / 365 * (n - 1);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const de = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g) - 0.002697 * Math.cos(3 * g) + 0.00148 * Math.sin(3 * g);
+  const la = lat * Math.PI / 180, c = Math.cos(90.833 * Math.PI / 180) / (Math.cos(la) * Math.cos(de)) - Math.tan(la) * Math.tan(de);
+  const ha = Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI, noon = 720 - 4 * lon - eqt + 540;
+  const f = m => String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(Math.floor(m % 60)).padStart(2, "0");
+  return [f(noon - 4 * ha), f(noon + 4 * ha)];
+}
+
+/* ---------- 조류세기: 선상낚시 예약조회와 같은 계산 (▲▼ 변화량 하루 평균)
+   남당항 = 기준값(사리→조금 201~732cm, 조금→사리 234~727cm), 다른 항구 = 불러온 기간 안 최약 0% ~ 최강 100% */
+function addFlow(days, pid) {
+  const ks = Object.keys(days).sort(), F = {};
+  for (const k of ks) { const ds = days[k].tides.slice(0, 4).map(e => Math.abs(e.diff)); F[k] = ds.length ? ds.reduce((a, b) => a + b) / ds.length : null }
+  const v = Object.values(F).filter(x => x != null), lo = Math.min(...v), hi = Math.max(...v);
+  for (const k of ks) {
+    const f = F[k]; let p = null;
+    if (f != null && pid !== NAMDANG) p = hi > lo ? Math.round((f - lo) / (hi - lo) * 100) : null;
+    else if (f != null) { const pv = F[addDays(k, -1)], up = pv != null && f > pv && days[k].tides.length >= 4, z = up ? 234 : 201, full = up ? 727 : 732; p = Math.round((f - z) / (full - z) * 100) }
+    days[k].flow = p == null ? 0 : Math.max(0, Math.min(100, p));
+  }
+}
+
+/* ---------- 한 항구 자료 모으기 */
+function row(pid) { return IDX.ports.find(r => r[6] === pid) }
+async function loadPort(pid) {
+  const r = row(pid); if (!r) throw new Error("no port");
+  const [key, area, sido, sgg, lat, lon, id, ref, grid, sc, cc] = r;
+  const [T, W, C] = await Promise.all([J(`store-tide/t/${id}.json`, true), J(`store-data/w/${grid}.json`, true).catch(() => []), cc ? J(`store-data/c/${cc}.json`, true).catch(() => null) : null]);
+  P = { key, area, sido, sgg, lat, lon, id, ref, T, W, C, sc, name: key.replace(/\s*\(.*\)$/, "") };
+  store.set("store_port2", String(id));
+  $("foot").textContent = `물때: 자체 계산(해양조사원 ${IDX.refs[ref] || ref} 조석예보 기준 + TideBED 상수) · 날씨: 기상청 단기예보 · 수온: 해양조사원 실측 · 조류: 해양조사원 조류예보 · ${IDX.updated} 기준`;
+}
+function dialData() {
+  const today = kst(), all = Object.keys(P.T.days).sort();
+  if (!center || !P.T.days[center]) center = P.T.days[today] ? today : all[0];
+  const days = {};
+  for (let k = -35; k <= 35; k++) {           // 기준 날짜 앞뒤 35일
+    const d = addDays(center, k), ev = P.T.days[d]; if (!ev) continue;
+    const [sr, ss] = sun(d, P.lat, P.lon), [lu, mul] = (CAL && CAL[d]) || ["", ""];
+    days[d] = { lunar: lu, mul, sunrise: sr, sunset: ss, tides: ev.map(([t, h, hi, diff]) => ({ t, h, type: hi ? "high" : "low", diff })) };
+  }
+  addFlow(days, P.id);
+  // 시간별 날씨 (기상청) + 수온 (가까운 관측소 실측)
+  const obs = (SST && P.sc && SST.obs[P.sc]) || {}, W = {};
+  for (const [t, temp, hum, wspd, wdir, wcode, precip, wave] of P.W) {
+    const d = t.slice(0, 10), [sr, ss] = sun(d, P.lat, P.lon), hm = t.slice(11, 16);
+    W[t] = { time: t, temp, hum, wspd, wdir, wcode, precip, wave, is_day: sr <= hm && hm < ss ? 1 : 0, sst: null, so: 0 };
+  }
+  for (const [t, v] of Object.entries(obs)) { const tt = t.replace(" ", "T"); (W[tt] ??= { time: tt, sst: null }).sst = v; W[tt].so = 1 }
+  // 시계는 하루 24시간이 다 있어야 날씨를 그림 → 기상청 예보가 있는 날은 빈 시간을 가장 가까운 시간 값으로 채움
+  //  (오늘의 지난 시간 등. 수온은 실측이 있는 시간만)
+  const byDay = {};
+  for (const w of Object.values(W)) (byDay[w.time.slice(0, 10)] ??= []).push(w);
+  for (const [d, list] of Object.entries(byDay)) {
+    const fc = list.filter(w => w.temp != null).sort((a, b) => a.time < b.time ? -1 : 1);
+    if (!fc.length) continue;
+    const [sr, ss] = sun(d, P.lat, P.lon);
+    for (let h = 0; h < 24; h++) {
+      const t = `${d}T${String(h).padStart(2, "0")}:00`;
+      if (W[t] && W[t].temp != null) continue;
+      const near = fc.reduce((b, w) => Math.abs(+w.time.slice(11, 13) - h) < Math.abs(+b.time.slice(11, 13) - h) ? w : b);
+      const hm = t.slice(11, 16);
+      W[t] = { ...near, time: t, is_day: sr <= hm && hm < ss ? 1 : 0, sst: W[t] ? W[t].sst : null, so: W[t] ? W[t].so : 0, fill: 1 };
+    }
+  }
+  const weather = Object.values(W).sort((a, b) => a.time < b.time ? -1 : 1);
+  const sstInfo = P.sc && SST ? { name: SST.st[P.sc][0], km: null, bias: null, updated: SST.updated } : null;
+  const cur = P.C ? { name: P.C.name, km: null, dirs: P.C.dirs, sp: P.C.sp, dr: P.C.dr } : null;
+  return {
+    store: true, bite: { on: BITE_SIDO.has(P.sido), pred: IDX.bite || {} },
+    port: P.name, portFull: P.key, ports: IDX.ports.map(r => r.slice(0, 6)),
+    today, center, days, weather, cur, sstInfo, vworld: "",
+    seasonYear: IDX.season && Object.keys(IDX.season).length ? Object.keys(IDX.season)[0].slice(0, 4) : null
+  };
+}
+function renderDial() { if (dialReady && P) post($("vDial"), dialData()) }
+
+/* ---------- 화면에서 온 요청 */
+async function onValue(fr, v) {
+  if (fr.id !== "vDial") return;
+  if (v.scrollTo != null) { window.scrollTo({ top: $("vDial").offsetTop + v.scrollTo - 8, behavior: "smooth" }); return }
+  if (v.goto === "chaebi") { openRig(v.date); return }
+  if (v.goto === "season") { openSeason(v.date); return }
+  if (v.port && v.port !== P.key) { const r = IDX.ports.find(x => x[0] === v.port); if (r) { await loadPort(r[6]); renderDial() } return }
+  if (v.date) { center = String(v.date).slice(0, 10); renderDial() }
+}
+
+/* ---------- 채비 계산기 */
+function rigData(day) {
+  const c = P.C, curdb = c ? { updated: c.updated, dirs: c.dirs, st: { [c.code]: [c.name, c.lat, c.lon] }, sp: { [c.code]: c.sp }, dr: { [c.code]: c.dr } } : null;
+  return { curdb, today: kst(), day: day || kst(), loc: { lat: P.lat, lon: P.lon, name: P.name } };
+}
+function openRig(day) {
+  rigArgs = rigData(String(day || "").slice(0, 10));
+  $("vDial").hidden = true; $("rigBar").hidden = false; $("vRig").hidden = false;
+  if (!$("vRig").src) $("vRig").src = "views/rig/index.html"; else if (rigReady) post($("vRig"), rigArgs);
+  window.scrollTo({ top: 0 });
+}
+$("rigBack").onclick = () => { $("vRig").hidden = true; $("rigBar").hidden = true; $("vDial").hidden = false; renderDial(); window.scrollTo({ top: 0 }) };
+
+
+/* ---------- 시즌 예상 (그 해 9~12월): 같은 달·비슷한 물세기였던 과거 출조일들의 조과 평균 */
+let seaSel = null;
+const scoreColor = v => { if (v == null) return "#3a4b5a"; const x = Math.max(0, Math.min(1, (v - 35) / 35));
+  const st = [[0, [250, 82, 82]], [.5, [250, 176, 5]], [1, [55, 178, 77]]];
+  for (let i = 1; i < st.length; i++) if (x <= st[i][0]) { const [x0, c0] = st[i - 1], [x1, c1] = st[i], f = (x - x0) / (x1 - x0);
+    return "rgb(" + c0.map((c, j) => Math.round(c + (c1[j] - c) * f)).join(",") + ")" } return "rgb(55,178,77)" };
+const segWord = v => v == null ? "" : v >= 70 ? "좋음" : v >= 55 ? "보통 이상" : v >= 40 ? "보통" : "약함";
+function openSeason(day) {
+  const S = IDX.season || {}, keys = Object.keys(S).sort(); if (!keys.length) return;
+  const today = kst();
+  seaSel = S[String(day || "").slice(0, 10)] ? String(day).slice(0, 10) : (S[today] ? today : keys[0]);
+  $("vDial").hidden = true; $("seaBar").hidden = false; $("season").hidden = false; drawSeason(); window.scrollTo({ top: 0 });
+}
+function closeSeason() { $("season").hidden = true; $("seaBar").hidden = true; $("vDial").hidden = false; renderDial(); window.scrollTo({ top: 0 }) }
+$("seaBack").onclick = closeSeason;
+function drawSeason() {
+  const S = IDX.season, H = IDX.holidays || {}, keys = Object.keys(S).sort(), y = keys[0].slice(0, 4), today = kst();
+  const months = [...new Set(keys.map(k => +k.slice(5, 7)))];
+  let h = `<h2>예상조과</h2>
+    <div class="legend"><span><i style="background:${scoreColor(75)}"></i>분위기 좋음</span><span><i style="background:${scoreColor(52)}"></i>보통</span><span><i style="background:${scoreColor(30)}"></i>약함</span><span style="color:#7fe0f5">물세기 30% 이하 = 파란 숫자</span></div>`;
+  h += `<div id="seaDet"></div>`;
+  for (const m of months) {
+    const first = new Date(Date.UTC(+y, m - 1, 1)), lead = first.getUTCDay(), nd = new Date(Date.UTC(+y, m, 0)).getUTCDate();
+    h += `<div class="mon"><h3>${m}월</h3><div class="cg">` + ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="wd ${i === 0 ? "sun" : i === 6 ? "sat" : ""}">${w}</span>`).join("");
+    for (let i = 0; i < lead; i++) h += `<span class="no"></span>`;
+    for (let d = 1; d <= nd; d++) {
+      const k = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`, v = S[k], wd = (lead + d - 1) % 7;
+      const cls = [wd === 0 ? "sun" : wd === 6 ? "sat" : "", H[k] ? "hol" : "", k < today ? "past" : "", k === today ? "today" : "", k === seaSel ? "sel" : "", v && v.pct != null && v.pct <= 30 ? "weak" : ""].join(" ");
+      h += v ? `<button data-k="${k}" class="${cls}" title="${H[k] || ""}"><b>${d}</b><small>${v.mul}</small><small class="p">${v.pct != null ? v.pct + "%" : ""}</small><i style="background:${scoreColor(v.score)}"></i></button>`
+             : `<button class="${cls}" disabled><b>${d}</b></button>`;
+    }
+    h += `</div></div>`;
+  }
+  $("season").innerHTML = h;
+  $("season").querySelectorAll("button[data-k]").forEach(b => b.onclick = () => { seaSel = b.dataset.k; drawSeason(); $("seaDet").scrollIntoView({ behavior: "smooth", block: "center" }) });
+  const v = S[seaSel], dd = new Date(seaSel + "T00:00:00Z"), WD = ["일", "월", "화", "수", "목", "금", "토"][dd.getUTCDay()];
+  const f0 = x => x == null ? "-" : Math.round(x), f1 = x => x == null ? "-" : (Math.round(x * 10) / 10).toFixed(1);
+  $("seaDet").innerHTML = `<div class="det"><h3>${+seaSel.slice(5, 7)}월 ${+seaSel.slice(8, 10)}일(${WD}) · 음력 ${v.lunar.replace(".", "월 ")}일<em>${v.mul}</em>${H[seaSel] ? ` <span style="color:#ff8a8a;font-size:13px">${H[seaSel]}</span>` : ""}</h3>
+    <div class="kv">
+      <div><small>예상 분위기</small><b>${f0(v.score)}<small>%</small></b><div class="bar2"><i style="width:${Math.max(0, Math.min(100, v.score || 0))}%;background:${scoreColor(v.score)}"></i></div></div>
+      <div><small>물세기</small><b>${v.pct != null ? v.pct : "-"}<small>%</small></b><div class="bar2"><i style="width:${v.pct || 0}%;background:#4cc3e6"></i></div></div>
+      <div><small>예상 주꾸미 (중앙값 / 최고)</small><b>${f0(v.jj)}<small> / ${f0(v.jj_max == null ? null : Math.max(v.jj_max, v.jj || 0))}마리</small></b></div>
+      <div><small>예상 갑오징어 (중앙값 / 최고)</small><b>${f1(v.gg)}<small> / ${f0(v.gg_max == null ? null : Math.max(v.gg_max, v.gg || 0))}마리</small></b></div>
+      <div><small>오전 조황</small><b>${f0(v.am)}<small>% ${segWord(v.am)}</small></b></div>
+      <div><small>오후 조황</small><b>${f0(v.pm)}<small>% ${segWord(v.pm)}</small></b></div>
+    </div>
+    <button class="go" id="seaGo">이 날 물때 시계 보기 →</button></div>`;
+  $("seaGo").onclick = () => { center = seaSel; closeSeason() };
+}
+/* ---------- 시작 */
+(async () => {
+  try {
+    [IDX, CAL, SST] = await Promise.all([J("store-data/index.json", true), J("store-tide/cal.json", true), J("sst/sst.json", true).catch(() => null)]);
+    const saved = +store.get("store_port2"), def = (IDX.ports.find(p => p[6] === NAMDANG) || IDX.ports[0])[6];
+    await loadPort(row(saved) ? saved : def);
+    renderDial();
+  } catch (e) {
+    $("vDial").hidden = true; const m = $("msg"); m.hidden = false;
+    m.innerHTML = "<b>자료를 불러오지 못했습니다.</b><br>인터넷 연결을 확인하고 다시 열어 주세요.";
+    hideSplash();
+  }
+  setTimeout(hideSplash, 25000);
+})();
+</script>
+<script src="preview-host.js"></script>
+<script>
+// 홈 화면 앱(PWA): 웹 주소에서 열 때만 (Streamlit 미리보기 안에서는 안 함)
+if ("serviceWorker" in navigator && window.parent === window && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
+</body></html>
