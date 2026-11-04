@@ -253,7 +253,6 @@ function drawSeason() {
       <div><small>오전 조황</small><b>${f0(v.am)}<small>% ${segWord(v.am)}</small></b></div>
       <div><small>오후 조황</small><b>${f0(v.pm)}<small>% ${segWord(v.pm)}</small></b></div>
     </div>
-    <p class="sub" style="margin:8px 0 0">비슷했던 과거 출조일 ${v.n}일의 가중 평균 (같은 달 안에서 날짜가 가깝고 물세기가 비슷할수록 비중 큼)</p>
     <button class="go" id="seaGo">이 날 물때 시계 보기 →</button></div>`;
   $("seaGo").onclick = () => { center = seaSel; closeSeason() };
 }
