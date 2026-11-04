@@ -7,7 +7,7 @@ L = []
 with sync_playwright() as p:
     b = p.chromium.launch(); ctx = b.new_context(**p.devices["Galaxy S9+"]); pg = ctx.new_page()
     errs = []; pg.on("pageerror", lambda e: errs.append(str(e))); pg.on("console", lambda m: errs.append(m.text) if m.type == "error" else None)
-    import os; URL = os.environ.get("URL", "https://raw.githack.com/eastsealee/COOL/gh-pages/index.html")
+    import os; URL = os.environ.get("URL", "https://eastsealee.github.io/COOL/")
     t0 = time.time(); pg.goto(URL, timeout=120000)
     for k in range(12):
         pg.wait_for_timeout(5000)
