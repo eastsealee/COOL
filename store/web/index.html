@@ -2,6 +2,13 @@
 <html lang="ko"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>쭈갑과물때</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0b1722">
+<link rel="icon" type="image/png" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="쭈갑과물때">
 <!-- 플레이스토어 버전 첫 화면(껍데기)
      - 첫 화면: splash.html (쭈꾸미·갑오징어) → 물때 시계가 그려지면 사라짐
      - 화면: views/dial(물때 시계·조류 레이더·입질 확률·지도), views/rig(채비 계산기) — 개인 버전과 같은 화면 파일
@@ -272,4 +279,8 @@ function drawSeason() {
 })();
 </script>
 <script src="preview-host.js"></script>
+<script>
+// 홈 화면 앱(PWA): 웹 주소에서 열 때만 (Streamlit 미리보기 안에서는 안 함)
+if ("serviceWorker" in navigator && window.parent === window && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+</script>
 </body></html>
