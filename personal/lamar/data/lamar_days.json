@@ -22665,5 +22665,44 @@
   "catch_pct": 9,
   "basis": "조과+본문+날씨+시간대",
   "score": 31
+ },
+ {
+  "date": "2026-11-11",
+  "wd": "수",
+  "title": "2026. 11. 11. 수. 날씨도 좋고 물색은 좋지만 사리는 사리다.",
+  "link": "https://blog.naver.com/lamarfishing/224473526882",
+  "sent": 76,
+  "weather": 67,
+  "tags": [
+   "비"
+  ],
+  "species": [
+   "주꾸미",
+   "갑오징어"
+  ],
+  "lunar": "10/3",
+  "mul": "9물",
+  "jj_n": 2,
+  "jj_med": null,
+  "jj_max": null,
+  "jj_min": null,
+  "gg_med": null,
+  "gg_max": null,
+  "gg_min": null,
+  "am": 55,
+  "pre_lunch": null,
+  "post_lunch": null,
+  "pm": 26,
+  "lt": null,
+  "key": [
+   "폭발적으로 나오는 것은 아니지만 꾸준히 나오더라고요.",
+   "들물이 시작되자 뜸해지는 게 아니라 거의 안 잡히는 수준으로 잘 안나오더라고요.",
+   "며칠동안 이런 활성도가 유지될 것 같지만 희망적인 것은 물색이 점점 좋아지고 있다는거예요."
+  ],
+  "seg_avg": 40,
+  "stats": "",
+  "catch_pct": null,
+  "basis": "본문+날씨+시간대",
+  "score": 62
  }
 ]
