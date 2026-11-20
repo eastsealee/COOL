@@ -22941,5 +22941,45 @@
   "catch_pct": 99,
   "basis": "조과+본문+날씨+시간대",
   "score": 86
+ },
+ {
+  "date": "2026-11-20",
+  "wd": "금",
+  "title": "2026. 11. 20. 목. 바람이 없었던 풍랑주의보의 날! 쭈갑낚시",
+  "link": "https://blog.naver.com/lamarfishing/224485303324",
+  "sent": 78,
+  "weather": 79,
+  "tags": [
+   "비",
+   "맑음/잔잔"
+  ],
+  "species": [
+   "주꾸미",
+   "갑오징어"
+  ],
+  "lunar": "10/12",
+  "mul": "3물",
+  "jj_n": 0,
+  "jj_med": null,
+  "jj_max": null,
+  "jj_min": null,
+  "gg_med": null,
+  "gg_max": null,
+  "gg_min": null,
+  "am": 77,
+  "pre_lunch": 71,
+  "post_lunch": null,
+  "pm": 24,
+  "lt": null,
+  "key": [
+   "아침에 나와보니 땅이 축축하더라고요.",
+   "그렇게 경치들을 구경하면서 주꾸미를 잡으려고 하는데 안 나오더라고요.",
+   "그리고 농락하듯이 도리어 바람이 잠시 불기 시작했던 12시쯤에는 풍랑주의보를 해제 했답니다."
+  ],
+  "seg_avg": 50,
+  "stats": "",
+  "catch_pct": null,
+  "basis": "본문+날씨+시간대",
+  "score": 70
  }
 ]
